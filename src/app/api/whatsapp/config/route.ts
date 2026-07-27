@@ -185,13 +185,40 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    let { phone_number_id, waba_id, access_token, verify_token, pin } = body
 
-    if (!access_token || !phone_number_id) {
+    if (!phone_number_id) {
       return NextResponse.json(
-        { error: 'access_token and phone_number_id are required' },
+        { error: 'phone_number_id is required' },
         { status: 400 }
       )
+    }
+
+    // If no access_token was sent but there's an existing config, fetch
+    // and decrypt the stored token so the user can update e.g. the
+    // verify_token without having to re-enter the Meta access token.
+    if (!access_token) {
+      const { data: existingRow } = await supabase
+        .from('whatsapp_config')
+        .select('access_token')
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      if (existingRow?.access_token) {
+        try {
+          access_token = decrypt(existingRow.access_token)
+        } catch {
+          return NextResponse.json(
+            { error: 'Stored access token is corrupted. Please re-enter it manually.' },
+            { status: 400 }
+          )
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'access_token is required for initial setup' },
+          { status: 400 }
+        )
+      }
     }
 
     if (pin !== undefined && pin !== null && pin !== '') {
