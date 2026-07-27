@@ -501,6 +501,25 @@ function InboxPageInner() {
     router.replace("/inbox", { scroll: false });
   }, [router]);
 
+  const handleNewConversation = useCallback(
+    async (conversationId: string) => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("conversations")
+        .select(CONVERSATION_SELECT)
+        .eq("id", conversationId)
+        .single();
+
+      if (error || !data) {
+        router.push(`/inbox?c=${conversationId}`);
+        return;
+      }
+
+      const conv = normalizeConversation(data);
+      handleSelectConversation(conv);
+    },
+    [handleSelectConversation, router]
+  );
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
@@ -590,6 +609,7 @@ function InboxPageInner() {
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            onConversationCreated={handleNewConversation}
           />
         </div>
 

@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { NewConversationDialog } from "@/components/inbox/new-conversation-dialog";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -34,6 +36,7 @@ interface ConversationListProps {
    * or the tab was throttled. Optional so existing callers keep working.
    */
   resyncToken?: number;
+  onConversationCreated?: (conversationId: string) => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -52,6 +55,7 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  onConversationCreated,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
   
@@ -217,6 +221,7 @@ export function ConversationList({
     [onSelect]
   );
 
+  const [newConvOpen, setNewConvOpen] = useState(false);
   const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
 
   return (
@@ -224,9 +229,17 @@ export function ConversationList({
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+      {/* New Conversation Dialog */}
+      <NewConversationDialog
+        open={newConvOpen}
+        onOpenChange={setNewConvOpen}
+        onConversationCreated={(id) => onConversationCreated?.(id)}
+      />
+
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
-        <div className="relative">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -234,6 +247,16 @@ export function ConversationList({
             placeholder={t("searchPlaceholder")}
             className="border-border bg-muted pl-9 text-sm text-foreground placeholder-muted-foreground focus:border-primary/50"
           />
+        </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setNewConvOpen(true)}
+            className="shrink-0 h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted"
+            title="New conversation"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-1">

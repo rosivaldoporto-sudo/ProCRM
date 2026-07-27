@@ -13,6 +13,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { sendCapiEvents } from '@/lib/facebook/conversions-api'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -707,6 +708,15 @@ async function processMessage(
   // trigger installed in migration 003).
   await flagBroadcastReplyIfAny(accountId, contactRecord.id)
 
+  // Fire a Meta Conversions API event for new leads (first inbound
+  // message from this contact). Fire-and-forget: a slow or failing
+  // CAPI request must not block the webhook response to Meta.
+  if (isFirstInboundMessage) {
+    fireCapiLeadEvent(accountId, contactRecord).catch(
+      (err) => console.error('[capi] lead event failed:', err)
+    )
+  }
+
   // ============================================================
   // Flow runner dispatch.
   //
@@ -1110,4 +1120,66 @@ async function findOrCreateConversation(
   }
 
   return { conversation: newConv, created: true }
+}
+
+// ============================================================
+// Meta Conversions API — fire a "Lead" event for a new inbound
+// message so the ad that drove the click gets attribution credit
+// even though no browser pixel fired.
+//
+// Fire-and-forget from processMessage — a slow/failing CAPI
+// request must not hold up the webhook ack to Meta.
+// ============================================================
+async function fireCapiLeadEvent(
+  accountId: string,
+  contact: { id: string; phone: string; name?: string | null },
+) {
+  const supabase = supabaseAdmin()
+
+  // Read the account's Meta Ads config (pixel_id + access_token).
+  const { data: adsConfig } = await supabase
+    .from('meta_ads_config')
+    .select('*')
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!adsConfig?.pixel_id || !adsConfig?.access_token) {
+    return // not configured — silently skip
+  }
+
+  // Also load UTM data from the contact row; the tracking-link
+  // flow populates these when a lead clicks a wa.me link with
+  // UTM parameters before messaging.
+  const { data: contactRow } = await supabase
+    .from('contacts')
+    .select('utm_source, utm_campaign, utm_medium, utm_term, utm_content')
+    .eq('id', contact.id)
+    .single()
+
+  const utm = contactRow ?? {}
+
+  await sendCapiEvents(
+    {
+      pixelId: adsConfig.pixel_id,
+      accessToken: adsConfig.access_token,
+      testEventCode: adsConfig.test_event_code ?? undefined,
+    },
+    [
+      {
+        event_name: 'Lead',
+        event_time: Math.floor(Date.now() / 1000),
+        action_source: 'whatsapp',
+        event_id: `lead_${accountId}_${contact.id}_${Date.now()}`,
+        user_data: {
+          phones: [contact.phone],
+          ...(contact.name ? { firstName: contact.name } : {}),
+        },
+        custom_data: {
+          lead_source: 'WhatsApp',
+          campaign_name: utm.utm_campaign ?? undefined,
+          ad_name: utm.utm_content ?? undefined,
+        },
+      },
+    ],
+  )
 }

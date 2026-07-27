@@ -227,9 +227,18 @@ export default function PipelinesPage() {
       if (error) {
         toast.error(t("toastFailedMoveDeal"));
         refreshDeals();
+        return;
       }
+      // Fire qualified-lead CAPI event (fire-and-forget). The API
+      // checks the account's meta_ads_config trigger-stage list.
+      const stageName = stages.find((s) => s.id === newStageId)?.name;
+      fetch("/api/v1/capi/qualified-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId, newStageId, stageName }),
+      }).catch(() => {});
     },
-    [supabase, refreshDeals, t],
+    [supabase, refreshDeals, t, stages],
   );
 
   const handleAddDeal = useCallback(

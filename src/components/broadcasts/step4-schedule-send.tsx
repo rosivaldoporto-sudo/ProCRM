@@ -70,7 +70,7 @@ export function Step4ScheduleSend({
 
           const uniqueIds = new Set((contactTags ?? []).map((ct) => ct.contact_id));
           setEstimatedReach(uniqueIds.size);
-        } else if (audience.type === 'csv' && audience.csvContacts) {
+        } else if ((audience.type === 'csv' || audience.type === 'manual_list') && audience.csvContacts) {
           setEstimatedReach(audience.csvContacts.length);
         } else {
           setEstimatedReach(0);
@@ -90,7 +90,9 @@ export function Step4ScheduleSend({
         ? t('scheduleSend.audienceTags')
         : audience.type === 'csv'
           ? t('scheduleSend.audienceCsv')
-          : t('scheduleSend.audienceField');
+          : audience.type === 'manual_list'
+            ? t('scheduleSend.audienceManualList')
+            : t('scheduleSend.audienceField');
 
   return (
     <div className="space-y-6">

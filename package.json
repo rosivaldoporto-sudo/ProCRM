@@ -1,8 +1,8 @@
 {
-  "name": "wacrm",
+  "name": "procrm",
   "version": "0.8.0",
   "private": true,
-  "description": "Self-hostable CRM template for WhatsApp built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "CRM completo para WhatsApp com painel compartilhado, contatos, pipeline de vendas, transmissões e automações.",
   "license": "MIT",
   "author": "Arnas Donauskas",
   "homepage": "https://github.com/ArnasDon/wacrm",

@@ -108,6 +108,14 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  /** UTM / source-tracking fields (migration 037). Populated when a lead
+   *  arrives via a tracking link or the first inbound WhatsApp message
+   *  carries referrer data. */
+  utm_source?: string;
+  utm_campaign?: string;
+  utm_medium?: string;
+  utm_term?: string;
+  utm_content?: string;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -166,6 +174,14 @@ export interface Conversation {
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
+  /** UTM / source-tracking fields (migration 037). Copied from the
+   *  contact at conversation-creation time so each conversation
+   *  preserves the source even if the contact is later updated. */
+  utm_source?: string;
+  utm_campaign?: string;
+  utm_medium?: string;
+  utm_term?: string;
+  utm_content?: string;
   created_at: string;
   updated_at: string;
   contact?: Contact;
@@ -310,6 +326,24 @@ export type TemplateButton =
 export interface TemplateSampleValues {
   body?: string[];
   header?: string[];
+}
+
+export interface MetaAdsConfig {
+  id: string;
+  account_id: string;
+  /** Meta Pixel / CAPI pixel_id (numeric string, e.g. "1234567890"). */
+  pixel_id?: string;
+  /** Conversions API access token (generated in Events Manager). */
+  access_token?: string;
+  /** Optional test event code used by the Meta Events Manager
+   *  diagnostic — when set, events carry `test_event_code` so they
+   *  appear in the "Test events" view without affecting real data. */
+  test_event_code?: string;
+  /** Pipeline stage IDs that trigger a qualified-lead CAPI event
+   *  when a deal moves into them (migration 038). */
+  capi_trigger_stage_ids?: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface MessageTemplate {
