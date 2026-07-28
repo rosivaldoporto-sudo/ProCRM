@@ -42,7 +42,6 @@ export async function POST() {
     const result = await instanceConnect({
       serverUrl: config.server_url,
       apiToken,
-      instanceName: config.instance_name,
     })
 
     // Persist QR code and status

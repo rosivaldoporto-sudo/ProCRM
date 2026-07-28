@@ -42,7 +42,6 @@ export async function POST() {
     await instanceDisconnect({
       serverUrl: config.server_url,
       apiToken,
-      instanceName: config.instance_name,
     })
 
     // Reset status

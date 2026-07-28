@@ -60,7 +60,6 @@ export async function GET() {
       const statusResult = await instanceStatus({
         serverUrl: config.server_url,
         apiToken,
-        instanceName: config.instance_name,
       })
       return NextResponse.json({
         connected: statusResult.status === 'connected',
@@ -97,7 +96,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    let { instance_name, server_url, api_token, webhook_secret } = body
+    const { instance_name, server_url, webhook_secret } = body
+    let { api_token } = body
 
     if (!instance_name || !server_url) {
       return NextResponse.json({ error: 'instance_name and server_url are required' }, { status: 400 })
@@ -208,7 +208,6 @@ export async function DELETE() {
         await instanceDisconnect({
           serverUrl: config.server_url,
           apiToken,
-          instanceName: config.instance_name,
         })
       } catch {
         // Best-effort disconnect

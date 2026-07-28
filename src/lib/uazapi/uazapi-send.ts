@@ -176,7 +176,6 @@ export async function sendMessageToConversation(
       const result = await sendMenu({
         serverUrl: config.server_url,
         apiToken,
-        instanceName: config.instance_name,
         to,
         body: contentText || '',
         title: menuTitle || undefined,
@@ -188,7 +187,6 @@ export async function sendMessageToConversation(
       const result = await sendMediaMessage({
         serverUrl: config.server_url,
         apiToken,
-        instanceName: config.instance_name,
         to,
         kind: messageType as MediaKind,
         link: mediaUrl!,
@@ -200,7 +198,6 @@ export async function sendMessageToConversation(
       const result = await sendTextMessage({
         serverUrl: config.server_url,
         apiToken,
-        instanceName: config.instance_name,
         to,
         text: contentText!,
       });

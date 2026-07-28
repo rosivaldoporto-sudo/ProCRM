@@ -42,7 +42,6 @@ export async function GET() {
     const result = await instanceStatus({
       serverUrl: config.server_url,
       apiToken,
-      instanceName: config.instance_name,
     })
 
     // Sync status to DB

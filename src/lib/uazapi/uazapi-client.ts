@@ -2,7 +2,10 @@
  * Uazapi API client — communicates with a Uazapi server to manage
  * WhatsApp Web instances and send/receive messages.
  *
- * Every function takes named parameters for clarity and consistency.
+ * Authentication: Uazapi uses a `token` header (NOT Authorization Bearer).
+ * All endpoints are relative to the configured server URL.
+ *
+ * Reference: https://docs.uazapi.com
  */
 
 export interface UazapiSendResult {
@@ -12,13 +15,14 @@ export interface UazapiSendResult {
 interface UazapiErrorResponse {
   error?: string
   message?: string
+  response?: string
 }
 
 async function throwUazapiError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   try {
     const data = (await response.json()) as UazapiErrorResponse
-    message = data.error || data.message || fallback
+    message = data.error || data.message || data.response || fallback
   } catch {
     // response body wasn't JSON
   }
@@ -28,7 +32,7 @@ async function throwUazapiError(response: Response, fallback: string): Promise<n
 function buildHeaders(apiToken: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiToken}`,
+    token: apiToken,
   }
 }
 
@@ -42,20 +46,20 @@ export interface InstanceConnectResult {
 }
 
 /**
- * Connect/start a Uazapi instance. Returns a QR code that must
+ * Connect a Uazapi instance. Returns a QR code in base64 that must
  * be scanned with WhatsApp to establish the session.
+ * POST /instance/connect
+ * Auth: token header
  */
 export async function instanceConnect(args: {
   serverUrl: string
   apiToken: string
-  instanceName: string
 }): Promise<InstanceConnectResult> {
-  const { serverUrl, apiToken, instanceName } = args
+  const { serverUrl, apiToken } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/instance/connect`
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
-    body: JSON.stringify({ instance: instanceName }),
   })
   if (!response.ok) {
     await throwUazapiError(response, `Uazapi connect failed: ${response.status}`)
@@ -69,18 +73,18 @@ export async function instanceConnect(args: {
 
 /**
  * Disconnect/logout a Uazapi instance.
+ * POST /instance/disconnect
+ * Auth: token header
  */
 export async function instanceDisconnect(args: {
   serverUrl: string
   apiToken: string
-  instanceName: string
 }): Promise<void> {
-  const { serverUrl, apiToken, instanceName } = args
+  const { serverUrl, apiToken } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/instance/disconnect`
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
-    body: JSON.stringify({ instance: instanceName }),
   })
   if (!response.ok) {
     await throwUazapiError(response, `Uazapi disconnect failed: ${response.status}`)
@@ -94,14 +98,15 @@ export interface InstanceStatusResult {
 
 /**
  * Get the current connection status of a Uazapi instance.
+ * GET /instance/status
+ * Auth: token header
  */
 export async function instanceStatus(args: {
   serverUrl: string
   apiToken: string
-  instanceName: string
 }): Promise<InstanceStatusResult> {
-  const { serverUrl, apiToken, instanceName } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/instance/status?instance=${encodeURIComponent(instanceName)}`
+  const { serverUrl, apiToken } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/instance/status`
   const response = await fetch(url, {
     method: 'GET',
     headers: buildHeaders(apiToken),
@@ -123,25 +128,26 @@ export async function instanceStatus(args: {
 export interface SendTextMessageArgs {
   serverUrl: string
   apiToken: string
-  instanceName: string
   to: string
   text: string
 }
 
 /**
  * Send a text message via Uazapi.
+ * POST /send/text
+ * Auth: token header
+ * Body: { number: "...", text: "..." }
  */
 export async function sendTextMessage(
   args: SendTextMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, instanceName, to, text } = args
+  const { serverUrl, apiToken, to, text } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/text`
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: JSON.stringify({
-      instance: instanceName,
-      to,
+      number: to,
       text,
     }),
   })
@@ -157,7 +163,6 @@ export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 export interface SendMediaMessageArgs {
   serverUrl: string
   apiToken: string
-  instanceName: string
   to: string
   kind: MediaKind
   link: string
@@ -167,15 +172,17 @@ export interface SendMediaMessageArgs {
 
 /**
  * Send a media message (image, video, document, audio) via Uazapi.
+ * POST /send/media
+ * Auth: token header
+ * Body: { number: "...", type: "...", link: "...", caption?: "..." }
  */
 export async function sendMediaMessage(
   args: SendMediaMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, instanceName, to, kind, link, caption, filename } = args
+  const { serverUrl, apiToken, to, kind, link, caption, filename } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/media`
   const body: Record<string, unknown> = {
-    instance: instanceName,
-    to,
+    number: to,
     type: kind === 'document' ? 'file' : kind,
     link,
   }
@@ -203,7 +210,6 @@ export interface MenuRow {
 export interface SendMenuArgs {
   serverUrl: string
   apiToken: string
-  instanceName: string
   to: string
   body: string
   title?: string
@@ -213,18 +219,20 @@ export interface SendMenuArgs {
 
 /**
  * Send a menu (interactive list) message via Uazapi.
+ * POST /send/menu
+ * Auth: token header
+ * Body: { number: "...", title: "...", description: "...", footer: "...", menu: [...] }
  */
 export async function sendMenu(
   args: SendMenuArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, instanceName, to, body, title, footer, rows } = args
+  const { serverUrl, apiToken, to, body, title, footer, rows } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/menu`
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: JSON.stringify({
-      instance: instanceName,
-      to,
+      number: to,
       title: title || '',
       description: body,
       footer: footer || '',
