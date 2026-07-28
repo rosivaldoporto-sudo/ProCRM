@@ -142,6 +142,7 @@
       "company": "Company",
       "allCompanies": "All companies",
       "clearAll": "Clear all",
+      "channelAll": "All",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
       "unknown": "Unknown"
@@ -172,7 +173,8 @@
     },
     "newConversation": {
       "title": "New conversation",
-      "description": "Start a new conversation by entering a phone number and selecting a template.",
+      "description": "Start a new conversation by entering a phone number, selecting a channel, and picking a template.",
+      "channelLabel": "Channel",
       "phoneLabel": "Phone number",
       "nameLabel": "Name (optional)",
       "namePlaceholder": "e.g. John Doe",

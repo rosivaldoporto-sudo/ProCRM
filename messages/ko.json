@@ -142,9 +142,28 @@
       "company": "회사",
       "allCompanies": "전체 회사",
       "clearAll": "모두 지우기",
+      "channelAll": "전체",
       "noConversations": "대화를 찾을 수 없습니다",
       "noMessagesYet": "아직 메시지가 없습니다",
       "unknown": "알 수 없음"
+    },
+    "newConversation": {
+      "title": "새 대화",
+      "description": "전화번호를 입력하고 채널을 선택하여 새 대화를 시작하세요.",
+      "channelLabel": "채널",
+      "phoneLabel": "전화번호",
+      "nameLabel": "이름 (선택사항)",
+      "namePlaceholder": "예: 홍길동",
+      "templateLabel": "메시지 템플릿",
+      "loadingTemplates": "템플릿 로딩 중...",
+      "noTemplates": "승인된 템플릿이 없습니다. 설정에서 먼저 생성하세요.",
+      "fillVariables": "템플릿 변수 입력",
+      "headerVariable": "헤더",
+      "variable": "변수",
+      "variablePlaceholder": "값",
+      "start": "대화 시작",
+      "started": "대화가 시작되었습니다!",
+      "cancel": "취소"
     },
     "messageThread": {
       "backToConversations": "대화 목록으로 돌아가기",

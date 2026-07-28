@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X, Plus } from "lucide-react";
+import { Search, ChevronDown, X, Plus, MessageSquare, Smartphone } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 
 type InboxFilter = ConversationStatus | "all" | "unread";
+type SourceFilter = "all" | "whatsapp" | "uazapi";
 
 export function ConversationList({
   activeConversationId,
@@ -69,6 +70,7 @@ export function ConversationList({
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -99,10 +101,15 @@ export function ConversationList({
     let cancelled = false;
 
     (async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("conversations")
-        .select(CONVERSATION_SELECT)
-        .order("last_message_at", { ascending: false });
+        .select(CONVERSATION_SELECT);
+
+      if (sourceFilter !== "all") {
+        query = query.eq("source", sourceFilter);
+      }
+
+      const { data, error } = await query.order("last_message_at", { ascending: false });
 
       if (cancelled) return;
 
@@ -128,7 +135,7 @@ export function ConversationList({
     // `resyncToken` is included so the parent can force a refetch when
     // the realtime channel reconnects or the tab regains focus — catches
     // up on any events sent while the WS was disconnected or throttled.
-  }, [resyncToken]);
+  }, [resyncToken, sourceFilter]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
@@ -285,6 +292,29 @@ export function ConversationList({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Channel source filter — all / WhatsApp / Uazapi */}
+          <div className="flex items-center gap-1" role="group" aria-label="Channel filter">
+            {([
+              { value: "all" as SourceFilter, label: t("channelAll"), icon: null },
+              { value: "whatsapp" as SourceFilter, label: "WA", icon: MessageSquare },
+              { value: "uazapi" as SourceFilter, label: "UZ", icon: Smartphone },
+            ] as const).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => setSourceFilter(value)}
+                className={cn(
+                  "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md transition-colors",
+                  sourceFilter === value
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+              >
+                {Icon && <Icon className="h-3 w-3" />}
+                {label}
+              </button>
+            ))}
+          </div>
 
           {tags.length > 0 && (
             <DropdownMenu>

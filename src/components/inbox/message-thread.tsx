@@ -203,6 +203,9 @@ export function MessageThread({
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
 
+  // Determine which API endpoint to use based on conversation source
+  const sendEndpoint = conversation?.source === 'uazapi' ? '/api/uazapi/send' : '/api/whatsapp/send';
+
   // Profiles are bounded by RLS to rows the current user is allowed to
   // see — today that's just the current user, but the dropdown keeps the
   // shape ready for shared-team workspaces without a refactor.
@@ -466,7 +469,7 @@ export function MessageThread({
       setReplyTo(null);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(sendEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -499,7 +502,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: "failed" });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, sendEndpoint, onNewMessage, onUpdateMessage]
   );
 
   const handleSendMedia = useCallback(
@@ -530,7 +533,7 @@ export function MessageThread({
       setReplyTo(null);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(sendEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -565,7 +568,7 @@ export function MessageThread({
         void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, sendEndpoint, onNewMessage, onUpdateMessage],
   );
 
   const handleSendInteractive = useCallback(
@@ -589,7 +592,7 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(sendEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -618,7 +621,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: "failed" });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, sendEndpoint, onNewMessage, onUpdateMessage],
   );
 
   const handleStatusChange = useCallback(
@@ -667,6 +670,7 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
 
       try {
+        // Templates are WhatsApp-only, always use whatsapp endpoint
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

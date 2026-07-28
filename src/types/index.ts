@@ -182,6 +182,11 @@ export interface Conversation {
   utm_medium?: string;
   utm_term?: string;
   utm_content?: string;
+  /**
+   * Channel this conversation originated from (migration 040).
+   * 'whatsapp' | 'uazapi' | null (null = mixed or unknown).
+   */
+  source?: string | null;
   created_at: string;
   updated_at: string;
   contact?: Contact;

@@ -142,6 +142,7 @@
       "company": "Empresa",
       "allCompanies": "Todas as empresas",
       "clearAll": "Limpar tudo",
+      "channelAll": "Todos",
       "noConversations": "Nenhuma conversa encontrada",
       "noMessagesYet": "Nenhuma mensagem ainda",
       "unknown": "Desconhecido"
@@ -172,7 +173,8 @@
     },
     "newConversation": {
       "title": "Nova conversa",
-      "description": "Inicie uma nova conversa digitando um telefone e selecionando um modelo.",
+      "description": "Inicie uma nova conversa digitando um telefone, selecionando um canal e escolhendo um modelo.",
+      "channelLabel": "Canal",
       "phoneLabel": "Número de telefone",
       "nameLabel": "Nome (opcional)",
       "namePlaceholder": "ex: João Silva",

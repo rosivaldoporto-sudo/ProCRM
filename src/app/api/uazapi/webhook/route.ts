@@ -164,13 +164,18 @@ export async function POST(request: Request) {
       })
 
       // Update conversation metadata + increment unread_count
-      await db.from('conversations').update({
+      // If the existing source differs from uazapi, set to null (mixed)
+      const convUpdate: Record<string, unknown> = {
         last_message_text: contentText || `[${contentType}]`,
         last_message_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'open',
         unread_count: (conversation.unread_count || 0) + 1,
-      }).eq('id', conversation.id)
+      }
+      if (!convResult.created && conversation.source && conversation.source !== 'uazapi') {
+        convUpdate.source = null
+      }
+      await db.from('conversations').update(convUpdate).eq('id', conversation.id)
 
       // Dispatch to automations, flows, AI (async, best-effort)
       after(async () => {
@@ -349,7 +354,7 @@ async function findOrCreateContact(
 }
 
 interface ConversationResult {
-  conversation: { id: string; unread_count?: number }
+  conversation: { id: string; unread_count?: number; source?: string | null }
   created: boolean
 }
 
@@ -377,6 +382,7 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: userId,
       contact_id: contactId,
+      source: 'uazapi',
     })
     .select()
     .single()

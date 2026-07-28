@@ -15,16 +15,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Phone, User } from 'lucide-react';
+import { Loader2, Send, Phone, User, MessageSquare, Smartphone } from 'lucide-react';
 import { extractVariableIndices } from '@/lib/whatsapp/template-validators';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface NewConversationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConversationCreated: (conversationId: string) => void;
 }
+
+type ChannelSource = 'whatsapp' | 'uazapi';
 
 export function NewConversationDialog({
   open,
@@ -33,6 +36,7 @@ export function NewConversationDialog({
 }: NewConversationDialogProps) {
   const t = useTranslations('Inbox.newConversation');
 
+  const [channelSource, setChannelSource] = useState<ChannelSource>('whatsapp');
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -46,6 +50,7 @@ export function NewConversationDialog({
 
     let cancelled = false;
     (async () => {
+      setChannelSource('whatsapp');
       setLoadingTemplates(true);
       setSelectedTemplate(null);
       setParams([]);
@@ -81,20 +86,27 @@ export function NewConversationDialog({
   }
 
   async function handleStart() {
-    if (!phone.trim() || !selectedTemplate) return;
+    if (!phone.trim()) return;
+    if (channelSource === 'whatsapp' && !selectedTemplate) return;
 
     setSending(true);
     try {
+      const body: Record<string, unknown> = {
+        phone: phone.trim(),
+        name: name.trim() || undefined,
+        source: channelSource,
+      };
+
+      if (channelSource === 'whatsapp' && selectedTemplate) {
+        body.template_name = selectedTemplate.name;
+        body.template_language = selectedTemplate.language;
+        body.template_params = params;
+      }
+
       const res = await fetch('/api/inbox/start-conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          name: name.trim() || undefined,
-          template_name: selectedTemplate.name,
-          template_language: selectedTemplate.language,
-          template_params: params,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -114,6 +126,8 @@ export function NewConversationDialog({
     }
   }
 
+  const canStart = phone.trim() && (channelSource === 'uazapi' || (channelSource === 'whatsapp' && selectedTemplate));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="border-border bg-popover sm:max-w-lg max-h-[90vh] overflow-y-auto">
@@ -125,6 +139,39 @@ export function NewConversationDialog({
         </DialogHeader>
 
         <div className="space-y-5">
+          {/* Channel selector */}
+          <div className="space-y-2">
+            <Label className="text-foreground">{t('channelLabel')}</Label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setChannelSource('whatsapp'); setSelectedTemplate(null); }}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm transition-all",
+                  channelSource === 'whatsapp'
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+              >
+                <MessageSquare className="h-4 w-4" />
+                WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => { setChannelSource('uazapi'); setSelectedTemplate(null); }}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm transition-all",
+                  channelSource === 'uazapi'
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+              >
+                <Smartphone className="h-4 w-4" />
+                Uazapi
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-3">
             <Label className="text-foreground">{t('phoneLabel')}</Label>
             <div className="relative">
@@ -148,43 +195,45 @@ export function NewConversationDialog({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-foreground">{t('templateLabel')}</Label>
-            {loadingTemplates ? (
-              <div className="flex items-center gap-2 py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">{t('loadingTemplates')}</span>
-              </div>
-            ) : templates.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">{t('noTemplates')}</p>
-            ) : (
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleTemplateSelect(template)}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-all ${
-                      selectedTemplate?.id === template.id
-                        ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
-                        : 'text-foreground hover:bg-muted'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium truncate">{template.name}</span>
-                      <Badge variant="outline" className="shrink-0 ml-2 text-[10px] border-border text-muted-foreground">
-                        {template.language}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-                      {template.body_text?.replace(/\{\{\d+\}\}/g, '…')}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {channelSource === 'whatsapp' && (
+            <div className="space-y-2">
+              <Label className="text-foreground">{t('templateLabel')}</Label>
+              {loadingTemplates ? (
+                <div className="flex items-center gap-2 py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground">{t('loadingTemplates')}</span>
+                </div>
+              ) : templates.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">{t('noTemplates')}</p>
+              ) : (
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+                  {templates.map((template) => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleTemplateSelect(template)}
+                      className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-all ${
+                        selectedTemplate?.id === template.id
+                          ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
+                          : 'text-foreground hover:bg-muted'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium truncate">{template.name}</span>
+                        <Badge variant="outline" className="shrink-0 ml-2 text-[10px] border-border text-muted-foreground">
+                          {template.language}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
+                        {template.body_text?.replace(/\{\{\d+\}\}/g, '…')}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-          {selectedTemplate && getBodyVars(selectedTemplate).length > 0 && (
+          {channelSource === 'whatsapp' && selectedTemplate && getBodyVars(selectedTemplate).length > 0 && (
             <div className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
               <p className="text-sm font-medium text-foreground">{t('fillVariables')}</p>
               {selectedTemplate.header_type === 'text' && selectedTemplate.header_content && (
@@ -237,7 +286,7 @@ export function NewConversationDialog({
           </Button>
           <Button
             onClick={handleStart}
-            disabled={!phone.trim() || !selectedTemplate || sending}
+            disabled={!canStart || sending}
             className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {sending ? (
