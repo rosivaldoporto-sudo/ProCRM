@@ -97,10 +97,34 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { instance_name, server_url, api_token, webhook_secret } = body
+    let { instance_name, server_url, api_token, webhook_secret } = body
 
-    if (!instance_name || !server_url || !api_token) {
-      return NextResponse.json({ error: 'instance_name, server_url, and api_token are required' }, { status: 400 })
+    if (!instance_name || !server_url) {
+      return NextResponse.json({ error: 'instance_name and server_url are required' }, { status: 400 })
+    }
+
+    // If no api_token was sent but there's an existing config, decrypt
+    // the stored token so the user can update e.g. server_url without
+    // having to re-enter the API token.
+    if (!api_token) {
+      const { data: existingRow } = await supabase
+        .from('uazapi_config')
+        .select('api_token')
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      if (existingRow?.api_token) {
+        try {
+          api_token = decrypt(existingRow.api_token)
+        } catch {
+          return NextResponse.json(
+            { error: 'Stored API token is corrupted. Please re-enter it manually.' },
+            { status: 400 }
+          )
+        }
+      } else {
+        return NextResponse.json({ error: 'api_token is required for initial setup' }, { status: 400 })
+      }
     }
 
     // Encrypt sensitive data
@@ -125,7 +149,7 @@ export async function POST(request: Request) {
       server_url,
       api_token: encryptedApiToken,
       webhook_secret: encryptedWebhookSecret,
-      status: 'disconnected' as const,
+      status: existing?.status || 'disconnected',
       updated_at: new Date().toISOString(),
     }
 
