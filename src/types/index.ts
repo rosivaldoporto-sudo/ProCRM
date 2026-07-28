@@ -282,6 +282,23 @@ export interface MessageReaction {
   created_at: string;
 }
 
+export type UazapiInstanceStatus = 'disconnected' | 'connected' | 'qrcode';
+
+export interface UazapiConfig {
+  id: string;
+  account_id: string;
+  user_id: string;
+  instance_name: string;
+  server_url: string;
+  api_token: string;
+  webhook_secret?: string;
+  status: UazapiInstanceStatus;
+  qr_code?: string;
+  connected_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
