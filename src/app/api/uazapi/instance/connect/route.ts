@@ -39,6 +39,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Stored API token is corrupted.' }, { status: 500 })
     }
 
+    console.log('[uazapi-connect] Calling Uazapi API at', config.server_url + '/instance/connect')
+
     const result = await instanceConnect({
       serverUrl: config.server_url,
       apiToken,
@@ -61,7 +63,7 @@ export async function POST() {
       status: result.status,
     })
   } catch (error) {
-    console.error('Error in Uazapi connect:', error)
+    console.error('[uazapi-connect] Error:', error)
     const message = error instanceof Error ? error.message : 'Failed to connect'
     return NextResponse.json({ error: message }, { status: 502 })
   }

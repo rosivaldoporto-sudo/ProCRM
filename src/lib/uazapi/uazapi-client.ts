@@ -42,7 +42,7 @@ function buildHeaders(apiToken: string): Record<string, string> {
 
 export interface InstanceConnectResult {
   qrCode: string
-  status: 'connected' | 'qrcode'
+  status: 'connected' | 'qrcode' | 'disconnected'
 }
 
 /**
@@ -50,6 +50,8 @@ export interface InstanceConnectResult {
  * be scanned with WhatsApp to establish the session.
  * POST /instance/connect
  * Auth: token header
+ * Response: { "qrcode": "data:image/png;base64,...", "pairingCode": "..." }
+ *   or:     { "instance": { "qrcode": "...", "state": "..." } }
  */
 export async function instanceConnect(args: {
   serverUrl: string
@@ -65,9 +67,12 @@ export async function instanceConnect(args: {
     await throwUazapiError(response, `Uazapi connect failed: ${response.status}`)
   }
   const data = await response.json()
+  const inst = data.instance || data
+  const qrCode = inst.qrcode || inst.qr_code || inst.qrCode || ''
+  const rawStatus = inst.state || inst.status || ''
   return {
-    qrCode: data.qrcode || data.qr_code || '',
-    status: data.status === 'connected' ? 'connected' : 'qrcode',
+    qrCode,
+    status: rawStatus === 'connected' ? 'connected' : qrCode ? 'qrcode' : 'disconnected',
   }
 }
 
@@ -75,6 +80,7 @@ export async function instanceConnect(args: {
  * Disconnect/logout a Uazapi instance.
  * POST /instance/disconnect
  * Auth: token header
+ * Response: { "status": "disconnected" } or { "error": "..." }
  */
 export async function instanceDisconnect(args: {
   serverUrl: string
@@ -100,6 +106,7 @@ export interface InstanceStatusResult {
  * Get the current connection status of a Uazapi instance.
  * GET /instance/status
  * Auth: token header
+ * Response: { "instance": { "state": "connected", "instanceName": "..." } }
  */
 export async function instanceStatus(args: {
   serverUrl: string
@@ -115,9 +122,10 @@ export async function instanceStatus(args: {
     await throwUazapiError(response, `Uazapi status failed: ${response.status}`)
   }
   const data = await response.json()
+  const inst = data.instance || data
   return {
-    status: data.status || 'disconnected',
-    qrCode: data.qrcode || data.qr_code || undefined,
+    status: inst.state || inst.status || 'disconnected',
+    qrCode: inst.qrcode || inst.qr_code || data.qrcode || data.qr_code || undefined,
   }
 }
 
