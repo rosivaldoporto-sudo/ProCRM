@@ -39,6 +39,7 @@ export function UazapiConfig() {
   const [showToken, setShowToken] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [statusMessage, setStatusMessage] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const [instanceName, setInstanceName] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [apiToken, setApiToken] = useState('');
@@ -246,6 +247,24 @@ export function UazapiConfig() {
       toast.error('Failed to reset configuration');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSync() {
+    try {
+      setSyncing(true);
+      const res = await fetch('/api/uazapi/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Sync failed');
+        return;
+      }
+      toast.success(data.message || `Synced ${data.synced} conversations.`);
+      if (data.synced > 0 && accountId) await fetchConfig(accountId);
+    } catch {
+      toast.error('Failed to sync conversations');
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -489,6 +508,21 @@ export function UazapiConfig() {
                     Desconectar
                   </>
                 )}
+              </Button>
+            )}
+            {connectionStatus === 'connected' && (
+              <Button
+                variant="outline"
+                onClick={handleSync}
+                disabled={syncing}
+                className="border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+              >
+                {syncing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="size-4" />
+                )}
+                Sincronizar Conversas
               </Button>
             )}
             <Button

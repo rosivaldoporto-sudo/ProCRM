@@ -231,6 +231,91 @@ export interface SendMenuArgs {
  * Auth: token header
  * Body: { number: "...", title: "...", description: "...", footer: "...", menu: [...] }
  */
+// ============================================================
+// Fetching existing chats (sync)
+// ============================================================
+
+export interface UazapiChat {
+  id: string
+  name?: string
+  phone: string
+  lastMessage?: string
+  lastMessageAt?: string
+  unreadCount?: number
+}
+
+/**
+ * Try to fetch recent chats from the Uazapi server.
+ * Uazapi implementations vary — we try multiple known endpoint
+ * patterns and return whatever we find.
+ */
+export async function fetchChats(args: {
+  serverUrl: string
+  apiToken: string
+  limit?: number
+}): Promise<UazapiChat[]> {
+  const { serverUrl, apiToken, limit = 50 } = args
+  const base = serverUrl.replace(/\/+$/, '')
+
+  // Try common Uazapi chat-list endpoint patterns
+  const patterns = ['/chats', '/chat/find', '/conversations']
+  
+  for (const path of patterns) {
+    try {
+      const url = `${base}${path}?limit=${limit}`
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: buildHeaders(apiToken),
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!response.ok) continue
+
+      const data = await response.json()
+      const chats = extractChatsFromResponse(data)
+      if (chats.length > 0) return chats
+    } catch {
+      continue
+    }
+  }
+
+  return []
+}
+
+function extractChatsFromResponse(data: unknown): UazapiChat[] {
+  if (!data || typeof data !== 'object') return []
+
+  const obj = data as Record<string, unknown>
+  let arr: unknown[] = Array.isArray(data) ? data : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
+
+  if (!Array.isArray(arr)) return []
+
+  const items: (UazapiChat | null)[] = arr.map((item: unknown) => {
+    if (!item || typeof item !== 'object') return null
+    const row = item as Record<string, unknown>
+    const key = row.key as Record<string, unknown> | undefined
+    const lastMessage = row.last_message as Record<string, unknown> | undefined
+    const chatId = String(row.id ?? row.chatId ?? key?.remoteJid ?? row.jid ?? '')
+    const phone = chatId.replace(/@.*$/, '').replace(/:.*$/, '')
+    if (!phone) return null
+
+    const name = String(row.name ?? row.pushName ?? row.contactName ?? '')
+    const lastMsg = String(row.lastMessageText ?? lastMessage?.text ?? lastMessage?.conversation ?? row.lastMessage ?? '')
+    const lastTime = String(row.lastMessageAt ?? row.last_message_at ?? row.timestamp ?? lastMessage?.timestamp ?? '')
+    const unread = Number(row.unreadCount ?? row.unread_count ?? row.unread ?? 0)
+
+    return {
+      id: chatId,
+      name: name || undefined,
+      phone,
+      lastMessage: lastMsg || undefined,
+      lastMessageAt: lastTime || undefined,
+      unreadCount: unread || undefined,
+    }
+  })
+
+  return items.filter((c): c is UazapiChat => c !== null)
+}
+
 export async function sendMenu(
   args: SendMenuArgs
 ): Promise<UazapiSendResult> {

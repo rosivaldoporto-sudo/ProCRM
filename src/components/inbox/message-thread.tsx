@@ -202,9 +202,21 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  /** Manual override of the send channel. Null = use conversation.source. */
+  const [channelOverride, setChannelOverride] = useState<'whatsapp' | 'uazapi' | null>(null);
 
-  // Determine which API endpoint to use based on conversation source
-  const sendEndpoint = conversation?.source === 'uazapi' ? '/api/uazapi/send' : '/api/whatsapp/send';
+  // Determine which API endpoint to use — manual override > conversation source > default (whatsapp)
+  const effectiveChannel = channelOverride ?? conversation?.source ?? 'whatsapp';
+  const sendEndpoint = effectiveChannel === 'uazapi' ? '/api/uazapi/send' : '/api/whatsapp/send';
+
+  // Reset override when switching conversations
+  useEffect(() => {
+    setChannelOverride(null);
+  }, [conversation?.id]);
+
+  const toggleChannel = useCallback(() => {
+    setChannelOverride((prev) => (prev === 'uazapi' ? 'whatsapp' : 'uazapi'));
+  }, []);
 
   // Profiles are bounded by RLS to rows the current user is allowed to
   // see — today that's just the current user, but the dropdown keeps the
@@ -903,7 +915,23 @@ export function MessageThread({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+              {/* Channel indicator — click to toggle between WhatsApp / Uazapi */}
+              <button
+                type="button"
+                onClick={toggleChannel}
+                title={`Sending via ${effectiveChannel === 'uazapi' ? 'Uazapi' : 'WhatsApp'} — click to switch`}
+                className={cn(
+                  "inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors",
+                  effectiveChannel === 'uazapi'
+                    ? "bg-violet-500/10 text-violet-400 hover:bg-violet-500/20"
+                    : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                )}
+              >
+                {effectiveChannel === 'uazapi' ? 'UZ' : 'WA'}
+              </button>
+            </div>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}

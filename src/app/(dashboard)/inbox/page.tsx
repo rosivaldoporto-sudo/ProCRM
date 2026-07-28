@@ -15,6 +15,7 @@ import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
+import { UazapiSyncBar } from "@/components/inbox/uazapi-sync-bar";
 import { cn } from "@/lib/utils";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
@@ -614,6 +615,9 @@ function InboxPageInner() {
           </p>
         </div>
       )}
+
+      {/* Sync Uazapi conversations button */}
+      {uazapiConnected === true && <UazapiSyncBar />}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
