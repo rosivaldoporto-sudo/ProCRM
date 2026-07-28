@@ -127,7 +127,9 @@
   },
   "Inbox": {
     "page": {
-      "whatsappNotConnected": "WhatsApp®이 연결되어 있지 않습니다. 설정으로 이동해 계정을 연결하세요."
+      "whatsappNotConnected": "WhatsApp®이 연결되어 있지 않습니다. 설정으로 이동해 계정을 연결하세요.",
+      "uazapiNotConnected": "Uazapi가 연결되어 있지 않습니다. 설정으로 이동하여 계정을 연결하세요.",
+      "noChannelConnected": "연결된 메시징 채널이 없습니다. 설정으로 이동하여 연결하세요."
     },
     "conversationList": {
       "searchPlaceholder": "대화 검색...",

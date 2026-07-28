@@ -51,6 +51,9 @@ function InboxPageInner() {
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
   );
+  const [uazapiConnected, setUazapiConnected] = useState<boolean | null>(
+    null
+  );
   /**
    * Bumped whenever we want children (ConversationList, MessageThread)
    * to refetch from the DB — used as a safety net against missed
@@ -172,9 +175,9 @@ function InboxPageInner() {
     }
   }, []);
 
-  // Check WhatsApp connection status on mount
+  // Check connection status for both WhatsApp and Uazapi on mount
   useEffect(() => {
-    const checkConnection = async () => {
+    const checkConnections = async () => {
       const supabase = createClient();
       const {
         data: { session },
@@ -183,12 +186,6 @@ function InboxPageInner() {
 
       if (!user) return;
 
-      // whatsapp_config is one-row-per-account post-multi-user, so
-      // the previous `.eq('user_id', user.id)` would miss the row
-      // for any teammate who didn't personally save the config —
-      // the "WhatsApp not connected" banner would show in the
-      // shared inbox even though the admin had it configured.
-      // Resolve account_id via the profile and query by that.
       const { data: profile } = await supabase
         .from("profiles")
         .select("account_id")
@@ -197,19 +194,28 @@ function InboxPageInner() {
       const accountId = profile?.account_id as string | undefined;
       if (!accountId) {
         setWhatsappConnected(false);
+        setUazapiConnected(false);
         return;
       }
 
-      const { data } = await supabase
-        .from("whatsapp_config")
-        .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
+      const [{ data: waConfig }, { data: uazapiConfig }] = await Promise.all([
+        supabase
+          .from("whatsapp_config")
+          .select("status")
+          .eq("account_id", accountId)
+          .maybeSingle(),
+        supabase
+          .from("uazapi_config")
+          .select("status")
+          .eq("account_id", accountId)
+          .maybeSingle(),
+      ]);
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected(waConfig?.status === "connected");
+      setUazapiConnected(uazapiConfig?.status === "connected");
     };
 
-    checkConnection();
+    checkConnections();
   }, []);
 
   // Handle realtime message events
@@ -582,13 +588,29 @@ function InboxPageInner() {
 
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
-      {/* WhatsApp connection banner — in the flex column, not absolute,
+      {/* Connection status banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
-      {whatsappConnected === false && (
+      {whatsappConnected === false && uazapiConnected === false && (
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
+          <WifiOff className="h-4 w-4 text-amber-400" />
+          <p className="text-xs text-amber-400">
+            {t("noChannelConnected")}
+          </p>
+        </div>
+      )}
+      {whatsappConnected === false && uazapiConnected === true && (
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
           <WifiOff className="h-4 w-4 text-amber-400" />
           <p className="text-xs text-amber-400">
             {t("whatsappNotConnected")}
+          </p>
+        </div>
+      )}
+      {whatsappConnected === true && uazapiConnected === false && (
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
+          <WifiOff className="h-4 w-4 text-amber-400" />
+          <p className="text-xs text-amber-400">
+            {t("uazapiNotConnected")}
           </p>
         </div>
       )}

@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
+import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
@@ -131,11 +132,20 @@ export async function POST(request: Request) {
       const phone = normalizePhone(msg.from)
       if (!phone) continue
 
-      // Find or create contact
-      const contact = await findOrCreateContact(db, config.account_id, phone, msg.pushName)
+      // Find or create contact (reuses shared dedupe logic from WhatsApp webhook)
+      const contact = await findOrCreateContact(db, config.account_id, config.user_id, phone, msg.pushName)
+      if (!contact) {
+        console.error('[uazapi-webhook] failed to resolve contact for phone:', phone)
+        continue
+      }
 
       // Find or create conversation
-      const conversation = await findOrCreateConversation(db, config.account_id, contact.id)
+      const convResult = await findOrCreateConversation(db, config.account_id, config.user_id, contact.id)
+      if (!convResult) {
+        console.error('[uazapi-webhook] failed to resolve conversation for contact:', contact.id)
+        continue
+      }
+      const conversation = convResult.conversation
 
       // Determine content type and text
       const { contentType, contentText, mediaUrl } = extractMessageContent(msg)
@@ -153,12 +163,13 @@ export async function POST(request: Request) {
         source: 'uazapi',
       })
 
-      // Update conversation metadata
+      // Update conversation metadata + increment unread_count
       await db.from('conversations').update({
         last_message_text: contentText || `[${contentType}]`,
         last_message_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'open',
+        unread_count: (conversation.unread_count || 0) + 1,
       }).eq('id', conversation.id)
 
       // Dispatch to automations, flows, AI (async, best-effort)
@@ -294,25 +305,29 @@ function extractMessageContent(msg: ExtractedMessage): {
 async function findOrCreateContact(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
+  userId: string,
   phone: string,
   pushName?: string,
 ) {
-  // Check existing contact by normalized phone
-  const { data: existing } = await db
-    .from('contacts')
-    .select('*')
-    .eq('account_id', accountId)
-    .eq('phone_normalized', phone.replace(/\D/g, ''))
-    .maybeSingle()
+  // Reuse shared dedupe logic (same as WhatsApp webhook)
+  const existing = await findExistingContact(db, accountId, phone)
+  if (existing) {
+    // Update name if pushName is provided and differs
+    if (pushName && pushName !== existing.name) {
+      await db
+        .from('contacts')
+        .update({ name: pushName, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+    }
+    return existing
+  }
 
-  if (existing) return existing
-
-  // Create new contact
+  // Create new contact — use the config owner as the audit user_id
   const { data: created, error } = await db
     .from('contacts')
     .insert({
       account_id: accountId,
-      user_id: '', // Will be filled by system
+      user_id: userId,
       phone,
       name: pushName || phone,
     })
@@ -320,41 +335,68 @@ async function findOrCreateContact(
     .single()
 
   if (error) {
+    if (isUniqueViolation(error)) {
+      // Race: another webhook call created the contact between our
+      // lookup and insert. Re-resolve and return the winning row.
+      const raced = await findExistingContact(db, accountId, phone)
+      if (raced) return raced
+    }
     console.error('[uazapi-webhook] error creating contact:', error.message)
-    throw error
+    return null
   }
 
   return created
 }
 
+interface ConversationResult {
+  conversation: { id: string; unread_count?: number }
+  created: boolean
+}
+
 async function findOrCreateConversation(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
+  userId: string,
   contactId: string,
-) {
+): Promise<ConversationResult | null> {
   const { data: existing } = await db
     .from('conversations')
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
-    .maybeSingle()
+    .order('created_at', { ascending: true })
+    .limit(1)
 
-  if (existing) return existing
+  if (existing && existing.length > 0) {
+    return { conversation: existing[0], created: false }
+  }
 
   const { data: created, error } = await db
     .from('conversations')
     .insert({
       account_id: accountId,
-      user_id: '',
+      user_id: userId,
       contact_id: contactId,
     })
     .select()
     .single()
 
   if (error) {
+    if (isUniqueViolation(error)) {
+      const { data: raced } = await db
+        .from('conversations')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+      if (raced && raced.length > 0) {
+        return { conversation: raced[0], created: false }
+      }
+    }
     console.error('[uazapi-webhook] error creating conversation:', error.message)
-    throw error
+    return null
   }
 
-  return created
+  return { conversation: created, created: true }
 }

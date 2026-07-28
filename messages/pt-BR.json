@@ -127,7 +127,9 @@
   },
   "Inbox": {
     "page": {
-      "whatsappNotConnected": "O WhatsApp® não está conectado. Vá para Configurações para conectar sua conta."
+      "whatsappNotConnected": "O WhatsApp® não está conectado. Vá para Configurações para conectar sua conta.",
+      "uazapiNotConnected": "O Uazapi não está conectado. Vá para Configurações para conectar sua conta.",
+      "noChannelConnected": "Nenhum canal de mensagens está conectado. Vá para Configurações para conectar."
     },
     "conversationList": {
       "searchPlaceholder": "Pesquisar conversas...",
