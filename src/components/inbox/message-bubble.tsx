@@ -198,13 +198,11 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
         <div>
           <span className="mb-1 inline-flex items-center gap-1 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
             <LayoutTemplate className="h-3 w-3" />
-            {t("template")}
+            {message.template_name || t("template")}
           </span>
-          {message.content_text && (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-              {message.content_text}
-            </p>
-          )}
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+            {message.content_text || message.template_name || t("template")}
+          </p>
         </div>
       );
 

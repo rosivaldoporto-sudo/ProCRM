@@ -61,7 +61,8 @@ interface ReplyDraft {
 function renderTemplateBody(body: string, params: string[]): string {
   return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
     const idx = Number(raw) - 1;
-    return params[idx] ?? `{{${raw}}}`;
+    const value = params[idx];
+    return value && value.trim().length > 0 ? value : `{{${raw}}}`;
   });
 }
 

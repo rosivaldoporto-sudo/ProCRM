@@ -454,7 +454,7 @@ export async function sendMessageToConversation(
       conversation_id: conversationId,
       sender_type: 'agent',
       content_type: messageType,
-      content_text: interactiveBody ?? contentText ?? null,
+      content_text: interactiveBody ?? contentText ?? (templateName ? `[${templateName}]` : null),
       media_url: mediaUrl || null,
       template_name: templateName || null,
       interactive_payload:
