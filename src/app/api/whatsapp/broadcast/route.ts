@@ -238,7 +238,7 @@ export async function POST(request: Request) {
 
           // Render the template body with recipient's params
           const renderedBody = templateRow?.body_text
-            ? templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+            ? templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_match: string, raw: string) => {
                 const idx = Number(raw) - 1;
                 const value = (recipient.params ?? [])[idx];
                 return value && value.trim().length > 0 ? value : `{{${raw}}}`;

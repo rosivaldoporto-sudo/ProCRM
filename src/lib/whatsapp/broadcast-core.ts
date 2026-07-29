@@ -310,7 +310,7 @@ export async function deliverBroadcast(
 
         // Render the template body with recipient's params
         const renderedBody = plan.templateRow?.body_text
-          ? plan.templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+          ? plan.templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_match: string, raw: string) => {
               const idx = Number(raw) - 1;
               const value = recipient.params[idx];
               return value && value.trim().length > 0 ? value : `{{${raw}}}`;

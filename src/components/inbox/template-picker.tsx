@@ -37,7 +37,7 @@ interface TemplatePickerProps {
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+  return body.replace(/\{\{(\d+)\}\}/g, (_match: string, raw: string) => {
     const idx = Number(raw) - 1;
     const value = params[idx];
     return value && value.trim().length > 0 ? value : `{{${raw}}}`;
