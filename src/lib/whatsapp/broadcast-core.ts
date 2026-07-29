@@ -307,12 +307,23 @@ export async function deliverBroadcast(
           plan.accountId,
           recipient.phone,
         )
+
+        // Render the template body with recipient's params
+        const renderedBody = plan.templateRow?.body_text
+          ? plan.templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+              const idx = Number(raw) - 1;
+              const value = recipient.params[idx];
+              return value && value.trim().length > 0 ? value : `{{${raw}}}`;
+            })
+          : `[${plan.templateName}]`;
+
         await db
           .from('messages')
           .insert({
             conversation_id: resolved.conversationId,
             sender_type: 'agent',
             content_type: 'template',
+            content_text: renderedBody,
             template_name: plan.templateName,
             message_id: sentMessageId,
             status: 'sent',
@@ -321,7 +332,7 @@ export async function deliverBroadcast(
         await db
           .from('conversations')
           .update({
-            last_message_text: `[Template] ${plan.templateName}`,
+            last_message_text: renderedBody,
             last_message_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })

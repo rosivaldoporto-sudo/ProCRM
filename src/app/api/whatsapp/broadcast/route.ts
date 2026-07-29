@@ -235,12 +235,23 @@ export async function POST(request: Request) {
             accountId,
             sanitized,
           )
+
+          // Render the template body with recipient's params
+          const renderedBody = templateRow?.body_text
+            ? templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+                const idx = Number(raw) - 1;
+                const value = (recipient.params ?? [])[idx];
+                return value && value.trim().length > 0 ? value : `{{${raw}}}`;
+              })
+            : `[${template_name}]`;
+
           await supabaseAdmin()
             .from('messages')
             .insert({
               conversation_id: resolved.conversationId,
               sender_type: 'agent',
               content_type: 'template',
+              content_text: renderedBody,
               template_name: template_name,
               message_id: sentMessageId,
               status: 'sent',
@@ -249,7 +260,7 @@ export async function POST(request: Request) {
           await supabaseAdmin()
             .from('conversations')
             .update({
-              last_message_text: `[Template] ${template_name}`,
+              last_message_text: renderedBody,
               last_message_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
