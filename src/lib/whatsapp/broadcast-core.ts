@@ -29,6 +29,7 @@ import {
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -64,6 +65,8 @@ interface PlannedRecipient {
 
 export interface BroadcastPlan {
   broadcastId: string;
+  accountId: string;
+  auditUserId: string;
   templateName: string;
   templateLanguage: string;
   phoneNumberId: string;
@@ -236,6 +239,8 @@ export async function createBroadcast(
 
   return {
     broadcastId: broadcast.id,
+    accountId,
+    auditUserId,
     templateName,
     templateLanguage,
     phoneNumberId: config.phone_number_id,
@@ -294,6 +299,40 @@ export async function deliverBroadcast(
 
     if (sentMessageId) {
       sentCount++;
+
+      // Persist conversation + message so the broadcast shows in the inbox
+      try {
+        const resolved = await resolveConversationByPhone(
+          db,
+          plan.accountId,
+          recipient.phone,
+        )
+        await db
+          .from('messages')
+          .insert({
+            conversation_id: resolved.conversationId,
+            sender_type: 'agent',
+            content_type: 'template',
+            template_name: plan.templateName,
+            message_id: sentMessageId,
+            status: 'sent',
+            created_at: new Date().toISOString(),
+          })
+        await db
+          .from('conversations')
+          .update({
+            last_message_text: `[Template] ${plan.templateName}`,
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', resolved.conversationId)
+      } catch (err) {
+        console.error(
+          `[broadcast-core] Failed to persist message for ${recipient.phone}:`,
+          err instanceof Error ? err.message : err,
+        )
+      }
+
       await db
         .from('broadcast_recipients')
         .update({

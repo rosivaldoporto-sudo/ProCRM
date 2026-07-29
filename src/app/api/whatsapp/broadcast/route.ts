@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
 import {
@@ -226,6 +228,39 @@ export async function POST(request: Request) {
       }
 
       if (sentMessageId) {
+        // Persist conversation + message so the broadcast shows in the inbox
+        try {
+          const resolved = await resolveConversationByPhone(
+            supabaseAdmin(),
+            accountId,
+            sanitized,
+          )
+          await supabaseAdmin()
+            .from('messages')
+            .insert({
+              conversation_id: resolved.conversationId,
+              sender_type: 'agent',
+              content_type: 'template',
+              template_name: template_name,
+              message_id: sentMessageId,
+              status: 'sent',
+              created_at: new Date().toISOString(),
+            })
+          await supabaseAdmin()
+            .from('conversations')
+            .update({
+              last_message_text: `[Template] ${template_name}`,
+              last_message_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', resolved.conversationId)
+        } catch (err) {
+          console.error(
+            `Failed to persist broadcast message for ${sanitized}:`,
+            err instanceof Error ? err.message : err,
+          )
+        }
+
         results.push({
           phone: recipient.phone,
           status: 'sent',

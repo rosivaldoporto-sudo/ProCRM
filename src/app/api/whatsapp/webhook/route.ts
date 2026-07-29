@@ -58,6 +58,12 @@ interface WhatsAppMessage {
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
   }
+  /**
+   * Legacy button reply — sent when the customer taps a quick reply
+   * button on a template message. The `payload` is the stable
+   * identifier we assigned to the button; `text` is the human label.
+   */
+  button?: { payload: string; text: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
 }
@@ -654,7 +660,9 @@ async function processMessage(
     ? message.type
     : message.type === 'sticker'
       ? 'image'   // stickers are images
-      : 'text'    // reaction, unknown → text fallback
+      : message.type === 'button'
+        ? 'interactive' // legacy button replies → interactive
+        : 'text'    // reaction, unknown → text fallback
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -977,6 +985,21 @@ async function parseMessageContent(
       }
       return { ...empty, contentText: '[Interactive reply]' }
     }
+
+    case 'button':
+      // Legacy button reply — sent when the customer taps a quick reply
+      // button on a template message (distinct from interactive.reply).
+      // Treat it identically to interactive.button_reply so the button
+      // label renders in the inbox and the payload is available for
+      // flow routing.
+      if (message.button) {
+        return {
+          ...empty,
+          contentText: message.button.text || message.button.payload,
+          interactiveReplyId: message.button.payload,
+        }
+      }
+      return { ...empty, contentText: '[Button reply]' }
 
     default:
       return {
