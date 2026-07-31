@@ -104,8 +104,10 @@ export async function GET(request: Request) {
  * Handles incoming messages and status updates from Uazapi.
  */
 export async function POST(request: Request) {
+  const debug = new URL(request.url).searchParams.get('debug') === '1'
   try {
     const payload = (await request.json()) as UazapiWebhookPayload
+    console.log('[uazapi-webhook] POST received:', JSON.stringify(payload).slice(0, 1500))
     const db = supabaseAdmin()
 
     // Resolve the uazapi_config row. Uazapi v2 identifies the instance
@@ -114,14 +116,33 @@ export async function POST(request: Request) {
     const config = await resolveConfig(db, payload)
     if (!config) {
       console.error('[uazapi-webhook] no matching Uazapi config found')
-      return NextResponse.json({ error: 'No matching Uazapi config found' }, { status: 404 })
+      return NextResponse.json(
+        debug
+          ? { status: 'ok', debug: { config: 'none' } }
+          : { error: 'No matching Uazapi config found' },
+        debug ? { status: 200 } : { status: 404 },
+      )
     }
 
     // Handle different payload shapes from Uazapi
     const messages = extractMessages(payload)
+    console.log(`[uazapi-webhook] extracted ${messages.length} message(s) from payload`)
 
     if (messages.length === 0) {
-      return NextResponse.json({ status: 'ok' })
+      return NextResponse.json(
+        debug
+          ? {
+              status: 'ok',
+              debug: {
+                config: 'matched',
+                extracted: 0,
+                // Payload keys help identify the shape your Uazapi sends.
+                payloadKeys: Object.keys(payload),
+                messageKeys: payload.message ? Object.keys(payload.message) : undefined,
+              },
+            }
+          : { status: 'ok' },
+      )
     }
 
     const apiToken = decrypt(config.api_token)
@@ -260,7 +281,14 @@ export async function POST(request: Request) {
       })
     }
 
-    return NextResponse.json({ status: 'ok' })
+    return NextResponse.json(
+      debug
+        ? {
+            status: 'ok',
+            debug: { config: 'matched', extracted: messages.length },
+          }
+        : { status: 'ok' },
+    )
   } catch (error) {
     console.error('Error in Uazapi webhook POST:', error)
     return NextResponse.json({ status: 'ok' }) // Always return 200 to acknowledge receipt
