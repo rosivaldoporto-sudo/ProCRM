@@ -193,7 +193,8 @@
       "expired": "Expired",
       "xhRemaining": "{hours}h remaining",
       "xmRemaining": "{minutes}m remaining",
-      "noCustomerMessages": "No customer messages"
+      "noCustomerMessages": "No customer messages",
+      "uazapiUnlimited": "Uazapi — no 24h limit"
     },
     "composer": {
       "draftHint": "Tap the ✨ to draft a reply with AI — you can edit it before sending",

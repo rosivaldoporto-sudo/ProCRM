@@ -269,6 +269,12 @@ export function MessageThread({
     return { expired, remaining };
   }, [messages, tTimer]);
 
+  // The 24h Meta window only applies to the official WhatsApp Cloud API.
+  // UAZAPI sends through the user's own WhatsApp Web session, which has
+  // no such restriction — so the composer must not be locked by the
+  // session timer when the effective send channel is Uazapi.
+  const sessionLocked = effectiveChannel === "uazapi" ? false : sessionInfo.expired;
+
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
   // fetchMessages to change → useEffect re-fires → refetch → realtime
@@ -940,11 +946,17 @@ export function MessageThread({
             variant="outline"
             className={cn(
               "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
-              sessionInfo.expired ? "text-red-400" : "text-primary"
+              effectiveChannel === "uazapi"
+                ? "text-violet-400"
+                : sessionInfo.expired
+                  ? "text-red-400"
+                  : "text-primary",
             )}
           >
             <Clock className="h-3 w-3" />
-            {sessionInfo.remaining}
+            {effectiveChannel === "uazapi"
+              ? tTimer("uazapiUnlimited")
+              : sessionInfo.remaining}
           </Badge>
         </div>
 
@@ -1185,7 +1197,7 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
+        sessionExpired={sessionLocked}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onSendInteractive={handleSendInteractive}
