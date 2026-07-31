@@ -6,6 +6,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
 
 export const maxDuration = 60
 
@@ -21,33 +22,34 @@ function supabaseAdmin() {
   return _adminClient
 }
 
+/**
+ * Uazapi v2 webhook payload (flat shape). Reference:
+ * https://github.com/eziocm/uazapi/blob/main/src/types.ts
+ *
+ * Older/alternative shapes (Baileys-style `data.msg`, `data.from`,
+ * `messages[]`) are still accepted for backward compatibility.
+ */
 interface UazapiWebhookPayload {
-  event?: string
+  EventType?: string
   instance?: string
+  owner?: string
+  token?: string
+  message?: UazapiWebhookMessage
   data?: {
-    msg?: {
-      key?: {
-        id?: string
-        remoteJid?: string
-        fromMe?: boolean
-      }
+    msg?: UazapiWebhookMessage & {
+      key?: { id?: string; remoteJid?: string; fromMe?: boolean }
       message?: {
         conversation?: string
         extendedTextMessage?: { text: string }
-        imageMessage?: { url?: string; caption?: string }
-        videoMessage?: { url?: string; caption?: string }
-        documentMessage?: { url?: string; caption?: string; fileName?: string }
-        audioMessage?: { url?: string }
       }
       pushName?: string
-      messageType?: string
     }
+    message?: UazapiWebhookMessage
+    from?: string
     to?: string
     text?: string
-    from?: string
     id?: string
   }
-  // Alternative payload shapes from Uazapi
   messages?: Array<{
     id: string
     from: string
@@ -58,6 +60,26 @@ interface UazapiWebhookPayload {
     caption?: string
     timestamp?: string
   }>
+}
+
+interface UazapiWebhookMessage {
+  id?: string
+  messageid?: string
+  chatid?: string
+  sender?: string
+  senderName?: string
+  sender_pn?: string
+  text?: string
+  content?: unknown
+  messageType?: string
+  mediaType?: string
+  type?: string
+  fromMe?: boolean
+  wasSentByApi?: boolean
+  isGroup?: boolean
+  groupName?: string
+  messageTimestamp?: number | string
+  owner?: string
 }
 
 /**
@@ -86,36 +108,13 @@ export async function POST(request: Request) {
     const payload = (await request.json()) as UazapiWebhookPayload
     const db = supabaseAdmin()
 
-    // Determine instance name from payload
-    const instanceName = payload.instance || ''
-
-    // Try to find the config for this instance
-    let configQuery = db.from('uazapi_config').select('*')
-
-    if (instanceName) {
-      configQuery = configQuery.eq('instance_name', instanceName)
-    }
-
-    const { data: configs } = await configQuery.limit(1)
-
-    if (!configs || configs.length === 0) {
+    // Resolve the uazapi_config row. Uazapi v2 identifies the instance
+    // via `owner` / `token` (not `instance`), so try those before
+    // falling back to a single-config lookup.
+    const config = await resolveConfig(db, payload)
+    if (!config) {
+      console.error('[uazapi-webhook] no matching Uazapi config found')
       return NextResponse.json({ error: 'No matching Uazapi config found' }, { status: 404 })
-    }
-
-    const config = configs[0]
-
-    // Verify webhook if secret is configured
-    if (config.webhook_secret) {
-      try {
-        const secret = decrypt(config.webhook_secret)
-        // Uazapi may send a signature header — verify if present
-        const signature = request.headers.get('x-uazapi-signature') || ''
-        if (signature && secret) {
-          // Simple comparison for now; extend if Uazapi provides signature verification
-        }
-      } catch {
-        // If decryption fails, continue without verification
-      }
     }
 
     // Handle different payload shapes from Uazapi
@@ -124,6 +123,8 @@ export async function POST(request: Request) {
     if (messages.length === 0) {
       return NextResponse.json({ status: 'ok' })
     }
+
+    const apiToken = decrypt(config.api_token)
 
     for (const msg of messages) {
       // Skip outbound messages (sent by us)
@@ -151,23 +152,70 @@ export async function POST(request: Request) {
       const { contentType, contentText, mediaUrl } = extractMessageContent(msg)
       if (!contentType) continue
 
+      // Dedupe — Uazapi can redeliver webhooks (reconnect/retry); the
+      // messages.message_id column is intentionally non-unique (036),
+      // so dedupe explicitly by the Uazapi message id.
+      if (msg.id) {
+        const { data: existingMsg } = await db
+          .from('messages')
+          .select('id')
+          .eq('conversation_id', conversation.id)
+          .eq('message_id', msg.id)
+          .maybeSingle()
+        if (existingMsg) continue
+      }
+
       // Persist the message
-      await db.from('messages').insert({
-        conversation_id: conversation.id,
-        sender_type: 'customer',
-        content_type: contentType,
-        content_text: contentText,
-        media_url: mediaUrl,
-        message_id: msg.id,
-        status: 'delivered',
-        source: 'uazapi',
-      })
+      const { data: inserted, error: insertError } = await db
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          sender_type: 'customer',
+          content_type: contentType,
+          content_text: contentText,
+          media_url: mediaUrl,
+          message_id: msg.id || null,
+          status: 'delivered',
+          source: 'uazapi',
+          created_at: msg.createdAt ?? new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      if (insertError) {
+        console.error('[uazapi-webhook] error inserting message:', insertError.message)
+        continue
+      }
+
+      // Best-effort: resolve the real file URL for media messages
+      // (Uazapi webhooks carry only the message id for media; the file
+      // must be fetched via /message/download). Done async so it never
+      // blocks the webhook response.
+      if (inserted && mediaUrl === null && contentType !== 'text') {
+        after(async () => {
+          try {
+            const file = await downloadMessageUrl({
+              serverUrl: config.server_url,
+              apiToken,
+              messageId: msg.id,
+            })
+            if (file?.url) {
+              await db
+                .from('messages')
+                .update({ media_url: file.url })
+                .eq('id', inserted.id)
+            }
+          } catch (err) {
+            console.error('[uazapi-webhook] media download failed:', err)
+          }
+        })
+      }
 
       // Update conversation metadata + increment unread_count
       // If the existing source differs from uazapi, set to null (mixed)
       const convUpdate: Record<string, unknown> = {
         last_message_text: contentText || `[${contentType}]`,
-        last_message_at: new Date().toISOString(),
+        last_message_at: msg.createdAt ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'open',
         unread_count: (conversation.unread_count || 0) + 1,
@@ -219,6 +267,47 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * Locate the uazapi_config row this webhook belongs to. Uazapi v2
+ * payloads carry the instance `owner` (name) and the instance `token` —
+ * match on those when present. Falls back to the single config row
+ * when there's exactly one.
+ */
+async function resolveConfig(
+  db: ReturnType<typeof supabaseAdmin>,
+  payload: UazapiWebhookPayload,
+): Promise<{ account_id: string; user_id: string; server_url: string; api_token: string } | null> {
+  const ownerCandidates = [
+    payload.owner,
+    payload.instance,
+    payload.message?.owner,
+    payload.data?.msg?.owner,
+  ].filter(Boolean) as string[]
+
+  const { data: allConfigs, error } = await db.from('uazapi_config').select('*')
+  if (error || !allConfigs || allConfigs.length === 0) return null
+
+  if (allConfigs.length === 1) return allConfigs[0]
+
+  // Multiple configs — match by instance name first, then by token.
+  for (const name of ownerCandidates) {
+    const byName = allConfigs.find((c: { instance_name: string }) => c.instance_name === name)
+    if (byName) return byName
+  }
+
+  if (payload.token) {
+    for (const config of allConfigs) {
+      try {
+        if (decrypt(config.api_token) === payload.token) return config
+      } catch {
+        // skip unreadable configs
+      }
+    }
+  }
+
+  return null
+}
+
 // ============================================================
 // Helper functions
 // ============================================================
@@ -231,12 +320,82 @@ interface ExtractedMessage {
   contentType: string | null
   contentText: string | null
   mediaUrl: string | null
+  createdAt?: string
+}
+
+/**
+ * Map a Uazapi messageType/mediaType onto our messages.content_type
+ * values. `conversation` is Uazapi's name for plain text.
+ */
+function mapContentType(messageType: string, mediaType: string): string | null {
+  const type = (messageType || '').toLowerCase()
+  if (type.includes('image')) return 'image'
+  if (type.includes('video')) return 'video'
+  if (type.includes('audio') || type.includes('ptt')) return 'audio'
+  if (type.includes('document') || type.includes('file')) return 'document'
+  if (type.includes('location')) return 'location'
+  if (type === 'conversation' || type === 'text') return 'text'
+
+  const media = (mediaType || '').toLowerCase()
+  if (media === 'image' || media === 'sticker') return 'image'
+  if (media === 'video') return 'video'
+  if (media === 'audio' || media === 'ptt') return 'audio'
+  if (media === 'document') return 'document'
+  return null
 }
 
 function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   const result: ExtractedMessage[] = []
+  const seenIds = new Set<string>()
+  const push = (msg: ExtractedMessage) => {
+    if (!msg.from) return
+    if (msg.id && seenIds.has(msg.id)) return
+    if (msg.id) seenIds.add(msg.id)
+    result.push(msg)
+  }
 
-  // Shape 1: payload.data.msg (Uazapi standard webhook)
+  // Shape 0: Uazapi v2 flat payload (primary).
+  //   { EventType: 'messages', message: { messageid, chatid, sender, text,
+  //     fromMe, wasSentByApi, senderName, messageType, mediaType, type,
+  //     isGroup, messageTimestamp }, chat: {...}, owner, token }
+  // Also accepted nested under payload.data.message.
+  const flatMessage = payload.message ?? payload.data?.message
+  if (flatMessage) {
+    // Outbound / API-sent messages loop back through the webhook — skip.
+    if (!flatMessage.fromMe && !flatMessage.wasSentByApi) {
+      const isGroup = flatMessage.isGroup === true ||
+        /@g\.us$/.test(flatMessage.chatid || '')
+      if (!isGroup) {
+        const text = typeof flatMessage.text === 'string' ? flatMessage.text : ''
+        const content = flatMessage.content
+        const contentString =
+          typeof content === 'string' ? content : (content as { text?: string })?.text
+        const body = text || contentString || ''
+        const contentType = mapContentType(flatMessage.messageType || '', flatMessage.mediaType || '')
+        if (contentType) {
+          const ts = flatMessage.messageTimestamp
+          const createdAt =
+            typeof ts === 'number' && ts > 0
+              ? new Date(ts > 1e12 ? ts : ts * 1000).toISOString()
+              : typeof ts === 'string' && !isNaN(Date.parse(ts))
+                ? new Date(ts).toISOString()
+                : undefined
+          push({
+            id: flatMessage.messageid || flatMessage.id || '',
+            from: flatMessage.chatid || flatMessage.sender || '',
+            fromMe: false,
+            pushName: flatMessage.senderName || flatMessage.sender_pn || '',
+            contentType,
+            contentText: body || null,
+            mediaUrl: null,
+            createdAt,
+          })
+        }
+      }
+    }
+  }
+
+  // Shape 1: payload.data.msg (Baileys-style)
   if (payload.data?.msg) {
     const msg = payload.data.msg
     const key = msg.key || {}
@@ -247,7 +406,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     const extendedText = message.extendedTextMessage?.text || ''
     const text = conversation || extendedText
 
-    result.push({
+    push({
       id: key.id || '',
       from: key.remoteJid?.replace(/@.*$/, '') || payload.data.from || '',
       fromMe: false,
@@ -262,7 +421,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   if (payload.data?.from && payload.data?.text) {
     const existing = result.find((r) => r.from === payload.data!.from)
     if (!existing) {
-      result.push({
+      push({
         id: payload.data.id || '',
         from: payload.data.from,
         fromMe: false,
@@ -277,18 +436,15 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   // Shape 3: payload.messages array
   if (payload.messages) {
     for (const m of payload.messages) {
-      const existing = result.find((r) => r.id === m.id)
-      if (!existing) {
-        result.push({
-          id: m.id,
-          from: m.from,
-          fromMe: false,
-          pushName: '',
-          contentType: m.media ? (m.type === 'image' ? 'image' : 'document') : 'text',
-          contentText: m.caption || m.text || null,
-          mediaUrl: m.media || null,
-        })
-      }
+      push({
+        id: m.id,
+        from: m.from,
+        fromMe: false,
+        pushName: '',
+        contentType: m.media ? (m.type === 'image' ? 'image' : 'document') : 'text',
+        contentText: m.caption || m.text || null,
+        mediaUrl: m.media || null,
+      })
     }
   }
 

@@ -285,7 +285,7 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
   if (!data || typeof data !== 'object') return []
 
   const obj = data as Record<string, unknown>
-  let arr: unknown[] = Array.isArray(data) ? data : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
+  const arr: unknown[] = Array.isArray(data) ? data : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
 
   if (!Array.isArray(arr)) return []
 
@@ -341,4 +341,28 @@ export async function sendMenu(
   }
   const data = await response.json()
   return { messageId: data.id || data.message_id || data.key?.id || '' }
+}
+
+/**
+ * Resolve a download URL for a received media message.
+ * POST /message/download with return_link=true
+ * Auth: token header
+ * Body: { id: "<messageid>", return_link: true }
+ * Response: { url: "https://...", mimetype: "..." }
+ */
+export async function downloadMessageUrl(args: {
+  serverUrl: string
+  apiToken: string
+  messageId: string
+}): Promise<{ url?: string; mimetype?: string } | null> {
+  const { serverUrl, apiToken, messageId } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/message/download`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(apiToken),
+    body: JSON.stringify({ id: messageId, return_link: true }),
+  })
+  if (!response.ok) return null
+  const data = await response.json()
+  return { url: data.url || data.fileURL || undefined, mimetype: data.mimetype || undefined }
 }
