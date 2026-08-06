@@ -101,31 +101,77 @@ export function ConversationList({
     let cancelled = false;
 
     (async () => {
-      let query = supabase
-        .from("conversations")
-        .select(CONVERSATION_SELECT);
+      let data: Conversation[] = [];
 
-      if (sourceFilter !== "all") {
-        query = query.eq("source", sourceFilter);
+      if (sourceFilter === "all") {
+        const { data: all, error } = await supabase
+          .from("conversations")
+          .select(CONVERSATION_SELECT)
+          .order("last_message_at", { ascending: false });
+
+        if (cancelled) return;
+
+        if (error) {
+          // Supabase errors have non-enumerable properties — log fields explicitly
+          console.error("Failed to fetch conversations:", {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+          });
+          setLoading(false);
+          return;
+        }
+        data = all ?? [];
+      } else {
+        // Two lookups merged into one list:
+        // 1) conversations whose own `source` column matches — covers
+        //    rows created by the Uazapi sync route, which can exist
+        //    without message rows yet;
+        // 2) conversations that contain at least one message from the
+        //    channel. Mixed conversations (Meta + Uazapi) get
+        //    `source = null` (see the Uazapi webhook), so a column
+        //    match alone would miss them.
+        const [bySource, byMessage] = await Promise.all([
+          supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("source", sourceFilter),
+          supabase
+            .from("conversations")
+            .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
+            .eq("messages.source", sourceFilter),
+        ]);
+
+        if (cancelled) return;
+
+        if (bySource.error || byMessage.error) {
+          const error = bySource.error ?? byMessage.error;
+          console.error("Failed to fetch conversations:", {
+            message: error!.message,
+            details: error!.details,
+            hint: error!.hint,
+            code: error!.code,
+          });
+          setLoading(false);
+          return;
+        }
+
+        const seen = new Map<string, Conversation>();
+        for (const row of [
+          ...(bySource.data ?? []),
+          ...(byMessage.data ?? []),
+        ]) {
+          if (!seen.has(row.id)) seen.set(row.id, row);
+        }
+        data = Array.from(seen.values()).sort(
+          (a, b) =>
+            new Date(b.last_message_at ?? 0).getTime() -
+            new Date(a.last_message_at ?? 0).getTime()
+        );
       }
 
-      const { data, error } = await query.order("last_message_at", { ascending: false });
-
-      if (cancelled) return;
-
-      if (error) {
-        // Supabase errors have non-enumerable properties — log fields explicitly
-        console.error("Failed to fetch conversations:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        setLoading(false);
-        return;
-      }
-
-      onConversationsLoadedRef.current(normalizeConversations(data ?? []));
+      onConversationsLoadedRef.current(normalizeConversations(data));
       setLoading(false);
     })();
 
@@ -133,8 +179,9 @@ export function ConversationList({
       cancelled = true;
     };
     // `resyncToken` is included so the parent can force a refetch when
-    // the realtime channel reconnects or the tab regains focus — catches
-    // up on any events sent while the WS was disconnected or throttled.
+    // the realtime channel reconnects or the tab regains focus —
+    // realtime is best-effort and any message events sent while the WS
+    // was disconnected or throttled are otherwise lost.
   }, [resyncToken, sourceFilter]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
