@@ -171,7 +171,14 @@ export async function POST(request: Request) {
 
       // Determine content type and text
       const { contentType, contentText, mediaUrl } = extractMessageContent(msg)
-      if (!contentType) continue
+      if (!contentType) {
+        console.warn('[uazapi-webhook] dropped message — no text and unmapped type:', {
+          messageId: msg.id,
+          messageType: msg.messageType,
+          mediaType: msg.mediaType,
+        })
+        continue
+      }
 
       // Dedupe — Uazapi can redeliver webhooks (reconnect/retry); the
       // messages.message_id column is intentionally non-unique (036),
@@ -349,26 +356,44 @@ interface ExtractedMessage {
   contentText: string | null
   mediaUrl: string | null
   createdAt?: string
+  /** Raw Uazapi fields, kept for diagnostics/logging. */
+  messageType?: string
+  mediaType?: string
 }
 
 /**
  * Map a Uazapi messageType/mediaType onto our messages.content_type
- * values. `conversation` is Uazapi's name for plain text.
+ * values. `conversation` is Uazapi's name for plain text; Baileys proto
+ * names (`extendedTextMessage`, `imageMessage`, ...) are handled too.
+ * Falls back to `text` when the message carries a text body but the
+ * type is unknown to us — better to persist it than to drop it.
  */
 function mapContentType(messageType: string, mediaType: string): string | null {
   const type = (messageType || '').toLowerCase()
-  if (type.includes('image')) return 'image'
-  if (type.includes('video')) return 'video'
-  if (type.includes('audio') || type.includes('ptt')) return 'audio'
-  if (type.includes('document') || type.includes('file')) return 'document'
-  if (type.includes('location')) return 'location'
-  if (type === 'conversation' || type === 'text') return 'text'
-
   const media = (mediaType || '').toLowerCase()
-  if (media === 'image' || media === 'sticker') return 'image'
-  if (media === 'video') return 'video'
-  if (media === 'audio' || media === 'ptt') return 'audio'
-  if (media === 'document') return 'document'
+
+  // Media — unambiguous, match both `imageMessage`-style and plain names.
+  if (type.includes('image') || type.includes('sticker') || media === 'image' || media === 'sticker') return 'image'
+  if (type.includes('video') || media === 'video') return 'video'
+  if (type.includes('audio') || type.includes('ptt') || media === 'audio' || media === 'ptt') return 'audio'
+  if (type.includes('document') || type.includes('file') || type.includes('pdf') || media === 'document') return 'document'
+  if (type.includes('location')) return 'location'
+
+  // Text-like messages. `ephemeralMessage` wraps disappearing messages
+  // (the real proto is nested inside); interactive/list/button replies
+  // carry their answer in the text body.
+  if (
+    type === 'conversation' ||
+    type === 'text' ||
+    type.includes('textmessage') ||
+    type === 'ephemeralmessage' ||
+    type.includes('response') ||
+    type === 'interactive'
+  ) {
+    return 'text'
+  }
+
+  // Unknown type — let the caller decide whether the body has text.
   return null
 }
 
@@ -400,7 +425,10 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
           typeof content === 'string' ? content : (content as { text?: string })?.text
         const body = text || contentString || ''
         const contentType = mapContentType(flatMessage.messageType || '', flatMessage.mediaType || '')
-        if (contentType) {
+        // Unknown message types still get persisted as text when a body
+        // is present — better to keep the message than to drop it.
+        const resolvedType = contentType || (body ? 'text' : null)
+        if (resolvedType) {
           const ts = flatMessage.messageTimestamp
           const createdAt =
             typeof ts === 'number' && ts > 0
@@ -413,10 +441,12 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
             from: flatMessage.chatid || flatMessage.sender || '',
             fromMe: false,
             pushName: flatMessage.senderName || flatMessage.sender_pn || '',
-            contentType,
+            contentType: resolvedType,
             contentText: body || null,
             mediaUrl: null,
             createdAt,
+            messageType: flatMessage.messageType || flatMessage.type || '',
+            mediaType: flatMessage.mediaType || '',
           })
         }
       }

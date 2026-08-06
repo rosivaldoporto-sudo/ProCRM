@@ -574,6 +574,11 @@ export function UazapiConfig() {
                 <code className="block bg-muted px-2 py-1 rounded text-xs break-all">
                   {webhookUrl}
                 </code>
+                <p className="text-xs text-muted-foreground">
+                  Habilite o webhook e selecione o evento <code className="bg-muted px-1 rounded">messages</code>.
+                  Em &ldquo;Excluir mensagens&rdquo;, marque <code className="bg-muted px-1 rounded">wasSentByApi</code>{' '}
+                  para evitar loop (mensagens enviadas pela própria API voltando pelo webhook).
+                </p>
               </div>
 
               <div className="space-y-2">
