@@ -14,6 +14,7 @@ import {
   Tag as TagIcon,
   DollarSign,
   StickyNote,
+  Megaphone,
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -204,6 +205,48 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                   </span>
                 ))
               )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* Ad attribution (CTWA) */}
+          <div>
+            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <Megaphone className="h-3 w-3" />
+              {tSidebar("adAttribution")}
+            </div>
+            <div className="mt-2">
+              <div className="rounded-lg bg-muted px-3 py-2">
+                <p className="text-sm font-medium text-foreground">
+                  {contact.ad_name || tSidebar("noAdsAttribution")}
+                </p>
+                {contact.campaign_name && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {contact.campaign_name}
+                  </p>
+                )}
+                {(contact.ad_id || contact.campaign_id) && (
+                  <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/70">
+                    {[
+                      contact.ad_id && `${tSidebar("adId")} ${contact.ad_id}`,
+                      contact.campaign_id &&
+                        `${tSidebar("campaignId")} ${contact.campaign_id}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+                {contact.ctwa_clid && (
+                  <p
+                    className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70"
+                    title={contact.ctwa_clid}
+                  >
+                    {tSidebar("clickId")}: {contact.ctwa_clid}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

@@ -283,7 +283,12 @@
       "deals": "Negócios",
       "noTags": "Sem tags",
       "noDeals": "Sem negócios",
-      "addNotePlaceholder": "Adicionar uma anotação..."
+      "addNotePlaceholder": "Adicionar uma anotação...",
+      "adAttribution": "Origem do anúncio",
+      "noAdsAttribution": "Sem anúncio",
+      "clickId": "ID do clique",
+      "adId": "Anúncio",
+      "campaignId": "Campanha"
     },
     "aiBanner": {
       "pausedTitle": "Assistente de IA está pausado aqui",

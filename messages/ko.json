@@ -282,7 +282,12 @@
       "deals": "딜",
       "noTags": "태그 없음",
       "noDeals": "딜 없음",
-      "addNotePlaceholder": "메모 추가..."
+      "addNotePlaceholder": "메모 추가...",
+      "adAttribution": "광고 출처",
+      "noAdsAttribution": "광고 없음",
+      "clickId": "클릭 ID",
+      "adId": "광고",
+      "campaignId": "캠페인"
     },
     "aiBanner": {
       "pausedTitle": "이 대화에서 AI 어시스턴트가 일시 중지됨",

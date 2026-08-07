@@ -283,7 +283,12 @@
       "deals": "Deals",
       "noTags": "No tags",
       "noDeals": "No deals",
-      "addNotePlaceholder": "Add a note..."
+      "addNotePlaceholder": "Add a note...",
+      "adAttribution": "Ad attribution",
+      "noAdsAttribution": "No ad",
+      "clickId": "Click ID",
+      "adId": "Ad",
+      "campaignId": "Campaign"
     },
     "aiBanner": {
       "pausedTitle": "AI assistant is paused here",
