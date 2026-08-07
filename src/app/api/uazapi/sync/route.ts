@@ -1,14 +1,33 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import { fetchChats } from '@/lib/uazapi/uazapi-client'
+import { fetchChats, fetchMessages } from '@/lib/uazapi/uazapi-client'
+import {
+  mapUazapiContentType,
+  mapUazapiStatus,
+  uazapiTimestampToIso,
+} from '@/lib/uazapi/message-mapping'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { resolveAuditUserId } from '@/lib/api/v1/contacts'
 
 export const maxDuration = 120
 
-export async function POST() {
+/**
+ * POST /api/uazapi/sync
+ *
+ * Pulls existing chats from the Uazapi server and mirrors them into the
+ * CRM:
+ *   1. Lists individual chats (POST /chat/find, most recent first).
+ *   2. For each chat, finds/creates the contact and conversation.
+ *   3. Imports the stored message history (POST /message/find) so the
+ *      conversations aren't empty shells.
+ *
+ * Query params:
+ *   limit    — max chats to process (default 50, max 200)
+ *   messages — "false" skips the message-history import (default true)
+ */
+export async function POST(request: Request) {
   try {
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -36,20 +55,28 @@ export async function POST() {
       return NextResponse.json({ error: 'Uazapi is not connected.' }, { status: 400 })
     }
 
+    const { searchParams } = new URL(request.url)
+    const limit = Math.min(
+      Math.max(Number(searchParams.get('limit')) || 50, 1),
+      200,
+    )
+    const includeMessages = searchParams.get('messages') !== 'false'
+
     const apiToken = decrypt(config.api_token)
     const ownerUserId = await resolveAuditUserId(supabase, accountId)
 
     // Fetch recent chats from Uazapi server
-    const chats = await fetchChats({ serverUrl: config.server_url, apiToken, limit: 50 })
+    const chats = await fetchChats({ serverUrl: config.server_url, apiToken, limit })
 
     if (chats.length === 0) {
-      return NextResponse.json({ synced: 0, message: 'No chats found to sync.' })
+      return NextResponse.json({ synced: 0, messagesImported: 0, message: 'No chats found to sync.' })
     }
 
     let syncedCount = 0
+    let messagesImported = 0
 
     for (const chat of chats) {
-      const phone = normalizePhone(chat.phone)
+      const phone = normalizePhone(chat.phone || chat.chatid || chat.id)
       if (!phone) continue
 
       // Find or create contact
@@ -91,43 +118,218 @@ export async function POST() {
       // Find or create conversation with source='uazapi'
       const { data: existingConv } = await supabase
         .from('conversations')
-        .select('id, source')
+        .select('*')
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
         .maybeSingle()
 
+      let conversationId: string
+
       if (existingConv) {
-        continue // Already exists — skip
-      }
+        conversationId = existingConv.id
+        // Refresh metadata when the server has a newer last message.
+        const syncedAt = chat.lastMessageAt ? new Date(chat.lastMessageAt).getTime() : null
+        const currentAt = existingConv.last_message_at
+          ? new Date(existingConv.last_message_at).getTime()
+          : null
+        if (syncedAt !== null && (currentAt === null || syncedAt > currentAt)) {
+          const convUpdate: Record<string, unknown> = {
+            last_message_text: chat.lastMessage || existingConv.last_message_text,
+            last_message_at: new Date(syncedAt).toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+          if (
+            chat.unreadCount != null &&
+            chat.unreadCount > (existingConv.unread_count || 0)
+          ) {
+            convUpdate.unread_count = chat.unreadCount
+          }
+          await supabase.from('conversations').update(convUpdate).eq('id', conversationId)
+        }
+      } else {
+        const { data: created, error: convErr } = await supabase
+          .from('conversations')
+          .insert({
+            account_id: accountId,
+            user_id: ownerUserId,
+            contact_id: contactId,
+            source: 'uazapi',
+            last_message_text: chat.lastMessage || null,
+            last_message_at: chat.lastMessageAt
+              ? new Date(chat.lastMessageAt).toISOString()
+              : null,
+            unread_count: chat.unreadCount || 0,
+          })
+          .select('id')
+          .single()
 
-      const { error: convErr } = await supabase
-        .from('conversations')
-        .insert({
-          account_id: accountId,
-          user_id: ownerUserId,
-          contact_id: contactId,
-          source: 'uazapi',
-          last_message_text: chat.lastMessage || null,
-          last_message_at: chat.lastMessageAt ? new Date(chat.lastMessageAt).toISOString() : null,
-          unread_count: chat.unreadCount || 0,
-        })
-
-      if (convErr) {
-        if (isUniqueViolation(convErr)) continue // Race: already exists
-        console.error('[uazapi-sync] conversation insert error:', convErr.message)
-        continue
+        if (convErr || !created) {
+          if (isUniqueViolation(convErr)) continue // Race: already exists
+          console.error('[uazapi-sync] conversation insert error:', convErr?.message)
+          continue
+        }
+        conversationId = created.id
       }
 
       syncedCount++
+
+      // Import stored message history for this chat
+      if (includeMessages) {
+        messagesImported += await syncChatMessages(
+          supabase,
+          conversationId,
+          chat.id,
+          config.server_url,
+          apiToken,
+        )
+      }
     }
 
     return NextResponse.json({
       synced: syncedCount,
+      messagesImported,
       found: chats.length,
-      message: `Synced ${syncedCount} of ${chats.length} chats found.`,
+      message: `Synced ${syncedCount} of ${chats.length} chats found (${messagesImported} messages imported).`,
     })
   } catch (error) {
     console.error('[uazapi-sync] error:', error)
     return NextResponse.json({ error: 'Sync failed' }, { status: 500 })
   }
+}
+
+/**
+ * Import the stored messages of one chat via POST /message/find,
+ * skipping rows that already exist locally. Dedupe is done on the
+ * Uazapi message id plus a fuzzy check (same sender + text within a
+ * short time window) so messages that were already ingested through
+ * the Meta webhook aren't duplicated as Uazapi rows.
+ */
+async function syncChatMessages(
+  db: Awaited<ReturnType<typeof createClient>>,
+  conversationId: string,
+  chatid: string,
+  serverUrl: string,
+  apiToken: string,
+): Promise<number> {
+  // Load what we already have for the conversation.
+  const { data: existingRows } = await db
+    .from('messages')
+    .select('message_id, sender_type, content_text, created_at')
+    .eq('conversation_id', conversationId)
+
+  const existingIds = new Set<string>()
+  const bySenderText = new Map<string, number[]>()
+  for (const row of existingRows ?? []) {
+    if (row.message_id) existingIds.add(row.message_id)
+    const text = String(row.content_text ?? '')
+    if (!text) continue
+    const key = `${row.sender_type}|${text}`
+    const list = bySenderText.get(key) ?? []
+    list.push(new Date(row.created_at).getTime())
+    bySenderText.set(key, list)
+  }
+
+  const DUP_WINDOW_MS = 90_000
+
+  const isDuplicate = (m: {
+    messageid?: string
+    sender_type: string
+    text: string
+    createdAt: number
+  }): boolean => {
+    if (m.messageid && existingIds.has(m.messageid)) return true
+    if (!m.text) return false
+    const list = bySenderText.get(`${m.sender_type}|${m.text}`)
+    if (!list) return false
+    return list.some((ts) => Math.abs(ts - m.createdAt) < DUP_WINDOW_MS)
+  }
+
+  let imported = 0
+  let offset = 0
+  const pageSize = 100
+
+  for (;;) {
+    const messages = await fetchMessages({
+      serverUrl,
+      apiToken,
+      chatid,
+      limit: pageSize,
+      offset,
+    })
+    if (messages.length === 0) break
+
+    for (const m of messages) {
+      if (m.isGroup) continue
+
+      const text = typeof m.text === 'string' ? m.text : ''
+      const content = m.content
+      const contentString =
+        typeof content === 'string'
+          ? content
+          : (content as { text?: string } | undefined)?.text
+      const body = text || contentString || ''
+
+      const contentType =
+        mapUazapiContentType(m.messageType || '', m.mediaType || '') ||
+        (body ? 'text' : null)
+      if (!contentType) {
+        console.warn('[uazapi-sync] skipped message — no text and unmapped type:', {
+          chatid,
+          messageid: m.messageid,
+          messageType: m.messageType,
+        })
+        continue
+      }
+
+      const createdAt = uazapiTimestampToIso(m.messageTimestamp)
+      const createdAtMs = createdAt ? new Date(createdAt).getTime() : Date.now()
+
+      if (
+        isDuplicate({
+          messageid: m.messageid,
+          sender_type: m.fromMe ? 'agent' : 'customer',
+          text: body,
+          createdAt: createdAtMs,
+        })
+      ) {
+        continue
+      }
+
+      const { error } = await db.from('messages').insert({
+        conversation_id: conversationId,
+        sender_type: m.fromMe ? 'agent' : 'customer',
+        content_type: contentType,
+        content_text: body || null,
+        media_url: m.fileURL || null,
+        message_id: m.messageid || null,
+        status: mapUazapiStatus(m.status || ''),
+        source: 'uazapi',
+        created_at: createdAt ?? new Date().toISOString(),
+      })
+
+      if (error) {
+        if (isUniqueViolation(error)) {
+          // Race with a webhook insert — treat as already imported.
+          if (m.messageid) existingIds.add(m.messageid)
+          continue
+        }
+        console.error('[uazapi-sync] message insert error:', error.message)
+        continue
+      }
+
+      if (m.messageid) existingIds.add(m.messageid)
+      const key = `${m.fromMe ? 'agent' : 'customer'}|${body}`
+      if (body) {
+        const list = bySenderText.get(key) ?? []
+        list.push(createdAtMs)
+        bySenderText.set(key, list)
+      }
+      imported++
+    }
+
+    if (messages.length < pageSize) break
+    offset += pageSize
+  }
+
+  return imported
 }

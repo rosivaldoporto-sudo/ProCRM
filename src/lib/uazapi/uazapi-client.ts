@@ -236,30 +236,59 @@ export interface SendMenuArgs {
 // ============================================================
 
 export interface UazapiChat {
+  /** Full JID of the chat, e.g. `5511999999999@s.whatsapp.net`. */
   id: string
+  /** Alias of `id` — the JID needed by /message/find. */
+  chatid?: string
   name?: string
+  /** Raw phone as reported by the server (`+55 41 ...` or digits). */
   phone: string
   lastMessage?: string
   lastMessageAt?: string
   unreadCount?: number
+  isGroup?: boolean
 }
 
 /**
- * Try to fetch recent chats from the Uazapi server.
- * Uazapi implementations vary — we try multiple known endpoint
- * patterns and return whatever we find.
+ * Fetch recent individual chats from the Uazapi server.
+ * Uazapi v2: POST /chat/find (the real chat-list endpoint). Falls back
+ * to legacy GET patterns for older implementations.
  */
 export async function fetchChats(args: {
   serverUrl: string
   apiToken: string
   limit?: number
+  offset?: number
 }): Promise<UazapiChat[]> {
-  const { serverUrl, apiToken, limit = 50 } = args
+  const { serverUrl, apiToken, limit = 50, offset = 0 } = args
   const base = serverUrl.replace(/\/+$/, '')
 
-  // Try common Uazapi chat-list endpoint patterns
+  // Uazapi v2: POST /chat/find — body-sorted, individual chats only.
+  try {
+    const response = await fetch(`${base}/chat/find`, {
+      method: 'POST',
+      headers: buildHeaders(apiToken),
+      body: JSON.stringify({
+        limit,
+        offset,
+        sort: '-wa_lastMsgTimestamp',
+        wa_isGroup: false,
+        operator: 'AND',
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (response.ok) {
+      const data = await response.json()
+      const chats = extractChatsFromResponse(data)
+      if (chats.length > 0) return chats
+    }
+  } catch {
+    // fall through to legacy patterns
+  }
+
+  // Legacy: try common GET chat-list endpoint patterns
   const patterns = ['/chats', '/chat/find', '/conversations']
-  
+
   for (const path of patterns) {
     try {
       const url = `${base}${path}?limit=${limit}`
@@ -281,11 +310,61 @@ export async function fetchChats(args: {
   return []
 }
 
+export interface UazapiStoredMessage {
+  messageid?: string
+  fromMe?: boolean
+  isGroup?: boolean
+  messageType?: string
+  mediaType?: string
+  text?: string
+  content?: unknown
+  messageTimestamp?: number | string
+  status?: string
+  fileURL?: string
+  wasSentByApi?: boolean
+  senderName?: string
+}
+
+/**
+ * Fetch stored messages of a chat (message history).
+ * Uazapi v2: POST /message/find — response `{ messages: [...], hasMore, nextOffset }`.
+ */
+export async function fetchMessages(args: {
+  serverUrl: string
+  apiToken: string
+  chatid: string
+  limit?: number
+  offset?: number
+}): Promise<UazapiStoredMessage[]> {
+  const { serverUrl, apiToken, chatid, limit = 100, offset = 0 } = args
+  const base = serverUrl.replace(/\/+$/, '')
+  try {
+    const response = await fetch(`${base}/message/find`, {
+      method: 'POST',
+      headers: buildHeaders(apiToken),
+      body: JSON.stringify({ chatid, limit, offset }),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!response.ok) return []
+    const data = await response.json()
+    const messages: unknown[] = Array.isArray(data)
+      ? data
+      : (data.messages as unknown[]) ?? []
+    return messages.filter(
+      (m): m is UazapiStoredMessage => !!m && typeof m === 'object',
+    )
+  } catch {
+    return []
+  }
+}
+
 function extractChatsFromResponse(data: unknown): UazapiChat[] {
   if (!data || typeof data !== 'object') return []
 
   const obj = data as Record<string, unknown>
-  const arr: unknown[] = Array.isArray(data) ? data : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
+  const arr: unknown[] = Array.isArray(data)
+    ? data
+    : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
 
   if (!Array.isArray(arr)) return []
 
@@ -294,22 +373,49 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
     const row = item as Record<string, unknown>
     const key = row.key as Record<string, unknown> | undefined
     const lastMessage = row.last_message as Record<string, unknown> | undefined
-    const chatId = String(row.id ?? row.chatId ?? key?.remoteJid ?? row.jid ?? '')
-    const phone = chatId.replace(/@.*$/, '').replace(/:.*$/, '')
+
+    // v2 chats carry wa_chatid (full JID); legacy shapes use id/chatId/jid.
+    const chatId = String(
+      row.wa_chatid ?? row.chatid ?? row.id ?? key?.remoteJid ?? row.jid ?? '',
+    )
+    const rawPhone = String(row.phone ?? '')
+    const phone = rawPhone
+      ? rawPhone.replace(/@.*$/, '')
+      : chatId.replace(/@.*$/, '').replace(/:.*$/, '')
     if (!phone) return null
 
-    const name = String(row.name ?? row.pushName ?? row.contactName ?? '')
-    const lastMsg = String(row.lastMessageText ?? lastMessage?.text ?? lastMessage?.conversation ?? row.lastMessage ?? '')
-    const lastTime = String(row.lastMessageAt ?? row.last_message_at ?? row.timestamp ?? lastMessage?.timestamp ?? '')
-    const unread = Number(row.unreadCount ?? row.unread_count ?? row.unread ?? 0)
+    const name = String(
+      row.name ?? row.wa_name ?? row.wa_contactName ?? row.pushName ?? row.contactName ?? '',
+    )
+    const lastMsg = String(
+      row.wa_lastMessageTextVote ??
+        row.wa_lastMessageText ??
+        row.lastMessageText ??
+        lastMessage?.text ??
+        lastMessage?.conversation ??
+        row.lastMessage ??
+        '',
+    ).replace(/^undefined$/, '')
+    const rawTs =
+      row.wa_lastMsgTimestamp ?? row.lastMessageAt ?? row.last_message_at ?? row.timestamp ?? lastMessage?.timestamp ?? ''
+    let lastMessageAt: string | undefined
+    if (typeof rawTs === 'number' && rawTs > 0) {
+      lastMessageAt = new Date(rawTs > 1e12 ? rawTs : rawTs * 1000).toISOString()
+    } else if (typeof rawTs === 'string' && !isNaN(Date.parse(rawTs))) {
+      lastMessageAt = new Date(rawTs).toISOString()
+    }
+    const unread = Number(row.wa_unreadCount ?? row.unreadCount ?? row.unread_count ?? row.unread ?? 0)
+    const isGroup = row.wa_isGroup === true || /@g\.us$/.test(chatId)
 
     return {
       id: chatId,
+      chatid: chatId,
       name: name || undefined,
       phone,
       lastMessage: lastMsg || undefined,
-      lastMessageAt: lastTime || undefined,
+      lastMessageAt: lastMessageAt || undefined,
       unreadCount: unread || undefined,
+      isGroup: isGroup || undefined,
     }
   })
 

@@ -20,8 +20,14 @@ export function UazapiSyncBar() {
         toast.error(data.error || 'Sync failed');
         return;
       }
-      if (data.synced > 0) {
-        toast.success(`${data.synced} conversations synced from Uazapi.`);
+      const synced = data.synced ?? 0;
+      const imported = data.messagesImported ?? 0;
+      if (synced > 0 || imported > 0) {
+        toast.success(
+          imported > 0
+            ? `${synced} conversations synced, ${imported} messages imported.`
+            : `${synced} conversations synced from Uazapi.`
+        );
         setSynced(true);
         setTimeout(() => setSynced(false), 3000);
       } else {

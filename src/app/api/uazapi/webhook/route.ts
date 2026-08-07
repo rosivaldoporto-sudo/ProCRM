@@ -7,6 +7,10 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import {
+  mapUazapiContentType,
+  uazapiTimestampToIso,
+} from '@/lib/uazapi/message-mapping'
 
 export const maxDuration = 60
 
@@ -361,42 +365,6 @@ interface ExtractedMessage {
   mediaType?: string
 }
 
-/**
- * Map a Uazapi messageType/mediaType onto our messages.content_type
- * values. `conversation` is Uazapi's name for plain text; Baileys proto
- * names (`extendedTextMessage`, `imageMessage`, ...) are handled too.
- * Falls back to `text` when the message carries a text body but the
- * type is unknown to us — better to persist it than to drop it.
- */
-function mapContentType(messageType: string, mediaType: string): string | null {
-  const type = (messageType || '').toLowerCase()
-  const media = (mediaType || '').toLowerCase()
-
-  // Media — unambiguous, match both `imageMessage`-style and plain names.
-  if (type.includes('image') || type.includes('sticker') || media === 'image' || media === 'sticker') return 'image'
-  if (type.includes('video') || media === 'video') return 'video'
-  if (type.includes('audio') || type.includes('ptt') || media === 'audio' || media === 'ptt') return 'audio'
-  if (type.includes('document') || type.includes('file') || type.includes('pdf') || media === 'document') return 'document'
-  if (type.includes('location')) return 'location'
-
-  // Text-like messages. `ephemeralMessage` wraps disappearing messages
-  // (the real proto is nested inside); interactive/list/button replies
-  // carry their answer in the text body.
-  if (
-    type === 'conversation' ||
-    type === 'text' ||
-    type.includes('textmessage') ||
-    type === 'ephemeralmessage' ||
-    type.includes('response') ||
-    type === 'interactive'
-  ) {
-    return 'text'
-  }
-
-  // Unknown type — let the caller decide whether the body has text.
-  return null
-}
-
 function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   const result: ExtractedMessage[] = []
   const seenIds = new Set<string>()
@@ -424,18 +392,12 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
         const contentString =
           typeof content === 'string' ? content : (content as { text?: string })?.text
         const body = text || contentString || ''
-        const contentType = mapContentType(flatMessage.messageType || '', flatMessage.mediaType || '')
+        const contentType = mapUazapiContentType(flatMessage.messageType || '', flatMessage.mediaType || '')
         // Unknown message types still get persisted as text when a body
         // is present — better to keep the message than to drop it.
         const resolvedType = contentType || (body ? 'text' : null)
         if (resolvedType) {
-          const ts = flatMessage.messageTimestamp
-          const createdAt =
-            typeof ts === 'number' && ts > 0
-              ? new Date(ts > 1e12 ? ts : ts * 1000).toISOString()
-              : typeof ts === 'string' && !isNaN(Date.parse(ts))
-                ? new Date(ts).toISOString()
-                : undefined
+          const createdAt = uazapiTimestampToIso(flatMessage.messageTimestamp)
           push({
             id: flatMessage.messageid || flatMessage.id || '',
             from: flatMessage.chatid || flatMessage.sender || '',
