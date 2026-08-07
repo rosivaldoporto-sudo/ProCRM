@@ -37,6 +37,32 @@ export interface ChatMessage {
   content: string
 }
 
+/** A function-calling tool the model may invoke (provider-agnostic —
+ *  each adapter maps it to its own wire format). */
+export interface AiToolDefinition {
+  name: string
+  description: string
+  /** JSON Schema (draft-07 subset) describing the function arguments. */
+  parameters: Record<string, unknown>
+}
+
+/** One tool invocation the model requested. */
+export interface AiToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+/** One completed tool-calling round, needed to continue the
+ *  conversation after the model asked for tools. `results` is aligned
+ *  with `calls` (same order, one stringified JSON per call). */
+export interface ToolHistoryEntry {
+  /** The assistant text that accompanied the tool calls (may be empty). */
+  text: string
+  calls: AiToolCall[]
+  results: string[]
+}
+
 /**
  * Token counts for one provider call, normalized across OpenAI
  * (`prompt`/`completion`) and Anthropic (`input`/`output`). Null when
@@ -52,6 +78,9 @@ export interface AiUsage {
 export interface ProviderResult {
   text: string
   usage: AiUsage | null
+  /** Tool invocations the model requested in this turn. When present,
+   *  `text` may legitimately be empty (the model only asked for tools). */
+  toolCalls?: AiToolCall[]
 }
 
 /** Outcome of a generation call. */

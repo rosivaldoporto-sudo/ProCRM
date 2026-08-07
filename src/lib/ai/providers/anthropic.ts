@@ -1,4 +1,9 @@
-import { AiError, type ChatMessage, type ProviderResult } from '../types'
+import {
+  AiError,
+  type AiToolCall,
+  type ChatMessage,
+  type ProviderResult,
+} from '../types'
 import { MAX_OUTPUT_TOKENS } from '../defaults'
 import {
   mergeConsecutive,
@@ -11,8 +16,17 @@ import {
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
 
+interface AnthropicContentBlock {
+  type?: string
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+}
+
 interface AnthropicResponse {
-  content?: { type?: string; text?: string }[]
+  content?: AnthropicContentBlock[]
+  stop_reason?: string | null
   usage?: { input_tokens?: number; output_tokens?: number }
 }
 
@@ -34,13 +48,56 @@ function normalizeForAnthropic(messages: ChatMessage[]): ChatMessage[] {
   return merged
 }
 
+/** Replay completed tool-calling rounds in Anthropic's block format:
+ *  assistant turns carrying `tool_use` blocks, then a user turn with
+ *  the corresponding `tool_result` blocks. */
+function anthropicToolHistory(toolHistory: NonNullable<ProviderArgs['toolHistory']>) {
+  const turns: { role: 'user' | 'assistant'; content: unknown[] }[] = []
+  for (const round of toolHistory) {
+    const blocks: AnthropicContentBlock[] = []
+    if (round.text) blocks.push({ type: 'text', text: round.text })
+    for (const call of round.calls) {
+      blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments })
+    }
+    turns.push({ role: 'assistant', content: blocks })
+    turns.push({
+      role: 'user',
+      content: round.calls.map((call, i) => ({
+        type: 'tool_result',
+        tool_use_id: call.id,
+        content: round.results[i] ?? '',
+      })),
+    })
+  }
+  return turns
+}
+
 /**
  * Call Anthropic's Messages endpoint with the caller's own key.
  * Returns the raw assistant text + token usage (handoff parsing happens
- * in `generateReply`).
+ * in `generateReply`). When `tools` are offered, `tool_use` blocks are
+ * surfaced on the result for the caller to execute.
  */
 export async function generateAnthropic(args: ProviderArgs): Promise<ProviderResult> {
-  const { apiKey, model, systemPrompt, messages, timeoutMs } = args
+  const { apiKey, model, systemPrompt, messages, timeoutMs, tools, toolHistory } = args
+
+  const body: Record<string, unknown> = {
+    model,
+    system: systemPrompt,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    messages: [
+      ...(toolHistory && toolHistory.length > 0
+        ? anthropicToolHistory(toolHistory)
+        : normalizeForAnthropic(messages)),
+    ],
+  }
+  if (tools && tools.length > 0) {
+    body.tools = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters,
+    }))
+  }
 
   let res: Response
   try {
@@ -51,12 +108,7 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
         'anthropic-version': ANTHROPIC_VERSION,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        system: systemPrompt,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        messages: normalizeForAnthropic(messages),
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (err) {
@@ -73,7 +125,21 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
     .map((b) => b.text)
     .join('')
     .trim()
-  if (!text) {
+
+  const toolCalls: AiToolCall[] = (data?.content ?? [])
+    .filter((b) => b.type === 'tool_use' && b.id && b.name)
+    .map((b, i) => ({
+      id: b.id ?? `tool_${i}`,
+      name: b.name ?? '',
+      arguments:
+        b.input && typeof b.input === 'object' && !Array.isArray(b.input)
+          ? (b.input as Record<string, unknown>)
+          : {},
+    }))
+
+  // A pure tool turn has no text but a stop_reason of tool_use — only
+  // treat as empty when the model asked for nothing at all.
+  if (!text && toolCalls.length === 0) {
     throw new AiError('Anthropic returned an empty response.', {
       code: 'empty_response',
     })
@@ -83,5 +149,5 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
     prompt: data?.usage?.input_tokens,
     completion: data?.usage?.output_tokens,
   })
-  return { text, usage }
+  return { text: text ?? '', usage, toolCalls: toolCalls.length > 0 ? toolCalls : undefined }
 }

@@ -1,4 +1,10 @@
-import { AiError, type AiUsage, type ChatMessage } from '../types'
+import {
+  AiError,
+  type AiToolDefinition,
+  type AiUsage,
+  type ChatMessage,
+  type ToolHistoryEntry,
+} from '../types'
 
 // ============================================================
 // Bits shared by the OpenAI + Anthropic adapters.
@@ -10,6 +16,10 @@ export interface ProviderArgs {
   systemPrompt: string
   messages: ChatMessage[]
   timeoutMs: number
+  /** Function-calling tools offered to the model (optional). */
+  tools?: AiToolDefinition[]
+  /** Completed tool-calling rounds to continue from (optional). */
+  toolHistory?: ToolHistoryEntry[]
 }
 
 /**

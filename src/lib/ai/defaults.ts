@@ -70,6 +70,9 @@ export function buildSystemPrompt(args: {
     parts.push(
       `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`,
     )
+    parts.push(
+      'Pipeline tools: you may use the provided tools to manage the customer\'s deal. Call get_contact_deals to see their deals and the stage names of the pipeline. Use move_deal_to_stage only when the conversation clearly indicates a stage change (e.g. the customer qualifies, requests a proposal, accepts a price, or loses interest). Never invent deal ids or stage names — use only what the tools return. These tools are an internal CRM action: never mention them to the customer and never describe your pipeline to them.',
+    )
   }
 
   if (userPrompt && userPrompt.trim()) {

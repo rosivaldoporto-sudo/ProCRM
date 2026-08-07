@@ -2,13 +2,14 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
-import { generateReply } from './generate'
+import { generateReplyWithTools } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { AI_PIPELINE_TOOLS, executePipelineTool } from './tools'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -112,10 +113,23 @@ export async function dispatchInboundToAiReply(
       knowledge,
     })
 
-    const { text, handoff, usage } = await generateReply({
+    // The agent gets pipeline tools scoped to THIS contact: it may
+    // list the lead's deals and move them between stages based on the
+    // conversation. The executor never throws and never touches other
+    // contacts (tenancy enforced in tools.ts).
+    const { text, handoff, usage } = await generateReplyWithTools({
       config,
       systemPrompt,
       messages,
+      tools: AI_PIPELINE_TOOLS,
+      executeTool: (name, args) =>
+        executePipelineTool({
+          db,
+          accountId,
+          contactId,
+          name,
+          args,
+        }),
     })
 
     // Record token spend on the account's BYO key. Fire-and-forget so it

@@ -14,6 +14,7 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { sendCapiEvents } from '@/lib/facebook/conversions-api'
+import { ensureLeadDeal } from '@/lib/deals/auto-create'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -781,6 +782,18 @@ async function processMessage(
   // message from this contact). Fire-and-forget: a slow or failing
   // CAPI request must not block the webhook response to Meta.
   if (isFirstInboundMessage) {
+    // New lead → automatically into the pipeline's first stage
+    // ("New Lead"). Awaited so the deal exists by the time the AI
+    // auto-reply (below) runs — the agent may move it via tools.
+    // Self-contained and never throws (see ensureLeadDeal).
+    await ensureLeadDeal({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      contactName: contactRecord.name || contactRecord.phone,
+    })
     fireCapiLeadEvent(accountId, contactRecord).catch(
       (err) => console.error('[capi] lead event failed:', err)
     )

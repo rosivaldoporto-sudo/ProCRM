@@ -7,6 +7,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import { ensureLeadDeal } from '@/lib/deals/auto-create'
 import {
   mapUazapiContentType,
   uazapiTimestampToIso,
@@ -217,6 +218,16 @@ export async function POST(request: Request) {
         if (existingMsg) continue
       }
 
+      // Determine whether this is the contact's very first inbound
+      // message BEFORE the insert, so the count is accurate. Used to
+      // auto-create the lead deal in the pipeline's first stage.
+      const { count: priorCustomerMsgCount } = await db
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversation.id)
+        .eq('sender_type', 'customer')
+      const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
+
       // Resolve the quoted message id to an internal message id. A
       // missing parent is fine — the quote is simply not rendered.
       let replyToInternalId: string | null = null
@@ -310,6 +321,19 @@ export async function POST(request: Request) {
       // Dispatch to automations, flows, AI (async, best-effort)
       after(async () => {
         try {
+          // New lead → automatically into the pipeline's first stage.
+          // Runs BEFORE the AI auto-reply below so the agent can find
+          // and move the deal. Never throws (see ensureLeadDeal).
+          if (isFirstInboundMessage) {
+            await ensureLeadDeal({
+              db,
+              accountId: config.account_id,
+              userId: config.user_id,
+              contactId: contact.id,
+              conversationId: conversation.id,
+              contactName: contact.name || contact.phone,
+            })
+          }
           await Promise.allSettled([
             runAutomationsForTrigger({
               accountId: config.account_id,
