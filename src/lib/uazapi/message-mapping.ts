@@ -22,22 +22,34 @@ export function mapUazapiContentType(
   const media = (mediaType || '').toLowerCase()
 
   // Media — unambiguous, match both `imageMessage`-style and plain names.
+  // `viewonce`/`ptv`/`gif` wrap real media: their inner proto still has
+  // the media bytes, so treat them as their media type rather than
+  // dropping the message when there's no caption.
   if (type.includes('image') || type.includes('sticker') || media === 'image' || media === 'sticker') return 'image'
-  if (type.includes('video') || media === 'video') return 'video'
+  if (type.includes('video') || type.includes('ptv') || type.includes('gif') || media === 'video' || media === 'ptv') return 'video'
   if (type.includes('audio') || type.includes('ptt') || media === 'audio' || media === 'ptt') return 'audio'
   if (type.includes('document') || type.includes('file') || type.includes('pdf') || media === 'document') return 'document'
+  if (type.includes('contact')) return 'document'
   if (type.includes('location')) return 'location'
 
   // Text-like messages. `ephemeralMessage` wraps disappearing messages
   // (the real proto is nested inside); interactive/list/button replies
-  // carry their answer in the text body.
+  // carry their answer in the text body. `viewOnceMessage` without an
+  // inner media proto (some servers only expose the wrapper) also falls
+  // back to text so the message isn't dropped.
   if (
     type === 'conversation' ||
     type === 'text' ||
     type.includes('textmessage') ||
     type === 'ephemeralmessage' ||
+    type === 'viewoncemessage' ||
     type.includes('response') ||
-    type === 'interactive'
+    type === 'interactive' ||
+    type === 'button' ||
+    type === 'buttonsresponse' ||
+    type === 'listresponse' ||
+    type === 'templatebuttonreply' ||
+    type === 'reaction'
   ) {
     return 'text'
   }

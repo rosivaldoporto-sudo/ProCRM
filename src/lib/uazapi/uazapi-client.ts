@@ -328,6 +328,10 @@ export interface UazapiStoredMessage {
 /**
  * Fetch stored messages of a chat (message history).
  * Uazapi v2: POST /message/find — response `{ messages: [...], hasMore, nextOffset }`.
+ *
+ * Unlike the old behaviour (which turned every failure into an empty
+ * array), errors are reported back so callers can distinguish "no more
+ * messages" from "fetch failed" instead of silently losing history.
  */
 export async function fetchMessages(args: {
   serverUrl: string
@@ -335,7 +339,7 @@ export async function fetchMessages(args: {
   chatid: string
   limit?: number
   offset?: number
-}): Promise<UazapiStoredMessage[]> {
+}): Promise<{ messages: UazapiStoredMessage[]; error?: string }> {
   const { serverUrl, apiToken, chatid, limit = 100, offset = 0 } = args
   const base = serverUrl.replace(/\/+$/, '')
   try {
@@ -345,16 +349,23 @@ export async function fetchMessages(args: {
       body: JSON.stringify({ chatid, limit, offset }),
       signal: AbortSignal.timeout(15000),
     })
-    if (!response.ok) return []
+    if (!response.ok) {
+      return { messages: [], error: `HTTP ${response.status}` }
+    }
     const data = await response.json()
     const messages: unknown[] = Array.isArray(data)
       ? data
       : (data.messages as unknown[]) ?? []
-    return messages.filter(
-      (m): m is UazapiStoredMessage => !!m && typeof m === 'object',
-    )
-  } catch {
-    return []
+    return {
+      messages: messages.filter(
+        (m): m is UazapiStoredMessage => !!m && typeof m === 'object',
+      ),
+    }
+  } catch (err) {
+    return {
+      messages: [],
+      error: err instanceof Error ? err.message : 'network error',
+    }
   }
 }
 
@@ -455,20 +466,82 @@ export async function sendMenu(
  * Auth: token header
  * Body: { id: "<messageid>", return_link: true }
  * Response: { url: "https://...", mimetype: "..." }
+ *
+ * `attempts` retries transient failures (server hiccups / short
+ * disconnects) before giving up.
  */
-export async function downloadMessageUrl(args: {
+export async function downloadMessageUrl(
+  args: {
+    serverUrl: string
+    apiToken: string
+    messageId: string
+  },
+  attempts = 1,
+): Promise<{ url?: string; mimetype?: string } | null> {
+  const { serverUrl, apiToken, messageId } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/message/download`
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders(apiToken),
+        body: JSON.stringify({ id: messageId, return_link: true }),
+        signal: AbortSignal.timeout(15000),
+      })
+      if (response.ok) {
+        const data = await response.json()
+        return { url: data.url || data.fileURL || undefined, mimetype: data.mimetype || undefined }
+      }
+      lastError = new Error(`HTTP ${response.status}`)
+    } catch (err) {
+      lastError = err
+    }
+    if (attempt < attempts) await new Promise((r) => setTimeout(r, 2000 * attempt))
+  }
+  console.warn('[uazapi] downloadMessageUrl failed:', { messageId, attempts, error: lastError })
+  return null
+}
+
+/**
+ * Download the raw bytes of a media message from the Uazapi server.
+ * First resolves the link via /message/download, then fetches it —
+ * retrying with the `token` header (and a Bearer fallback) because most
+ * Uazapi file endpoints require auth beyond the plain link.
+ */
+export async function downloadMessageFile(args: {
   serverUrl: string
   apiToken: string
   messageId: string
-}): Promise<{ url?: string; mimetype?: string } | null> {
+}): Promise<{ buffer: ArrayBuffer; contentType: string } | null> {
   const { serverUrl, apiToken, messageId } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/message/download`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify({ id: messageId, return_link: true }),
-  })
-  if (!response.ok) return null
-  const data = await response.json()
-  return { url: data.url || data.fileURL || undefined, mimetype: data.mimetype || undefined }
+  const file = await downloadMessageUrl({ serverUrl, apiToken, messageId }, 3)
+  if (!file?.url) return null
+
+  const base = serverUrl.replace(/\/+$/, '')
+  const isOwnServer = file.url.startsWith(base)
+  const headers: Record<string, string> = isOwnServer ? buildHeaders(apiToken) : {}
+  const attempts: Record<string, string>[] = [
+    headers,
+    isOwnServer ? { ...headers, Authorization: `Bearer ${apiToken}` } : {},
+    {},
+  ]
+
+  for (const attemptHeaders of attempts) {
+    try {
+      const response = await fetch(file.url, {
+        headers: attemptHeaders,
+        signal: AbortSignal.timeout(20000),
+      })
+      if (!response.ok) continue
+      const contentType = response.headers.get('content-type') || file.mimetype || 'application/octet-stream'
+      const buffer = await response.arrayBuffer()
+      return { buffer, contentType }
+    } catch {
+      // try the next auth strategy
+    }
+  }
+
+  console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', { messageId })
+  return null
 }

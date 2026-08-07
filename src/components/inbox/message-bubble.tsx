@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Message, MessageReaction } from "@/types";
 import {
@@ -52,6 +52,73 @@ function MediaUnavailable({ label, t }: { label: string, t: ReturnType<typeof us
     <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
       <ImageOff className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span>{t("unavailable", { label })}</span>
+    </div>
+  );
+}
+
+/**
+ * Resolve the URL the browser can actually load for a media message.
+ * Uazapi file links are private (token header) and expire, so Uazapi
+ * media is streamed through the authenticated proxy
+ * /api/uazapi/media/:messageId and turned into a blob URL. Everything
+ * else (Meta proxy links, public URLs) is used as-is.
+ */
+function useResolvedMediaUrl(message: Message): {
+  url: string | null;
+  loading: boolean;
+  failed: boolean;
+} {
+  const useProxy =
+    message.source === "uazapi" && !!message.message_id;
+
+  const [proxyUrl, setProxyUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(useProxy);
+  const [failed, setFailed] = useState(false);
+  const urlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!useProxy) return;
+
+    let cancelled = false;
+
+    fetch(`/api/uazapi/media/${encodeURIComponent(message.message_id!)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        const blobUrl = URL.createObjectURL(blob);
+        urlRef.current = blobUrl;
+        setProxyUrl(blobUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (urlRef.current?.startsWith("blob:")) {
+        URL.revokeObjectURL(urlRef.current);
+      }
+      urlRef.current = null;
+    };
+  }, [useProxy, message.message_id]);
+
+  // Non-proxy media (Meta proxy links, public URLs) is used as-is —
+  // no state needed, so this branch never touches the effect's state.
+  if (!useProxy) {
+    return { url: message.media_url || null, loading: false, failed: false };
+  }
+
+  return { url: proxyUrl, loading, failed };
+}
+
+function MediaLoading() {
+  return (
+    <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
   );
 }
@@ -120,6 +187,9 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
 }
 
 function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof useTranslations> }) {
+  const { url: mediaUrl, loading: mediaLoading, failed: mediaFailed } = useResolvedMediaUrl(message);
+  const hasMedia = !!(message.media_url || (message.source === "uazapi" && message.message_id));
+
   switch (message.content_type) {
     case "text":
       return (
@@ -131,8 +201,14 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
     case "image":
       return (
         <div>
-          {message.media_url ? (
-            <MediaImage url={message.media_url} alt="Shared image" />
+          {hasMedia ? (
+            mediaFailed ? (
+              <MediaUnavailable label={t("photo")} t={t} />
+            ) : mediaLoading ? (
+              <MediaLoading />
+            ) : (
+              <MediaImage url={mediaUrl ?? ""} alt="Shared image" />
+            )
           ) : (
             <MediaUnavailable label={t("photo")} t={t} />
           )}
@@ -147,12 +223,18 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
     case "video":
       return (
         <div>
-          {message.media_url ? (
-            <video
-              src={message.media_url}
-              controls
-              className="max-h-64 max-w-60 rounded-lg"
-            />
+          {hasMedia ? (
+            mediaFailed ? (
+              <MediaUnavailable label={t("video")} t={t} />
+            ) : mediaLoading ? (
+              <MediaLoading />
+            ) : (
+              <video
+                src={mediaUrl ?? ""}
+                controls
+                className="max-h-64 max-w-60 rounded-lg"
+              />
+            )
           ) : (
             <MediaUnavailable label={t("video")} t={t} />
           )}
@@ -167,8 +249,16 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
     case "audio":
       return (
         <div>
-          {message.media_url ? (
-            <audio src={message.media_url} controls className="max-w-60" />
+          {hasMedia ? (
+            mediaFailed ? (
+              <MediaUnavailable label={t("audio")} t={t} />
+            ) : mediaLoading ? (
+              <div className="flex h-14 w-60 items-center justify-center rounded-lg bg-muted">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : (
+              <audio src={mediaUrl ?? ""} controls className="max-w-60" />
+            )
           ) : (
             <MediaUnavailable label={t("audio")} t={t} />
           )}
@@ -176,13 +266,24 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
       );
 
     case "document":
-      if (!message.media_url) {
+      if (!hasMedia) {
         return <MediaUnavailable label={message.content_text || t("document")} t={t} />;
+      }
+      if (mediaFailed) {
+        return <MediaUnavailable label={message.content_text || t("document")} t={t} />;
+      }
+      if (mediaLoading) {
+        return (
+          <div className="flex h-14 w-60 items-center justify-center rounded-lg bg-muted">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        );
       }
       return (
         <a
-          href={message.media_url}
-          target="_blank"
+          href={mediaUrl ?? ""}
+          target={mediaUrl?.startsWith("blob:") ? undefined : "_blank"}
+          download={mediaUrl?.startsWith("blob:") ? message.content_text || undefined : undefined}
           rel="noopener noreferrer"
           className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
         >

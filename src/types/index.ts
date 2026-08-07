@@ -251,6 +251,12 @@ export interface Message {
   message_id?: string;
   status: MessageStatus;
   created_at: string;
+  /**
+   * Which channel produced the row: 'whatsapp' (Meta), 'uazapi',
+   * 'sms', 'email' or null for legacy rows. Drives media loading —
+   * Uazapi media must be fetched through the authenticated proxy.
+   */
+  source?: string | null;
   reply_to_message_id?: string;
   /**
    * Only set when `content_type === 'interactive'` — the stable id of

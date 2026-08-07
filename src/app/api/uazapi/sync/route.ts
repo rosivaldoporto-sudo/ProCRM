@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import { fetchChats, fetchMessages } from '@/lib/uazapi/uazapi-client'
+import { fetchChats, fetchMessages, downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
 import {
   mapUazapiContentType,
   mapUazapiStatus,
@@ -24,7 +24,7 @@ export const maxDuration = 120
  *      conversations aren't empty shells.
  *
  * Query params:
- *   limit    — max chats to process (default 50, max 200)
+ *   limit    — max chats to process (default 100, max 500)
  *   messages — "false" skips the message-history import (default true)
  */
 export async function POST(request: Request) {
@@ -57,8 +57,8 @@ export async function POST(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const limit = Math.min(
-      Math.max(Number(searchParams.get('limit')) || 50, 1),
-      200,
+      Math.max(Number(searchParams.get('limit')) || 100, 1),
+      500,
     )
     const includeMessages = searchParams.get('messages') !== 'false'
 
@@ -74,6 +74,7 @@ export async function POST(request: Request) {
 
     let syncedCount = 0
     let messagesImported = 0
+    const syncWarnings: string[] = []
 
     for (const chat of chats) {
       const phone = normalizePhone(chat.phone || chat.chatid || chat.id)
@@ -175,13 +176,15 @@ export async function POST(request: Request) {
 
       // Import stored message history for this chat
       if (includeMessages) {
-        messagesImported += await syncChatMessages(
+        const result = await syncChatMessages(
           supabase,
           conversationId,
           chat.id,
           config.server_url,
           apiToken,
         )
+        messagesImported += result.imported
+        syncWarnings.push(...result.warnings)
       }
     }
 
@@ -189,6 +192,7 @@ export async function POST(request: Request) {
       synced: syncedCount,
       messagesImported,
       found: chats.length,
+      warnings: syncWarnings,
       message: `Synced ${syncedCount} of ${chats.length} chats found (${messagesImported} messages imported).`,
     })
   } catch (error) {
@@ -200,9 +204,12 @@ export async function POST(request: Request) {
 /**
  * Import the stored messages of one chat via POST /message/find,
  * skipping rows that already exist locally. Dedupe is done on the
- * Uazapi message id plus a fuzzy check (same sender + text within a
- * short time window) so messages that were already ingested through
- * the Meta webhook aren't duplicated as Uazapi rows.
+ * Uazapi message id (plus a fuzzy check — same sender + text within a
+ * short time window — ONLY for messages that carry no id, since a
+ * message_id is the strongest identity we have). Messages that already
+ * exist but are missing their media URL get it backfilled instead of
+ * being skipped, so a failed webhook download no longer loses the
+ * media permanently.
  */
 async function syncChatMessages(
   db: Awaited<ReturnType<typeof createClient>>,
@@ -210,11 +217,11 @@ async function syncChatMessages(
   chatid: string,
   serverUrl: string,
   apiToken: string,
-): Promise<number> {
+): Promise<{ imported: number; warnings: string[] }> {
   // Load what we already have for the conversation.
   const { data: existingRows } = await db
     .from('messages')
-    .select('message_id, sender_type, content_text, created_at')
+    .select('id, message_id, sender_type, content_text, media_url, created_at')
     .eq('conversation_id', conversationId)
 
   const existingIds = new Set<string>()
@@ -237,7 +244,8 @@ async function syncChatMessages(
     text: string
     createdAt: number
   }): boolean => {
-    if (m.messageid && existingIds.has(m.messageid)) return true
+    if (m.messageid) return existingIds.has(m.messageid)
+    // Only messages WITHOUT an id fall back to the fuzzy check.
     if (!m.text) return false
     const list = bySenderText.get(`${m.sender_type}|${m.text}`)
     if (!list) return false
@@ -247,15 +255,23 @@ async function syncChatMessages(
   let imported = 0
   let offset = 0
   const pageSize = 100
+  const warnings: string[] = []
 
   for (;;) {
-    const messages = await fetchMessages({
+    const { messages, error } = await fetchMessages({
       serverUrl,
       apiToken,
       chatid,
       limit: pageSize,
       offset,
     })
+    if (error) {
+      warnings.push(
+        `History fetch failed for chat ${chatid} at offset ${offset} (${error}) — messages after this point were not imported.`,
+      )
+      console.warn('[uazapi-sync] fetchMessages error:', { chatid, offset, error })
+      break
+    }
     if (messages.length === 0) break
 
     for (const m of messages) {
@@ -284,36 +300,68 @@ async function syncChatMessages(
       const createdAt = uazapiTimestampToIso(m.messageTimestamp)
       const createdAtMs = createdAt ? new Date(createdAt).getTime() : Date.now()
 
-      if (
-        isDuplicate({
-          messageid: m.messageid,
-          sender_type: m.fromMe ? 'agent' : 'customer',
-          text: body,
-          createdAt: createdAtMs,
-        })
-      ) {
+      const isMedia = contentType !== 'text' && contentType !== 'location'
+      let mediaUrl: string | null = m.fileURL || null
+
+      // Existing row (matched by message id): backfill a missing media
+      // URL — an earlier webhook may have failed its async download.
+      if (m.messageid && existingIds.has(m.messageid)) {
+        const row = (existingRows ?? []).find(
+          (r) => r.message_id === m.messageid,
+        )
+        if (row && isMedia && !row.media_url && m.messageid) {
+          const file = await downloadMessageUrl(
+            { serverUrl, apiToken, messageId: m.messageid },
+            2,
+          )
+          if (file?.url) {
+            await db
+              .from('messages')
+              .update({ media_url: file.url, updated_at: new Date().toISOString() })
+              .eq('id', (row as { id?: string }).id as string)
+          }
+        }
         continue
       }
 
-      const { error } = await db.from('messages').insert({
+      if (isDuplicate({
+        messageid: m.messageid,
+        sender_type: m.fromMe ? 'agent' : 'customer',
+        text: body,
+        createdAt: createdAtMs,
+      })) {
+        continue
+      }
+
+      // Media without a fileURL in /message/find — resolve it now so
+      // the inbox has a URL instead of an eternal "unavailable" tile.
+      if (isMedia && !mediaUrl && m.messageid) {
+        const file = await downloadMessageUrl(
+          { serverUrl, apiToken, messageId: m.messageid },
+          2,
+        )
+        mediaUrl = file?.url || null
+      }
+
+      const { error: insertError } = await db.from('messages').insert({
         conversation_id: conversationId,
         sender_type: m.fromMe ? 'agent' : 'customer',
         content_type: contentType,
         content_text: body || null,
-        media_url: m.fileURL || null,
+        media_url: mediaUrl,
         message_id: m.messageid || null,
         status: mapUazapiStatus(m.status || ''),
         source: 'uazapi',
         created_at: createdAt ?? new Date().toISOString(),
       })
 
-      if (error) {
-        if (isUniqueViolation(error)) {
+      if (insertError) {
+        if (isUniqueViolation(insertError)) {
           // Race with a webhook insert — treat as already imported.
           if (m.messageid) existingIds.add(m.messageid)
           continue
         }
-        console.error('[uazapi-sync] message insert error:', error.message)
+        console.error('[uazapi-sync] message insert error:', insertError.message)
         continue
       }
 
@@ -331,5 +379,5 @@ async function syncChatMessages(
     offset += pageSize
   }
 
-  return imported
+  return { imported, warnings }
 }

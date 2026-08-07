@@ -45,6 +45,15 @@ interface UazapiWebhookPayload {
       message?: {
         conversation?: string
         extendedTextMessage?: { text: string }
+        imageMessage?: { url?: string; caption?: string; mimetype?: string }
+        audioMessage?: { url?: string; mimetype?: string }
+        videoMessage?: { url?: string; caption?: string; mimetype?: string }
+        documentMessage?: { url?: string; fileName?: string; caption?: string; mimetype?: string }
+        documentWithCaptionMessage?: {
+          message?: { documentMessage?: { url?: string; fileName?: string; caption?: string } }
+        }
+        locationMessage?: { degreesLatitude?: number; degreesLongitude?: number }
+        viewOnceMessage?: Record<string, unknown>
       }
       pushName?: string
     }
@@ -222,20 +231,29 @@ export async function POST(request: Request) {
       // Best-effort: resolve the real file URL for media messages
       // (Uazapi webhooks carry only the message id for media; the file
       // must be fetched via /message/download). Done async so it never
-      // blocks the webhook response.
+      // blocks the webhook response. Retries transient failures. If it
+      // still fails, the message stays with media_url null and the
+      // inbox proxy (/api/uazapi/media/:id) resolves it on demand.
       if (inserted && mediaUrl === null && contentType !== 'text') {
         after(async () => {
           try {
-            const file = await downloadMessageUrl({
-              serverUrl: config.server_url,
-              apiToken,
-              messageId: msg.id,
-            })
+            const file = await downloadMessageUrl(
+              {
+                serverUrl: config.server_url,
+                apiToken,
+                messageId: msg.id,
+              },
+              3,
+            )
             if (file?.url) {
               await db
                 .from('messages')
                 .update({ media_url: file.url })
                 .eq('id', inserted.id)
+            } else {
+              console.warn('[uazapi-webhook] media URL could not be resolved (will retry via proxy):', {
+                messageId: msg.id,
+              })
             }
           } catch (err) {
             console.error('[uazapi-webhook] media download failed:', err)
@@ -424,16 +442,55 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     const message = msg.message || {}
     const conversation = message.conversation || ''
     const extendedText = message.extendedTextMessage?.text || ''
-    const text = conversation || extendedText
+
+    // Media protos carry an optional direct url (older Baileys builds)
+    // — use it when present, otherwise leave null and let the inbox
+    // proxy (/api/uazapi/media/:id) resolve it server-side.
+    const image = message.imageMessage
+    const video = message.videoMessage
+    const audio = message.audioMessage
+    const document = message.documentMessage
+    const documentWithCaption = message.documentWithCaptionMessage?.message?.documentMessage
+
+    let contentType: string | null = null
+    let contentText: string | null = null
+    let mediaUrl: string | null = null
+
+    if (image) {
+      contentType = 'image'
+      contentText = image.caption || null
+      mediaUrl = image.url || null
+    } else if (video) {
+      contentType = 'video'
+      contentText = video.caption || null
+      mediaUrl = video.url || null
+    } else if (audio) {
+      contentType = 'audio'
+      contentText = null
+      mediaUrl = audio.url || null
+    } else if (document || documentWithCaption) {
+      contentType = 'document'
+      contentText = document?.caption || documentWithCaption?.caption || document?.fileName || null
+      mediaUrl = document?.url || documentWithCaption?.url || null
+    } else if (message.viewOnceMessage) {
+      // Disappearing media — type unknown here, but it's still a
+      // message worth keeping; the proxy resolves it by id.
+      contentType = 'image'
+      contentText = null
+      mediaUrl = null
+    } else {
+      contentType = conversation || extendedText ? 'text' : null
+      contentText = conversation || extendedText || null
+    }
 
     push({
       id: key.id || '',
       from: key.remoteJid?.replace(/@.*$/, '') || payload.data.from || '',
       fromMe: false,
       pushName: msg.pushName,
-      contentType: text ? 'text' : null,
-      contentText: text || null,
-      mediaUrl: null,
+      contentType,
+      contentText,
+      mediaUrl,
     })
   }
 
@@ -456,12 +513,22 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   // Shape 3: payload.messages array
   if (payload.messages) {
     for (const m of payload.messages) {
+      const type = (m.type || '').toLowerCase()
+      const contentType = m.media
+        ? type.includes('image') || type.includes('photo')
+          ? 'image'
+          : type.includes('audio') || type.includes('ptt') || type.includes('voice')
+            ? 'audio'
+            : type.includes('video')
+              ? 'video'
+              : 'document'
+        : 'text'
       push({
         id: m.id,
         from: m.from,
         fromMe: false,
         pushName: '',
-        contentType: m.media ? (m.type === 'image' ? 'image' : 'document') : 'text',
+        contentType,
         contentText: m.caption || m.text || null,
         mediaUrl: m.media || null,
       })
