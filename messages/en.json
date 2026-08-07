@@ -521,7 +521,10 @@
       "toastFailedMoveDeal": "Failed to move deal",
       "toastFailedCreatePipeline": "Failed to create pipeline",
       "toastPipelineCreated": "Pipeline created",
-      "toastNotLinkedToAccount": "Your profile is not linked to an account."
+      "toastNotLinkedToAccount": "Your profile is not linked to an account.",
+      "toastQuickAdded": "Deal added",
+      "toastFailedCreate": "Failed to create deal",
+      "untitledTitle": "New lead"
     },
     "board": {
       "dropDealHere": "Drop a deal here",
@@ -572,7 +575,8 @@
       "toastMarkedLost": "Marked as lost",
       "toastReopened": "Deal reopened",
       "toastFailedDelete": "Failed to delete deal",
-      "toastDeleted": "Deal deleted"
+      "toastDeleted": "Deal deleted",
+      "untitledTitle": "New lead"
     },
     "settings": {
       "managePipeline": "Manage Pipeline",

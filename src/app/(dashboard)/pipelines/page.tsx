@@ -250,6 +250,42 @@ export default function PipelinesPage() {
     [stages],
   );
 
+  // Quick-add: the column "+" button drops a blank lead card straight
+  // into that stage — no form, no required fields. The user can drag
+  // it around freely and fill details later via the card's edit sheet.
+  const handleQuickAddDeal = useCallback(
+    async (stageId: string) => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) {
+        toast.error(t("toastNotLinkedToAccount"));
+        return;
+      }
+      if (!accountId) {
+        toast.error(t("toastNotLinkedToAccount"));
+        return;
+      }
+      const { error } = await supabase.from("deals").insert({
+        user_id: user.id,
+        account_id: accountId,
+        pipeline_id: selectedPipelineId,
+        stage_id: stageId,
+        title: t("untitledTitle"),
+        value: 0,
+        status: "open",
+      });
+      if (error) {
+        toast.error(t("toastFailedCreate"));
+        return;
+      }
+      await refreshDeals();
+      toast.success(t("toastQuickAdded"));
+    },
+    [supabase, accountId, selectedPipelineId, refreshDeals, t],
+  );
+
   const handleEditDeal = useCallback((deal: Deal) => {
     setEditingDeal(deal);
     setDefaultStageId(deal.stage_id);
@@ -426,7 +462,7 @@ export default function PipelinesPage() {
             stages={stages}
             deals={deals}
             onDealMoved={handleDealMoved}
-            onAddDeal={handleAddDeal}
+            onAddDeal={handleQuickAddDeal}
             onEditDeal={handleEditDeal}
           />
         </>

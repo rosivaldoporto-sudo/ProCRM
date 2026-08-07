@@ -152,17 +152,20 @@ export function DealForm({
   }, [open, contactId, supabase]);
 
   async function handleSave() {
-    if (!title.trim() || !contactId || !stageId) {
+    if (!stageId) {
       toast.error(t("toastRequired"));
       return;
     }
     setSaving(true);
 
+    // Title/contact are optional — a lead card can live on the board
+    // with just a stage. An empty title falls back to the untitled
+    // label so the card is never blank (deals.title is NOT NULL).
     const payload = {
-      title: title.trim(),
+      title: title.trim() || t("untitledTitle"),
       value: parseFloat(value) || 0,
       currency,
-      contact_id: contactId,
+      contact_id: contactId || null,
       pipeline_id: pipelineId,
       stage_id: stageId,
       assigned_to: assignedTo || null,
@@ -439,7 +442,7 @@ export function DealForm({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !title.trim() || !contactId || !stageId}
+                disabled={saving || !stageId}
                 className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {saving ? t("saving") : deal ? t("saveChanges") : t("createDeal")}
