@@ -287,7 +287,12 @@
       "noAdsAttribution": "광고 없음",
       "clickId": "클릭 ID",
       "adId": "광고",
-      "campaignId": "캠페인"
+      "campaignId": "캠페인",
+      "addToPipeline": "파이프라인",
+      "changeStage": "단계 변경",
+      "dealAdded": "딜이 파이프라인에 추가되었습니다",
+      "toastFailedMoveDeal": "단계 변경에 실패했습니다",
+      "toastFailedAddDeal": "파이프라인에 추가하지 못했습니다"
     },
     "aiBanner": {
       "pausedTitle": "이 대화에서 AI 어시스턴트가 일시 중지됨",

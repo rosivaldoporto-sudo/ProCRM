@@ -288,7 +288,12 @@
       "noAdsAttribution": "Sem anúncio",
       "clickId": "ID do clique",
       "adId": "Anúncio",
-      "campaignId": "Campanha"
+      "campaignId": "Campanha",
+      "addToPipeline": "Pipeline",
+      "changeStage": "Alterar etapa",
+      "dealAdded": "Negócio adicionado ao pipeline",
+      "toastFailedMoveDeal": "Falha ao alterar a etapa",
+      "toastFailedAddDeal": "Falha ao adicionar ao pipeline"
     },
     "aiBanner": {
       "pausedTitle": "Assistente de IA está pausado aqui",

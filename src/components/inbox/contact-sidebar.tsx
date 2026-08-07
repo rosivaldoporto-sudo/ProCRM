@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import { formatCurrency } from "@/lib/currency";
+import type { Contact, Deal, ContactNote, PipelineStage, Tag } from "@/types";
 import {
   Phone,
   Mail,
@@ -16,15 +17,28 @@ import {
   StickyNote,
   Megaphone,
   Plus,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 interface ContactSidebarProps {
   contact: Contact | null;
 }
+
+// Mirrors SPEC_DEFAULT_STAGES in the Pipelines page — used to seed a
+// default pipeline when the account has none (sidebars can add leads
+// before the user ever visits the Pipelines page).
+const SIDEBAR_DEFAULT_STAGES = [
+  { name: "New Lead", color: "#3b82f6", position: 0 },
+  { name: "Qualified", color: "#eab308", position: 1 },
+  { name: "Proposal Sent", color: "#f97316", position: 2 },
+  { name: "Negotiation", color: "#8b5cf6", position: 3 },
+  { name: "Won", color: "#22c55e", position: 4 },
+];
 
 export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
@@ -37,29 +51,45 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [stagesByPipeline, setStagesByPipeline] = useState<
+    Record<string, PipelineStage[]>
+  >({});
+  const [movingDealId, setMovingDealId] = useState<string | null>(null);
+  const [addingDeal, setAddingDeal] = useState(false);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
-      supabase
-        .from("deals")
-        .select("*, stage:pipeline_stages(*)")
-        .eq("contact_id", contact.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("contact_notes")
-        .select("*")
-        .eq("contact_id", contact.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("contact_tags")
-        .select("id, tag_id, tags(*)")
-        .eq("contact_id", contact.id),
-    ]);
+    // Fetch deals, notes, tags, pipelines and stages in parallel
+    const [dealsRes, notesRes, tagsRes, pipelinesRes, stagesRes] =
+      await Promise.all([
+        supabase
+          .from("deals")
+          .select("*, stage:pipeline_stages(*)")
+          .eq("contact_id", contact.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("contact_notes")
+          .select("*")
+          .eq("contact_id", contact.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("contact_tags")
+          .select("id, tag_id, tags(*)")
+          .eq("contact_id", contact.id),
+        supabase
+          .from("pipelines")
+          .select("id, name")
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("pipeline_stages")
+          .select("*")
+          .order("position", { ascending: true }),
+      ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
@@ -72,12 +102,19 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         }));
       setTags(mapped);
     }
-  }, [contact]);
+    if (pipelinesRes.data) setPipelines(pipelinesRes.data);
+    if (stagesRes.data) {
+      const byPipeline: Record<string, PipelineStage[]> = {};
+      for (const s of stagesRes.data as PipelineStage[]) {
+        (byPipeline[s.pipeline_id] ??= []).push(s);
+      }
+      setStagesByPipeline(byPipeline);
+    }
+  }, [contact, accountId]);
 
   // Load on contact change. setContactData/setTags run inside async
   // Supabase callbacks, not synchronously in the effect body.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContactData();
   }, [fetchContactData]);
 
@@ -119,6 +156,105 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     }
     setAddingNote(false);
   }, [contact, newNote, accountId]);
+
+  // Move a deal to another pipeline stage straight from the inbox —
+  // same persistence the Kanban drag does (plus the qualified-lead
+  // CAPI ping for stage-triggered attribution).
+  const handleMoveDeal = useCallback(
+    async (deal: Deal, newStageId: string) => {
+      if (deal.stage_id === newStageId) return;
+      setMovingDealId(deal.id);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("deals")
+        .update({ stage_id: newStageId, updated_at: new Date().toISOString() })
+        .eq("id", deal.id);
+      setMovingDealId(null);
+      if (error) {
+        toast.error(tSidebar("toastFailedMoveDeal"));
+        return;
+      }
+      setDeals((prev) =>
+        prev.map((d) => (d.id === deal.id ? { ...d, stage_id: newStageId } : d)),
+      );
+      const stageName = (stagesByPipeline[deal.pipeline_id] ?? []).find(
+        (s) => s.id === newStageId,
+      )?.name;
+      fetch("/api/v1/capi/qualified-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId: deal.id, newStageId, stageName }),
+      }).catch(() => {});
+    },
+    [stagesByPipeline, tSidebar],
+  );
+
+  // Add the lead to the account's default pipeline (first column)
+  // right from the inbox. Seeds the standard pipeline when the
+  // account has none, mirroring the Pipelines page.
+  const handleAddDeal = useCallback(async () => {
+    if (!contact || !accountId) return;
+    setAddingDeal(true);
+    const supabase = createClient();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) {
+        toast.error(tSidebar("toastFailedAddDeal"));
+        return;
+      }
+
+      let pipelineId = pipelines[0]?.id ?? null;
+      if (!pipelineId) {
+        const { data: pipeline, error: pipelineErr } = await supabase
+          .from("pipelines")
+          .insert({
+            user_id: user.id,
+            account_id: accountId,
+            name: "Sales Pipeline",
+          })
+          .select()
+          .single();
+        if (pipelineErr || !pipeline) {
+          toast.error(tSidebar("toastFailedAddDeal"));
+          return;
+        }
+        await supabase.from("pipeline_stages").insert(
+          SIDEBAR_DEFAULT_STAGES.map((s) => ({ pipeline_id: pipeline.id, ...s })),
+        );
+        pipelineId = pipeline.id;
+        await fetchContactData();
+      }
+
+      const stages = pipelineId ? stagesByPipeline[pipelineId] ?? [] : [];
+      const firstStage = stages[0];
+      if (!pipelineId || !firstStage) {
+        toast.error(tSidebar("toastFailedAddDeal"));
+        return;
+      }
+
+      const { error } = await supabase.from("deals").insert({
+        user_id: user.id,
+        account_id: accountId,
+        pipeline_id: pipelineId,
+        stage_id: firstStage.id,
+        contact_id: contact.id,
+        title: contact.name || contact.phone,
+        value: 0,
+        status: "open",
+      });
+      if (error) {
+        toast.error(tSidebar("toastFailedAddDeal"));
+        return;
+      }
+      toast.success(tSidebar("dealAdded"));
+      await fetchContactData();
+    } finally {
+      setAddingDeal(false);
+    }
+  }, [contact, accountId, pipelines, stagesByPipeline, fetchContactData, tSidebar]);
 
   if (!contact) {
     return (
@@ -255,9 +391,26 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
           {/* Active Deals */}
           <div>
-            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <DollarSign className="h-3 w-3" />
-              {tSidebar("deals")}
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <DollarSign className="h-3 w-3" />
+                {tSidebar("deals")}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleAddDeal}
+                disabled={addingDeal}
+                className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title={tSidebar("addToPipeline")}
+              >
+                {addingDeal ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                {tSidebar("addToPipeline")}
+              </Button>
             </div>
             <div className="mt-2 space-y-2">
               {deals.length === 0 ? (
@@ -271,22 +424,28 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                     <p className="text-sm font-medium text-foreground">
                       {deal.title}
                     </p>
-                    <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span>
-                        {deal.currency ?? "$"}
-                        {deal.value.toLocaleString()}
+                        {formatCurrency(deal.value, deal.currency || "BRL")}
                       </span>
-                      {deal.stage && (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px]"
-                          style={{
-                            backgroundColor: `${deal.stage.color}20`,
-                            color: deal.stage.color,
-                          }}
-                        >
-                          {deal.stage.name}
-                        </span>
-                      )}
+                      <select
+                        value={deal.stage_id}
+                        onChange={(e) => handleMoveDeal(deal, e.target.value)}
+                        disabled={movingDealId === deal.id}
+                        className="h-6 max-w-[130px] truncate rounded-full border-none bg-transparent px-1.5 text-[10px] font-medium text-muted-foreground outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        style={{
+                          color: (stagesByPipeline[deal.pipeline_id] ?? []).find(
+                            (s) => s.id === deal.stage_id,
+                          )?.color,
+                        }}
+                        title={tSidebar("changeStage")}
+                      >
+                        {(stagesByPipeline[deal.pipeline_id] ?? []).map((s) => (
+                          <option key={s.id} value={s.id} className="text-foreground">
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 ))
