@@ -44,15 +44,15 @@ interface UazapiWebhookPayload {
       key?: { id?: string; remoteJid?: string; fromMe?: boolean }
       message?: {
         conversation?: string
-        extendedTextMessage?: { text: string }
-        imageMessage?: { url?: string; caption?: string; mimetype?: string }
-        audioMessage?: { url?: string; mimetype?: string }
-        videoMessage?: { url?: string; caption?: string; mimetype?: string }
-        documentMessage?: { url?: string; fileName?: string; caption?: string; mimetype?: string }
+        extendedTextMessage?: { text: string; contextInfo?: BaileysContextInfo }
+        imageMessage?: { url?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
+        audioMessage?: { url?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
+        videoMessage?: { url?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
+        documentMessage?: { url?: string; fileName?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
         documentWithCaptionMessage?: {
-          message?: { documentMessage?: { url?: string; fileName?: string; caption?: string } }
+          message?: { documentMessage?: { url?: string; fileName?: string; caption?: string; contextInfo?: BaileysContextInfo } }
         }
-        locationMessage?: { degreesLatitude?: number; degreesLongitude?: number }
+        locationMessage?: { degreesLatitude?: number; degreesLongitude?: number; contextInfo?: BaileysContextInfo }
         viewOnceMessage?: Record<string, unknown>
       }
       pushName?: string
@@ -72,6 +72,7 @@ interface UazapiWebhookPayload {
     media?: string
     caption?: string
     timestamp?: string
+    quoted?: string
   }>
 }
 
@@ -93,6 +94,16 @@ interface UazapiWebhookMessage {
   groupName?: string
   messageTimestamp?: number | string
   owner?: string
+  /**
+   * Uazapi message id of the message being replied to (quoted). The
+   * Uazapi v2 webhook sends it as a plain string on the flat payload.
+   */
+  quoted?: string
+}
+
+interface BaileysContextInfo {
+  stanzaId?: string
+  stanzaID?: string
 }
 
 /**
@@ -206,6 +217,26 @@ export async function POST(request: Request) {
         if (existingMsg) continue
       }
 
+      // Resolve the quoted message id to an internal message id. A
+      // missing parent is fine — the quote is simply not rendered.
+      let replyToInternalId: string | null = null
+      if (msg.quotedId) {
+        const { data: quotedParent } = await db
+          .from('messages')
+          .select('id')
+          .eq('conversation_id', conversation.id)
+          .eq('message_id', msg.quotedId)
+          .limit(1)
+          .maybeSingle()
+        replyToInternalId = quotedParent?.id ?? null
+        if (!quotedParent) {
+          console.warn('[uazapi-webhook] quoted parent not found:', {
+            messageId: msg.id,
+            quotedId: msg.quotedId,
+          })
+        }
+      }
+
       // Persist the message
       const { data: inserted, error: insertError } = await db
         .from('messages')
@@ -218,6 +249,7 @@ export async function POST(request: Request) {
           message_id: msg.id || null,
           status: 'delivered',
           source: 'uazapi',
+          reply_to_message_id: replyToInternalId,
           created_at: msg.createdAt ?? new Date().toISOString(),
         })
         .select('id')
@@ -378,6 +410,11 @@ interface ExtractedMessage {
   contentText: string | null
   mediaUrl: string | null
   createdAt?: string
+  /**
+   * Uazapi message id of the message being replied to (quoted), when
+   * present. Resolved to an internal message id before persisting.
+   */
+  quotedId?: string
   /** Raw Uazapi fields, kept for diagnostics/logging. */
   messageType?: string
   mediaType?: string
@@ -424,6 +461,10 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
             contentType: resolvedType,
             contentText: body || null,
             mediaUrl: null,
+            quotedId:
+              typeof flatMessage.quoted === 'string' && flatMessage.quoted
+                ? flatMessage.quoted
+                : extractQuotedFromContent(flatMessage.content),
             createdAt,
             messageType: flatMessage.messageType || flatMessage.type || '',
             mediaType: flatMessage.mediaType || '',
@@ -455,23 +496,30 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     let contentType: string | null = null
     let contentText: string | null = null
     let mediaUrl: string | null = null
+    let quotedId: string | undefined
+    const quotedFromContext = (ctx?: BaileysContextInfo) =>
+      ctx?.stanzaId || ctx?.stanzaID
 
     if (image) {
       contentType = 'image'
       contentText = image.caption || null
       mediaUrl = image.url || null
+      quotedId = quotedFromContext(image.contextInfo)
     } else if (video) {
       contentType = 'video'
       contentText = video.caption || null
       mediaUrl = video.url || null
+      quotedId = quotedFromContext(video.contextInfo)
     } else if (audio) {
       contentType = 'audio'
       contentText = null
       mediaUrl = audio.url || null
+      quotedId = quotedFromContext(audio.contextInfo)
     } else if (document || documentWithCaption) {
       contentType = 'document'
       contentText = document?.caption || documentWithCaption?.caption || document?.fileName || null
       mediaUrl = document?.url || documentWithCaption?.url || null
+      quotedId = quotedFromContext(document?.contextInfo || documentWithCaption?.contextInfo)
     } else if (message.viewOnceMessage) {
       // Disappearing media — type unknown here, but it's still a
       // message worth keeping; the proxy resolves it by id.
@@ -481,6 +529,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     } else {
       contentType = conversation || extendedText ? 'text' : null
       contentText = conversation || extendedText || null
+      quotedId = quotedFromContext(message.extendedTextMessage?.contextInfo)
     }
 
     push({
@@ -491,6 +540,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
       contentType,
       contentText,
       mediaUrl,
+      quotedId,
     })
   }
 
@@ -531,11 +581,41 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
         contentType,
         contentText: m.caption || m.text || null,
         mediaUrl: m.media || null,
+        quotedId: m.quoted,
       })
     }
   }
 
   return result
+}
+
+/**
+ * Best-effort extraction of the quoted message id from a Baileys-style
+ * `content` object (used by some Uazapi builds that don't set the flat
+ * `quoted` field).
+ */
+function extractQuotedFromContent(content: unknown): string | undefined {
+  if (!content || typeof content !== 'object') return undefined
+  const c = content as Record<string, unknown>
+
+  // Top-level contextInfo (some servers) or a nested proto like
+  // extendedTextMessage/imageMessage carrying its own contextInfo.
+  const candidates: unknown[] = [
+    c.contextInfo,
+    c.contextinfo,
+    (c.extendedTextMessage as Record<string, unknown> | undefined)?.contextInfo,
+    (c.imageMessage as Record<string, unknown> | undefined)?.contextInfo,
+    (c.videoMessage as Record<string, unknown> | undefined)?.contextInfo,
+    (c.audioMessage as Record<string, unknown> | undefined)?.contextInfo,
+    (c.documentMessage as Record<string, unknown> | undefined)?.contextInfo,
+  ]
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const ctx = candidate as Record<string, unknown>
+    const stanzaId = ctx.stanzaId ?? ctx.stanzaID ?? ctx.StanzaId
+    if (typeof stanzaId === 'string' && stanzaId) return stanzaId
+  }
+  return undefined
 }
 
 function extractMessageContent(msg: ExtractedMessage): {

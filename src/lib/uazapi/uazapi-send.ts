@@ -167,6 +167,32 @@ export async function sendMessageToConversation(
 
   const apiToken = decrypt(config.api_token);
 
+  // Resolve the reply target to its Uazapi message_id. The parent must
+  // belong to this same conversation — otherwise a caller could quote
+  // messages they can't see by guessing UUIDs.
+  let quotedMessageId: string | undefined;
+  if (replyToMessageId) {
+    const { data: parent, error: parentError } = await db
+      .from('messages')
+      .select('message_id, conversation_id')
+      .eq('id', replyToMessageId)
+      .eq('conversation_id', conversationId)
+      .maybeSingle();
+
+    if (parentError || !parent) {
+      throw new UazapiSendError(
+        'bad_request',
+        'reply_to_message_id not found in this conversation',
+        400
+      );
+    }
+    if (!parent.message_id) {
+      console.warn('[uazapi-send] reply parent has no Uazapi message id — sending without quote');
+    } else {
+      quotedMessageId = parent.message_id;
+    }
+  }
+
   // Send via Uazapi
   const to = sanitizedPhone.replace('+', '');
   let uazapiMessageId = '';
@@ -181,6 +207,7 @@ export async function sendMessageToConversation(
         title: menuTitle || undefined,
         footer: menuFooter || undefined,
         rows: menuRows || [],
+        quotedMessageId,
       });
       uazapiMessageId = result.messageId;
     } else if (isMediaKind) {
@@ -192,6 +219,7 @@ export async function sendMessageToConversation(
         link: mediaUrl!,
         caption: contentText || undefined,
         filename: filename || undefined,
+        quotedMessageId,
       });
       uazapiMessageId = result.messageId;
     } else {
@@ -200,6 +228,7 @@ export async function sendMessageToConversation(
         apiToken,
         to,
         text: contentText!,
+        quotedMessageId,
       });
       uazapiMessageId = result.messageId;
     }

@@ -14,6 +14,8 @@ import {
   ImageOff,
   CornerDownLeft,
   Sparkles,
+  Download,
+  Gauge,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -123,6 +125,76 @@ function MediaLoading() {
   );
 }
 
+const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2, 0.75, 0.5];
+
+/** Audio player with a playback-speed cycle button. */
+function AudioPlayer({ src }: { src: string }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [speedIndex, setSpeedIndex] = useState(0);
+
+  const cycleSpeed = () => {
+    const next = (speedIndex + 1) % PLAYBACK_SPEEDS.length;
+    setSpeedIndex(next);
+    if (audioRef.current) audioRef.current.playbackRate = PLAYBACK_SPEEDS[next];
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <audio ref={audioRef} src={src} controls className="max-w-52" />
+      <button
+        type="button"
+        onClick={cycleSpeed}
+        title="Velocidade de reprodução"
+        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted"
+      >
+        <Gauge className="h-3 w-3" />
+        {PLAYBACK_SPEEDS[speedIndex]}x
+      </button>
+    </div>
+  );
+}
+
+/** Download the already-resolved media URL (blob or same-origin proxy). */
+function MediaDownloadButton({ url, filename }: { url: string; filename?: string }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename || "media";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // Cross-origin URLs can't be blob-fetched — open directly instead.
+      window.open(url, "_blank", "noopener");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={downloading}
+      title="Baixar mídia"
+      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-60"
+    >
+      <Download className="h-3 w-3" />
+      {downloading ? "..." : "Baixar"}
+    </button>
+  );
+}
+
 function MediaImage({ url, alt }: { url: string; alt: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -207,7 +279,12 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
             ) : mediaLoading ? (
               <MediaLoading />
             ) : (
-              <MediaImage url={mediaUrl ?? ""} alt="Shared image" />
+              <div className="relative">
+                <MediaImage url={mediaUrl ?? ""} alt="Shared image" />
+                <div className="absolute right-1 top-1">
+                  <MediaDownloadButton url={mediaUrl ?? ""} filename={`imagem_${message.id}`} />
+                </div>
+              </div>
             )
           ) : (
             <MediaUnavailable label={t("photo")} t={t} />
@@ -229,11 +306,16 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
             ) : mediaLoading ? (
               <MediaLoading />
             ) : (
-              <video
-                src={mediaUrl ?? ""}
-                controls
-                className="max-h-64 max-w-60 rounded-lg"
-              />
+              <div className="relative">
+                <video
+                  src={mediaUrl ?? ""}
+                  controls
+                  className="max-h-64 max-w-60 rounded-lg"
+                />
+                <div className="absolute right-1 top-1">
+                  <MediaDownloadButton url={mediaUrl ?? ""} filename={`video_${message.id}`} />
+                </div>
+              </div>
             )
           ) : (
             <MediaUnavailable label={t("video")} t={t} />
@@ -248,7 +330,7 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
 
     case "audio":
       return (
-        <div>
+        <div className="flex items-center gap-1.5">
           {hasMedia ? (
             mediaFailed ? (
               <MediaUnavailable label={t("audio")} t={t} />
@@ -257,7 +339,10 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               </div>
             ) : (
-              <audio src={mediaUrl ?? ""} controls className="max-w-60" />
+              <>
+                <AudioPlayer src={mediaUrl ?? ""} />
+                <MediaDownloadButton url={mediaUrl ?? ""} filename={`audio_${message.id}`} />
+              </>
             )
           ) : (
             <MediaUnavailable label={t("audio")} t={t} />

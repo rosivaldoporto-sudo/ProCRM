@@ -90,3 +90,29 @@ export function mapUazapiStatus(status: string): string {
   if (s === 'failed' || s === 'canceled' || s === 'cancelled') return 'failed'
   return 'delivered'
 }
+
+/**
+ * Extract the Uazapi message id this message replies to (quoted).
+ * Uazapi v2 sends it as a plain `quoted` string; Baileys-style servers
+ * nest it in `content.contextInfo.stanzaId` (or `stanzaID`). Returns
+ * undefined when there's no quote.
+ */
+export function extractUazapiQuotedId(m: {
+  quoted?: string
+  content?: unknown
+}): string | undefined {
+  if (typeof m.quoted === 'string' && m.quoted) return m.quoted
+
+  const content = m.content
+  if (!content || typeof content !== 'object') return undefined
+
+  const c = content as Record<string, unknown>
+  const contextInfo = (c.contextInfo ?? c.contextinfo) as
+    | Record<string, unknown>
+    | undefined
+  if (contextInfo) {
+    const stanzaId = contextInfo.stanzaId ?? contextInfo.stanzaID ?? contextInfo.StanzaId
+    if (typeof stanzaId === 'string' && stanzaId) return stanzaId
+  }
+  return undefined
+}

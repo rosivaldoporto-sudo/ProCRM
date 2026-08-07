@@ -6,6 +6,7 @@ import {
   mapUazapiContentType,
   mapUazapiStatus,
   uazapiTimestampToIso,
+  extractUazapiQuotedId,
 } from '@/lib/uazapi/message-mapping'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
@@ -221,7 +222,7 @@ async function syncChatMessages(
   // Load what we already have for the conversation.
   const { data: existingRows } = await db
     .from('messages')
-    .select('id, message_id, sender_type, content_text, media_url, created_at')
+    .select('id, message_id, sender_type, content_text, media_url, reply_to_message_id, created_at')
     .eq('conversation_id', conversationId)
 
   const existingIds = new Set<string>()
@@ -303,21 +304,39 @@ async function syncChatMessages(
       const isMedia = contentType !== 'text' && contentType !== 'location'
       let mediaUrl: string | null = m.fileURL || null
 
-      // Existing row (matched by message id): backfill a missing media
-      // URL — an earlier webhook may have failed its async download.
+      // Existing row (matched by message id): backfill missing media
+      // URL and reply link — an earlier webhook may have failed its
+      // async download or pre-dates reply extraction.
       if (m.messageid && existingIds.has(m.messageid)) {
         const row = (existingRows ?? []).find(
           (r) => r.message_id === m.messageid,
         )
-        if (row && isMedia && !row.media_url && m.messageid) {
-          const file = await downloadMessageUrl(
-            { serverUrl, apiToken, messageId: m.messageid },
-            2,
-          )
-          if (file?.url) {
+        if (row) {
+          const updates: Record<string, unknown> = {}
+          if (isMedia && !row.media_url && m.messageid) {
+            const file = await downloadMessageUrl(
+              { serverUrl, apiToken, messageId: m.messageid },
+              2,
+            )
+            if (file?.url) updates.media_url = file.url
+          }
+          if (!row.reply_to_message_id) {
+            const quotedId = extractUazapiQuotedId(m)
+            if (quotedId) {
+              const { data: quotedParent } = await db
+                .from('messages')
+                .select('id')
+                .eq('conversation_id', conversationId)
+                .eq('message_id', quotedId)
+                .limit(1)
+                .maybeSingle()
+              if (quotedParent?.id) updates.reply_to_message_id = quotedParent.id
+            }
+          }
+          if (Object.keys(updates).length > 0) {
             await db
               .from('messages')
-              .update({ media_url: file.url, updated_at: new Date().toISOString() })
+              .update({ ...updates, updated_at: new Date().toISOString() })
               .eq('id', (row as { id?: string }).id as string)
           }
         }
@@ -343,6 +362,29 @@ async function syncChatMessages(
         mediaUrl = file?.url || null
       }
 
+      // Resolve the quoted (reply) message id to an internal id so the
+      // inbox can render the quote. Best-effort: the parent may be
+      // older than the sync window — the quote is just not shown then.
+      const quotedId = extractUazapiQuotedId(m)
+      let replyToInternalId: string | null = null
+      if (quotedId) {
+        const { data: quotedParent } = await db
+          .from('messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .eq('message_id', quotedId)
+          .limit(1)
+          .maybeSingle()
+        replyToInternalId = quotedParent?.id ?? null
+        if (!quotedParent) {
+          console.warn('[uazapi-sync] quoted parent not found:', {
+            chatid,
+            messageid: m.messageid,
+            quotedId,
+          })
+        }
+      }
+
       const { error: insertError } = await db.from('messages').insert({
         conversation_id: conversationId,
         sender_type: m.fromMe ? 'agent' : 'customer',
@@ -352,6 +394,7 @@ async function syncChatMessages(
         message_id: m.messageid || null,
         status: mapUazapiStatus(m.status || ''),
         source: 'uazapi',
+        reply_to_message_id: replyToInternalId,
         created_at: createdAt ?? new Date().toISOString(),
       })
 

@@ -138,26 +138,34 @@ export interface SendTextMessageArgs {
   apiToken: string
   to: string
   text: string
+  /**
+   * Uazapi message id of the message being quoted (reply). Sent as the
+   * `quoted` body field — same shape the server stores on inbound
+   * webhook messages.
+   */
+  quotedMessageId?: string
 }
 
 /**
  * Send a text message via Uazapi.
  * POST /send/text
  * Auth: token header
- * Body: { number: "...", text: "..." }
+ * Body: { number: "...", text: "...", quoted?: "<messageid>" }
  */
 export async function sendTextMessage(
   args: SendTextMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, text } = args
+  const { serverUrl, apiToken, to, text, quotedMessageId } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/text`
+  const body: Record<string, unknown> = {
+    number: to,
+    text,
+  }
+  if (quotedMessageId) body.quoted = quotedMessageId
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
-    body: JSON.stringify({
-      number: to,
-      text,
-    }),
+    body: JSON.stringify(body),
   })
   if (!response.ok) {
     await throwUazapiError(response, 'Uazapi send text failed')
@@ -176,18 +184,19 @@ export interface SendMediaMessageArgs {
   link: string
   caption?: string
   filename?: string
+  quotedMessageId?: string
 }
 
 /**
  * Send a media message (image, video, document, audio) via Uazapi.
  * POST /send/media
  * Auth: token header
- * Body: { number: "...", type: "...", link: "...", caption?: "..." }
+ * Body: { number: "...", type: "...", link: "...", caption?: "...", quoted?: "<messageid>" }
  */
 export async function sendMediaMessage(
   args: SendMediaMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, kind, link, caption, filename } = args
+  const { serverUrl, apiToken, to, kind, link, caption, filename, quotedMessageId } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/media`
   const body: Record<string, unknown> = {
     number: to,
@@ -196,6 +205,7 @@ export async function sendMediaMessage(
   }
   if (caption && kind !== 'audio') body.caption = caption
   if (kind === 'document' && filename) body.filename = filename
+  if (quotedMessageId) body.quoted = quotedMessageId
 
   const response = await fetch(url, {
     method: 'POST',
@@ -223,6 +233,7 @@ export interface SendMenuArgs {
   title?: string
   footer?: string
   rows: MenuRow[]
+  quotedMessageId?: string
 }
 
 /**
@@ -323,6 +334,12 @@ export interface UazapiStoredMessage {
   fileURL?: string
   wasSentByApi?: boolean
   senderName?: string
+  /**
+   * Uazapi message id of the message this one replies to (quoted).
+   * String on Uazapi v2; some servers expose the Baileys contextInfo
+   * inside `content` instead.
+   */
+  quoted?: string
 }
 
 /**
@@ -436,22 +453,24 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
 export async function sendMenu(
   args: SendMenuArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, body, title, footer, rows } = args
+  const { serverUrl, apiToken, to, body, title, footer, rows, quotedMessageId } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/send/menu`
+  const payload: Record<string, unknown> = {
+    number: to,
+    title: title || '',
+    description: body,
+    footer: footer || '',
+    menu: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description || '',
+    })),
+  }
+  if (quotedMessageId) payload.quoted = quotedMessageId
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
-    body: JSON.stringify({
-      number: to,
-      title: title || '',
-      description: body,
-      footer: footer || '',
-      menu: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        description: r.description || '',
-      })),
-    }),
+    body: JSON.stringify(payload),
   })
   if (!response.ok) {
     await throwUazapiError(response, 'Uazapi send menu failed')
