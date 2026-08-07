@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
@@ -675,12 +675,15 @@ async function findOrCreateContact(
 ) {
   // Reuse shared dedupe logic (same as WhatsApp webhook)
   const existing = await findExistingContact(db, accountId, phone)
+  // WhatsApp pushnames made of emojis/symbols alone (e.g. "🩷🩷") are
+  // not usable labels — resolveContactName falls back to the phone.
+  const resolvedName = resolveContactName(pushName, phone)
   if (existing) {
-    // Update name if pushName is provided and differs
-    if (pushName && pushName !== existing.name) {
+    // Update name if the resolved pushname differs
+    if (resolvedName !== existing.name) {
       await db
         .from('contacts')
-        .update({ name: pushName, updated_at: new Date().toISOString() })
+        .update({ name: resolvedName, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
     }
     return existing
@@ -693,7 +696,7 @@ async function findOrCreateContact(
       account_id: accountId,
       user_id: userId,
       phone,
-      name: pushName || phone,
+      name: resolvedName,
     })
     .select()
     .single()

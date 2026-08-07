@@ -10,7 +10,7 @@ import {
   extractUazapiQuotedId,
 } from '@/lib/uazapi/message-mapping'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe'
 import { resolveAuditUserId } from '@/lib/api/v1/contacts'
 
 export const maxDuration = 120
@@ -85,12 +85,15 @@ export async function POST(request: Request) {
       // Find or create contact
       let contactId: string
       const existing = await findExistingContact(supabase, accountId, phone)
+      // Chat names made of emojis/symbols alone aren't usable labels —
+      // resolveContactName falls back to the phone.
+      const resolvedName = resolveContactName(chat.name, phone)
       if (existing) {
         contactId = existing.id
-        if (chat.name && chat.name !== existing.name) {
+        if (resolvedName !== existing.name) {
           await supabase
             .from('contacts')
-            .update({ name: chat.name, updated_at: new Date().toISOString() })
+            .update({ name: resolvedName, updated_at: new Date().toISOString() })
             .eq('id', existing.id)
         }
       } else {
@@ -100,7 +103,7 @@ export async function POST(request: Request) {
             account_id: accountId,
             user_id: ownerUserId,
             phone,
-            name: chat.name || phone,
+            name: resolvedName,
           })
           .select('id')
           .single()

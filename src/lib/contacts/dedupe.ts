@@ -18,6 +18,31 @@ export function normalizeKey(phone: string): string {
   return normalizePhone(phone);
 }
 
+/**
+ * A name is only worth keeping when it carries at least one letter or
+ * digit in any script. Names made of emojis/symbols alone (e.g. the
+ * WhatsApp pushname "🩷🩷") are valid WhatsApp data but useless as CRM
+ * labels — callers fall back to the phone number for those.
+ */
+export function isMeaningfulContactName(
+  name: string | null | undefined,
+): boolean {
+  return typeof name === "string" && /[\p{L}\p{N}]/u.test(name.trim());
+}
+
+/**
+ * Resolve a WhatsApp-provided display name to a usable contact label:
+ * the trimmed name when it contains at least one letter/digit, the
+ * `fallback` (normally the phone number) otherwise — including empty
+ * or whitespace-only names.
+ */
+export function resolveContactName(
+  name: string | null | undefined,
+  fallback: string,
+): string {
+  return isMeaningfulContactName(name) ? name!.trim() : fallback;
+}
+
 /** Minimal shape we need back from a contacts lookup. */
 export interface ExistingContact {
   id: string;

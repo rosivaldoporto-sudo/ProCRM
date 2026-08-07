@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia, getMessageDetails } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
@@ -1106,9 +1106,13 @@ async function findOrCreateContact(
     phone,
   )
 
+  // WhatsApp profile names made of emojis/symbols alone (e.g. "🩷🩷")
+  // aren't usable labels — resolveContactName falls back to the phone.
+  const resolvedName = resolveContactName(name, phone)
+
   if (existingContact) {
     // Update name if it changed
-    if (name && name !== existingContact.name) {
+    if (resolvedName !== existingContact.name) {
       await supabaseAdmin()
         .from('contacts')
         .update({ name, updated_at: new Date().toISOString() })
@@ -1127,7 +1131,7 @@ async function findOrCreateContact(
       account_id: accountId,
       user_id: configOwnerUserId,
       phone,
-      name: name || phone,
+      name: resolvedName,
     })
     .select()
     .single()

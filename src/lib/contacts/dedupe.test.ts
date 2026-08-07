@@ -4,8 +4,10 @@ import {
   dedupeByPhone,
   findExistingContact,
   isExactMatch,
+  isMeaningfulContactName,
   isUniqueViolation,
   normalizeKey,
+  resolveContactName,
 } from "./dedupe";
 
 describe("normalizeKey", () => {
@@ -63,6 +65,38 @@ describe("dedupeByPhone", () => {
     ]);
     expect(unique).toHaveLength(1);
     expect(duplicates).toBe(1);
+  });
+});
+
+describe("isMeaningfulContactName", () => {
+  it("accepts names with letters/digits in any script", () => {
+    expect(isMeaningfulContactName("Ana")).toBe(true);
+    expect(isMeaningfulContactName("João 123")).toBe(true);
+    expect(isMeaningfulContactName("Привет")).toBe(true);
+    expect(isMeaningfulContactName("Ana 💕")).toBe(true);
+  });
+
+  it("rejects emoji-only, symbol-only, empty and whitespace names", () => {
+    expect(isMeaningfulContactName("🩷🩷")).toBe(false);
+    expect(isMeaningfulContactName("🎉🔥🎂")).toBe(false);
+    expect(isMeaningfulContactName("---===")).toBe(false);
+    expect(isMeaningfulContactName("")).toBe(false);
+    expect(isMeaningfulContactName("   ")).toBe(false);
+    expect(isMeaningfulContactName(null)).toBe(false);
+    expect(isMeaningfulContactName(undefined)).toBe(false);
+  });
+});
+
+describe("resolveContactName", () => {
+  it("keeps meaningful names (trimmed)", () => {
+    expect(resolveContactName("Ana", "+5511999999999")).toBe("Ana");
+    expect(resolveContactName("  Ana  ", "+5511999999999")).toBe("Ana");
+  });
+
+  it("falls back to the phone for emoji-only / empty names", () => {
+    expect(resolveContactName("🩷🩷", "+5511999999999")).toBe("+5511999999999");
+    expect(resolveContactName("", "+5511999999999")).toBe("+5511999999999");
+    expect(resolveContactName(undefined, "+5511999999999")).toBe("+5511999999999");
   });
 });
 

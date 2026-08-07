@@ -20,7 +20,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
@@ -91,10 +91,11 @@ export async function resolveConversationByPhone(
   const existing = await findExistingContact(db, accountId, sanitized);
   if (existing) {
     contactId = existing.id;
-    if (name && name !== existing.name) {
+    const resolvedName = resolveContactName(name, sanitized);
+    if (resolvedName !== existing.name) {
       await db
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update({ name: resolvedName, updated_at: new Date().toISOString() })
         .eq('id', existing.id);
     }
   } else {
@@ -104,7 +105,7 @@ export async function resolveConversationByPhone(
         account_id: accountId,
         user_id: ownerUserId,
         phone: sanitized,
-        name: name || sanitized,
+        name: resolveContactName(name, sanitized),
       })
       .select('id')
       .single();
