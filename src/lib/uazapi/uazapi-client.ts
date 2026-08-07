@@ -564,3 +564,51 @@ export async function downloadMessageFile(args: {
   console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', { messageId })
   return null
 }
+
+/**
+ * Fetch a WhatsApp contact's profile picture URL.
+ * POST /chat/GetNameAndImageURL
+ * Auth: token header
+ * Body: { number: "<phone>", preview: false, returnMoreNames: true }
+ *
+ * Returns the profile image URL or null when the contact has no
+ * picture / the server rejects the lookup. The response shape differs
+ * across Uazapi versions (some nest under `data.<number>`), so the
+ * parse is defensive. Never throws.
+ */
+export async function fetchProfilePhoto(args: {
+  serverUrl: string
+  apiToken: string
+  number: string
+}): Promise<string | null> {
+  const { serverUrl, apiToken, number } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/chat/GetNameAndImageURL`
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(apiToken),
+      body: JSON.stringify({ number, preview: false, returnMoreNames: true }),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!response.ok) return null
+    const data = await response.json()
+    if (data && data.status === false) return null
+    const nested = typeof data?.data === 'object' && data.data !== null
+    const entry = nested
+      ? (data.data[number] ?? data.data)
+      : data
+    const candidate =
+      entry?.photoURL ||
+      entry?.photoUrl ||
+      entry?.profilePicUrl ||
+      entry?.profile_picture_url ||
+      entry?.imgUrl ||
+      entry?.imageUrl ||
+      entry?.picture ||
+      entry?.url
+    return typeof candidate === 'string' && candidate.length > 0 ? candidate : null
+  } catch (err) {
+    console.warn('[uazapi] fetchProfilePhoto failed:', { number, error: err })
+    return null
+  }
+}

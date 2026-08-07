@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { fetchChats, fetchMessages, downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
 import {
   mapUazapiContentType,
   mapUazapiStatus,
@@ -115,6 +116,22 @@ export async function POST(request: Request) {
         } else {
           contactId = created.id
         }
+      }
+
+      // Backfill: fetch the WhatsApp profile picture for contacts that
+      // don't have one yet (new contacts never do). Runs after the
+      // response — best-effort, never blocks the sync (see
+      // refreshContactProfilePhoto).
+      if (!existing || !existing.avatar_url) {
+        after(async () => {
+          await refreshContactProfilePhoto({
+            accountId,
+            contactId,
+            phone,
+            serverUrl: config.server_url,
+            apiToken,
+          })
+        })
       }
 
       // Find or create conversation with source='uazapi'

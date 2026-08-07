@@ -7,6 +7,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
 import { ensureLeadDeal } from '@/lib/deals/auto-create'
 import {
   mapUazapiContentType,
@@ -332,6 +333,17 @@ export async function POST(request: Request) {
               contactId: contact.id,
               conversationId: conversation.id,
               contactName: contact.name || contact.phone,
+            })
+          }
+          // Enrich the contact with their WhatsApp profile picture
+          // (only when none is set yet). Never throws.
+          if (!contact.avatar_url) {
+            await refreshContactProfilePhoto({
+              accountId: config.account_id,
+              contactId: contact.id,
+              phone,
+              serverUrl: config.server_url,
+              apiToken,
             })
           }
           await Promise.allSettled([
