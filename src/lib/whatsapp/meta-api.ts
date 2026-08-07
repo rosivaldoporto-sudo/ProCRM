@@ -994,6 +994,70 @@ function validateInteractiveHeaderFooter(
 // Media
 // ============================================================
 
+export interface GetMessageDetailsArgs {
+  phoneNumberId: string
+  accessToken: string
+  messageId: string
+}
+
+export interface MessageDetailsResult {
+  ctwa_clid?: string
+  ad_id?: string
+  ad_name?: string
+  campaign_id?: string
+  campaign_name?: string
+  source_type?: string
+}
+
+/**
+ * Fetch the attribution details of a received message that originated
+ * from a Click-to-WhatsApp ad.
+ *
+ * GET /{phone_number_id}/messages/{message_id} — for messages driven
+ * by a CTWA ad, Meta returns the click id plus the ad and campaign
+ * ids/names. The webhook payload itself only carries `ctwa_clid` (+
+ * the ad id via `referral.source_id`), so this call is how the
+ * human-readable ad/campaign names get into the CRM.
+ *
+ * Best-effort: returns null on any failure (rate limits, message too
+ * old, not an ad message) — attribution keeps the clid either way.
+ */
+export async function getMessageDetails(
+  args: GetMessageDetailsArgs
+): Promise<MessageDetailsResult | null> {
+  const { phoneNumberId, accessToken, messageId } = args
+  const response = await fetch(
+    `${META_API_BASE}/${phoneNumberId}/messages/${messageId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!response.ok) {
+    console.warn(
+      `[meta-api] getMessageDetails failed: HTTP ${response.status}`,
+    )
+    return null
+  }
+  const data = (await response.json()) as {
+    messages?: Array<{
+      ctwa_clid?: string
+      ad_id?: string
+      ad_name?: string
+      campaign_id?: string
+      campaign_name?: string
+      source_type?: string
+    }>
+  }
+  const msg = data.messages?.[0]
+  if (!msg) return null
+  return {
+    ctwa_clid: msg.ctwa_clid || undefined,
+    ad_id: msg.ad_id || undefined,
+    ad_name: msg.ad_name || undefined,
+    campaign_id: msg.campaign_id || undefined,
+    campaign_name: msg.campaign_name || undefined,
+    source_type: msg.source_type || undefined,
+  }
+}
+
 export interface GetMediaUrlArgs {
   mediaId: string
   accessToken: string

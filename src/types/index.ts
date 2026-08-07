@@ -116,6 +116,16 @@ export interface Contact {
   utm_medium?: string;
   utm_term?: string;
   utm_content?: string;
+  /** Click-to-WhatsApp ad attribution (migration 041). Set when the
+   *  first inbound message carries Meta's `referral` payload; the
+   *  ad/campaign names are enriched asynchronously via GET message
+   *  details. */
+  ctwa_clid?: string;
+  ad_id?: string;
+  ad_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  ad_source_type?: string;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
