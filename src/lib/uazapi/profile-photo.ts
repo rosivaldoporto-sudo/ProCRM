@@ -24,13 +24,19 @@ export async function refreshContactProfilePhoto(args: {
   phone: string
   serverUrl: string
   apiToken: string
+  /**
+   * Profile picture URL already available (e.g. `chat.image` in the
+   * v2 webhook payload) — skips the GetNameAndImageURL API call.
+   */
+  photoUrl?: string | null
 }): Promise<void> {
-  const { accountId, contactId, phone, serverUrl, apiToken } = args
+  const { accountId, contactId, phone, serverUrl, apiToken, photoUrl } = args
   try {
-    const photoUrl = await fetchProfilePhoto({ serverUrl, apiToken, number: phone })
-    if (!photoUrl) return
+    const resolvedPhotoUrl =
+      photoUrl || (await fetchProfilePhoto({ serverUrl, apiToken, number: phone }))
+    if (!resolvedPhotoUrl) return
 
-    const buffer = await downloadPhotoBytes(photoUrl, serverUrl, apiToken)
+    const buffer = await downloadPhotoBytes(resolvedPhotoUrl, serverUrl, apiToken)
     if (!buffer) return
 
     const db = adminClient()
@@ -77,12 +83,25 @@ function adminClient() {
  * Download the profile picture bytes. Uazapi photo URLs are usually
  * direct WhatsApp CDN links (no auth), but when the Uazapi server
  * proxies the file it requires the `token` header — so try both.
+ * Some servers hand out `data:` URIs (base64) — decode those directly.
  */
 async function downloadPhotoBytes(
   photoUrl: string,
   serverUrl: string,
   apiToken: string,
 ): Promise<ArrayBuffer | null> {
+  if (photoUrl.startsWith('data:')) {
+    try {
+      const comma = photoUrl.indexOf(',')
+      const base64 = comma >= 0 ? photoUrl.slice(comma + 1) : photoUrl
+      const buffer = Buffer.from(base64, 'base64')
+      return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+    } catch (err) {
+      console.warn('[uazapi] profile photo data-URI decode failed:', err)
+      return null
+    }
+  }
+
   const base = serverUrl.replace(/\/+$/, '')
   const isOwnServer = photoUrl.startsWith(base)
   const attempts: Record<string, string>[] = [

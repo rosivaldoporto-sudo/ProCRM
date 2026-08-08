@@ -133,6 +133,7 @@ export async function POST(request: Request) {
             phone,
             serverUrl: config.server_url,
             apiToken,
+            photoUrl: chat.image,
           })
         })
       }

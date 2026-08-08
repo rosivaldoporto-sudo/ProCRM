@@ -258,6 +258,11 @@ export interface UazapiChat {
   lastMessageAt?: string
   unreadCount?: number
   isGroup?: boolean
+  /**
+   * Profile picture URL of the chat/contact, when the server provides
+   * it on /chat/find rows (`image` / `imagePreview` on Uazapi v2).
+   */
+  image?: string
 }
 
 /**
@@ -434,6 +439,7 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
     }
     const unread = Number(row.wa_unreadCount ?? row.unreadCount ?? row.unread_count ?? row.unread ?? 0)
     const isGroup = row.wa_isGroup === true || /@g\.us$/.test(chatId)
+    const image = String(row.image ?? row.imagePreview ?? '')
 
     return {
       id: chatId,
@@ -444,6 +450,7 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
       lastMessageAt: lastMessageAt || undefined,
       unreadCount: unread || undefined,
       isGroup: isGroup || undefined,
+      image: image || undefined,
     }
   })
 

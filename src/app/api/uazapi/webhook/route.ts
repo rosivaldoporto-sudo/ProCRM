@@ -41,6 +41,10 @@ interface UazapiWebhookPayload {
   owner?: string
   token?: string
   message?: UazapiWebhookMessage
+  chat?: {
+    image?: string
+    imagePreview?: string
+  }
   data?: {
     msg?: UazapiWebhookMessage & {
       key?: { id?: string; remoteJid?: string; fromMe?: boolean }
@@ -336,7 +340,9 @@ export async function POST(request: Request) {
             })
           }
           // Enrich the contact with their WhatsApp profile picture
-          // (only when none is set yet). Never throws.
+          // (only when none is set yet). Never throws. Prefers the
+          // URL already carried in the v2 payload; falls back to the
+          // GetNameAndImageURL API call (legacy Uazapi versions).
           if (!contact.avatar_url) {
             await refreshContactProfilePhoto({
               accountId: config.account_id,
@@ -344,6 +350,7 @@ export async function POST(request: Request) {
               phone,
               serverUrl: config.server_url,
               apiToken,
+              photoUrl: msg.chatImage,
             })
           }
           await Promise.allSettled([
@@ -454,16 +461,24 @@ interface ExtractedMessage {
   /** Raw Uazapi fields, kept for diagnostics/logging. */
   messageType?: string
   mediaType?: string
+  /**
+   * Profile picture URL of the chat/contact, carried directly in the
+   * v2 webhook payload (`chat.image` / `chat.imagePreview`) — no API
+   * call needed.
+   */
+  chatImage?: string
 }
 
 function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   const result: ExtractedMessage[] = []
   const seenIds = new Set<string>()
+  // v2 webhooks carry the chat's profile picture right on the payload.
+  const chatImage = payload.chat?.image || payload.chat?.imagePreview
   const push = (msg: ExtractedMessage) => {
     if (!msg.from) return
     if (msg.id && seenIds.has(msg.id)) return
     if (msg.id) seenIds.add(msg.id)
-    result.push(msg)
+    result.push({ ...msg, chatImage: msg.chatImage || chatImage })
   }
 
   // Shape 0: Uazapi v2 flat payload (primary).
