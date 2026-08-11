@@ -11,6 +11,7 @@ import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
 import { ensureLeadDeal } from '@/lib/deals/auto-create'
 import {
   mapUazapiContentType,
+  mapUazapiStatus,
   uazapiTimestampToIso,
 } from '@/lib/uazapi/message-mapping'
 
@@ -97,6 +98,7 @@ interface UazapiWebhookMessage {
   fromMe?: boolean
   wasSentByApi?: boolean
   isGroup?: boolean
+  status?: string
   groupName?: string
   messageTimestamp?: number | string
   owner?: string
@@ -178,8 +180,12 @@ export async function POST(request: Request) {
     const apiToken = decrypt(config.api_token)
 
     for (const msg of messages) {
-      // Skip outbound messages (sent by us)
-      if (msg.fromMe) continue
+      // Outbound messages (sent from the phone connected to Uazapi) are
+      // imported as agent messages so the inbox mirrors the device in
+      // real time. Messages sent via the API (wasSentByApi) never reach
+      // this point — extraction skips them since uazapi-send already
+      // persists those.
+      const isOutbound = !!msg.fromMe
 
       const phone = normalizePhone(msg.from)
       if (!phone) continue
@@ -231,7 +237,7 @@ export async function POST(request: Request) {
         .select('id', { count: 'exact', head: true })
         .eq('conversation_id', conversation.id)
         .eq('sender_type', 'customer')
-      const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
+      const isFirstInboundMessage = !isOutbound && (priorCustomerMsgCount ?? 0) === 0
 
       // Resolve the quoted message id to an internal message id. A
       // missing parent is fine — the quote is simply not rendered.
@@ -258,12 +264,12 @@ export async function POST(request: Request) {
         .from('messages')
         .insert({
           conversation_id: conversation.id,
-          sender_type: 'customer',
+          sender_type: isOutbound ? 'agent' : 'customer',
           content_type: contentType,
           content_text: contentText,
           media_url: mediaUrl,
           message_id: msg.id || null,
-          status: 'delivered',
+          status: isOutbound ? mapUazapiStatus(msg.status || '') : 'delivered',
           source: 'uazapi',
           reply_to_message_id: replyToInternalId,
           created_at: msg.createdAt ?? new Date().toISOString(),
@@ -309,23 +315,28 @@ export async function POST(request: Request) {
         })
       }
 
-      // Update conversation metadata + increment unread_count
+      // Update conversation metadata + increment unread_count only for
+      // inbound messages (outbound from the phone must not count as unread)
       // If the existing source differs from uazapi, set to null (mixed)
       const convUpdate: Record<string, unknown> = {
         last_message_text: contentText || `[${contentType}]`,
         last_message_at: msg.createdAt ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'open',
-        unread_count: (conversation.unread_count || 0) + 1,
+      }
+      if (!isOutbound) {
+        convUpdate.unread_count = (conversation.unread_count || 0) + 1
       }
       if (!convResult.created && conversation.source && conversation.source !== 'uazapi') {
         convUpdate.source = null
       }
       await db.from('conversations').update(convUpdate).eq('id', conversation.id)
 
-      // Dispatch to automations, flows, AI (async, best-effort)
+      // Dispatch to automations, flows, AI (async, best-effort). Only
+      // for inbound messages — outbound phone messages are just mirrored.
       after(async () => {
         try {
+          if (isOutbound) return
           // New lead → automatically into the pipeline's first stage.
           // Runs BEFORE the AI auto-reply below so the agent can find
           // and move the deal. Never throws (see ensureLeadDeal).
@@ -454,6 +465,11 @@ interface ExtractedMessage {
   mediaUrl: string | null
   createdAt?: string
   /**
+   * Uazapi lifecycle status (delivered/read/failed...), used for
+   * outbound (fromMe) messages. Inbound rows always use 'delivered'.
+   */
+  status?: string
+  /**
    * Uazapi message id of the message being replied to (quoted), when
    * present. Resolved to an internal message id before persisting.
    */
@@ -488,8 +504,11 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   // Also accepted nested under payload.data.message.
   const flatMessage = payload.message ?? payload.data?.message
   if (flatMessage) {
-    // Outbound / API-sent messages loop back through the webhook — skip.
-    if (!flatMessage.fromMe && !flatMessage.wasSentByApi) {
+    // Messages sent via the API (wasSentByApi) loop back through the
+    // webhook but are already persisted by uazapi-send — skip them.
+    // Messages sent from the phone (fromMe) are kept and imported as
+    // agent messages so the inbox mirrors the device in real time.
+    if (!flatMessage.wasSentByApi) {
       const isGroup = flatMessage.isGroup === true ||
         /@g\.us$/.test(flatMessage.chatid || '')
       if (!isGroup) {
@@ -507,7 +526,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
           push({
             id: flatMessage.messageid || flatMessage.id || '',
             from: flatMessage.chatid || flatMessage.sender || '',
-            fromMe: false,
+            fromMe: !!flatMessage.fromMe,
             pushName: flatMessage.senderName || flatMessage.sender_pn || '',
             contentType: resolvedType,
             contentText: body || null,
@@ -517,6 +536,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
                 ? flatMessage.quoted
                 : extractQuotedFromContent(flatMessage.content),
             createdAt,
+            status: flatMessage.status,
             messageType: flatMessage.messageType || flatMessage.type || '',
             mediaType: flatMessage.mediaType || '',
           })
@@ -529,7 +549,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   if (payload.data?.msg) {
     const msg = payload.data.msg
     const key = msg.key || {}
-    if (key.fromMe) return result // Skip outbound
+    const isOutbound = !!key.fromMe
 
     const message = msg.message || {}
     const conversation = message.conversation || ''
@@ -586,7 +606,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     push({
       id: key.id || '',
       from: key.remoteJid?.replace(/@.*$/, '') || payload.data.from || '',
-      fromMe: false,
+      fromMe: isOutbound,
       pushName: msg.pushName,
       contentType,
       contentText,
