@@ -1553,7 +1553,7 @@
       "pinPlaceholder": "PIN de 6 dígitos do Gerenciador WhatsApp do Meta",
       "pinHint": "Necessário apenas para conectar mensagens recebidas de um número de produção. Defina no Gerenciador de Negócios do Meta → Contas WhatsApp → Números de Telefone → Verificação em duas etapas, depois cole aqui para que o ProCRM possa inscrever o número — caso contrário, o Meta direciona eventos recebidos para o último aplicativo que o reivindicou (sintoma comum em segundos números sob um WABA compartilhado). Números de teste do Meta não têm PIN e são pré-registrados — deixe em branco para eles. Deixar em branco também mantém um registro existente intacto.",
       "webhookTitle": "Configuração do Webhook",
-      "webhookDesc": "Use esta URL como seu callback de webhook no Painel do App Meta.",
+      "webhookDesc": "Esta URL é exclusiva da sua conta. Use-a como callback de webhook no Painel do App Meta.",
       "webhookUrl": "URL de Callback do Webhook",
       "saving": "Salvando...",
       "saveConfig": "Salvar Configuração",

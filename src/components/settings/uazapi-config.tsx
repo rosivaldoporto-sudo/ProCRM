@@ -48,9 +48,12 @@ export function UazapiConfig() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
 
+  // Cada conta do CRM tem uma URL de callback exclusiva
+  // (/api/uazapi/webhook/[accountId]) — o webhook resolve a
+  // configuração diretamente pela conta, sem ambiguidade entre instâncias.
   const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/api/uazapi/webhook`
+    typeof window !== 'undefined' && accountId
+      ? `${window.location.origin}/api/uazapi/webhook/${accountId}`
       : '';
 
   const fetchConfig = useCallback(async (acctId: string) => {
@@ -431,7 +434,7 @@ export function UazapiConfig() {
             <CardHeader>
               <CardTitle className="text-foreground">Configuração do Webhook</CardTitle>
               <CardDescription className="text-muted-foreground">
-                Configure esta URL como webhook no seu servidor Uazapi para receber mensagens.
+                Esta URL é exclusiva da sua conta. Configure-a como webhook no seu servidor Uazapi para receber mensagens.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -569,7 +572,7 @@ export function UazapiConfig() {
               <div className="space-y-2">
                 <h4 className="font-medium text-foreground">3. Configure o webhook</h4>
                 <p>
-                  No seu servidor Uazapi, configure a URL de webhook como:
+                  No seu servidor Uazapi, configure a URL de webhook exclusiva da sua conta (o id da conta fica embutido na URL):
                 </p>
                 <code className="block bg-muted px-2 py-1 rounded text-xs break-all">
                   {webhookUrl}

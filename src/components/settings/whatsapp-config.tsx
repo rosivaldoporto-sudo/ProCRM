@@ -89,9 +89,12 @@ export function WhatsAppConfig() {
   const [registrationProbe, setRegistrationProbe] =
     useState<RegistrationProbe | null>(null);
 
+  // Cada conta do CRM tem uma URL de callback exclusiva
+  // (/api/whatsapp/webhook/[accountId]) — o webhook resolve a
+  // configuração diretamente pela conta, sem ambiguidade entre instâncias.
   const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/api/whatsapp/webhook`
+    typeof window !== 'undefined' && accountId
+      ? `${window.location.origin}/api/whatsapp/webhook/${accountId}`
       : '';
 
   const fetchConfig = useCallback(async (acctId: string) => {
