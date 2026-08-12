@@ -1306,6 +1306,9 @@ interface CtwaAttribution {
   ctwaClid?: string
   adId?: string
   sourceType?: string
+  adHeadline?: string
+  adBody?: string
+  sourceUrl?: string
 }
 
 function extractCtwaAttribution(message: WhatsAppMessage): CtwaAttribution {
@@ -1316,6 +1319,9 @@ function extractCtwaAttribution(message: WhatsAppMessage): CtwaAttribution {
     ctwaClid,
     adId: referral?.source_id,
     sourceType: referral?.source_type,
+    adHeadline: referral?.headline,
+    adBody: referral?.body,
+    sourceUrl: referral?.source_url,
   }
 }
 
@@ -1342,6 +1348,7 @@ async function captureAdsAttribution(
     // UTM-based reporting) carries a consistent campaign/ad label.
     utm_source: 'facebook',
     utm_medium: 'cpc',
+    utm_campaign: attribution.ctwaClid ? 'click_to_whatsapp' : undefined,
   }).eq('id', contactId)
 
   await supabase
@@ -1364,12 +1371,11 @@ async function enrichAdsAttribution(args: {
   const updates: Record<string, string> = {}
   if (details.ctwa_clid) updates.ctwa_clid = details.ctwa_clid
   if (details.ad_id) updates.ad_id = details.ad_id
-  if (details.ad_name) updates.ad_name = details.ad_name
+  if (details.source_type) updates.ad_source_type = details.source_type
   if (details.campaign_id) updates.campaign_id = details.campaign_id
   if (details.campaign_name) updates.campaign_name = details.campaign_name
-  if (details.source_type) updates.ad_source_type = details.source_type
+  if (details.source_type) updates.ad_source_type = details.source_type!
   if (details.campaign_name) updates.utm_campaign = details.campaign_name
-  if (details.ad_name) updates.utm_content = details.ad_name
   if (Object.keys(updates).length === 0) return
 
   await supabaseAdmin()
