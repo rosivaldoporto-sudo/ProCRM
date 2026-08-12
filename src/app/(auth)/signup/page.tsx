@@ -98,12 +98,11 @@ function SignupPageInner() {
               <CheckCircle className="h-6 w-6 text-primary" />
             </div>
             <CardTitle className="text-xl text-foreground">
-              Check your email
+              Account created
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              We&apos;ve sent a confirmation link to{" "}
-              <span className="text-foreground">{email}</span>. Please check your
-              inbox and click the link to verify your account.
+              Your account has been created successfully. You can now sign in
+              to the CRM.
             </CardDescription>
           </CardHeader>
           <CardContent>
