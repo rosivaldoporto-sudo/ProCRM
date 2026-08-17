@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     const qrCode = result.qrCode ? normalizeQrCode(result.qrCode) : null
 
     // Persist QR + status so a page reload still shows the pending QR.
-    await supabase
+    const { error: upsertError } = await supabase
       .from('uazapi_config')
       .upsert(
         {
@@ -88,6 +88,9 @@ export async function POST(request: Request) {
         },
         { onConflict: 'account_id' },
       )
+    if (upsertError) {
+      console.error('[uazapi-connect] state upsert failed (send will report not-connected):', upsertError.message)
+    }
 
     // Best-effort webhook registration — never fails the connect.
     if (result.status === 'connected' || result.qrCode || result.pairingCode) {

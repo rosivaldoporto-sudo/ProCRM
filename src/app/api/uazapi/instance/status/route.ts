@@ -63,7 +63,7 @@ export async function GET() {
           ? 'qrcode'
           : 'disconnected'
 
-    await supabase
+    const { error: upsertError } = await supabase
       .from('uazapi_config')
       .upsert(
         {
@@ -76,6 +76,9 @@ export async function GET() {
         },
         { onConflict: 'account_id' },
       )
+    if (upsertError) {
+      console.error('[uazapi-status] state upsert failed (send will report not-connected):', upsertError.message)
+    }
 
     return NextResponse.json({
       connected: result.status === 'connected',
