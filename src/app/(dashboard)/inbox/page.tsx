@@ -199,21 +199,27 @@ function InboxPageInner() {
         return;
       }
 
-      const [{ data: waConfig }, { data: uazapiConfig }] = await Promise.all([
+      const [{ data: waConfig }, uazapiResp] = await Promise.all([
         supabase
           .from("whatsapp_config")
           .select("status")
           .eq("account_id", accountId)
           .maybeSingle(),
-        supabase
-          .from("uazapi_config")
-          .select("status")
-          .eq("account_id", accountId)
-          .maybeSingle(),
+        // Live-check for Uazapi: /api/uazapi/status asks the instance
+        // server itself and repairs the state cache (the DB row is
+        // only a cache and can be stale — e.g. it predates the QR
+        // connect fix, which is why the banner kept showing even after
+        // a successful scan).
+        fetch("/api/uazapi/status", {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        })
+          .then((res) => res.json().catch(() => null))
+          .catch(() => null),
       ]);
 
       setWhatsappConnected(waConfig?.status === "connected");
-      setUazapiConnected(uazapiConfig?.status === "connected");
+      setUazapiConnected(uazapiResp?.connected === true);
     };
 
     checkConnections();

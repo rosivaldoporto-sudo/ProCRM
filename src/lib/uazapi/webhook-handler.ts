@@ -47,7 +47,12 @@ interface UazapiWebhookPayload {
     image?: string
     imagePreview?: string
   }
-  data?: {
+  data?: UazapiWebhookMessage & {
+    /** uazapiGO v2 flat payload: `data` IS the Message object. */
+    from?: string
+    to?: string
+    fileURL?: string
+  } & {
     msg?: UazapiWebhookMessage & {
       key?: { id?: string; remoteJid?: string; fromMe?: boolean }
       message?: {
@@ -599,19 +604,53 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     })
   }
 
-  // Shape 2: payload.data with text/from fields
-  if (payload.data?.from && payload.data?.text) {
-    const existing = result.find((r) => r.from === payload.data!.from)
-    if (!existing) {
-      push({
-        id: payload.data.id || '',
-        from: payload.data.from,
-        fromMe: false,
-        pushName: '',
-        contentType: 'text',
-        contentText: payload.data.text,
-        mediaUrl: null,
-      })
+  // Shape 2: uazapiGO v2 webhook (docs.uazapi.com) —
+  //   { EventType: 'messages', token, data: { ...Message } }
+  // where `data` IS the flat Message model (messageid, chatid, sender,
+  // sender_pn, fromMe, messageType, messageTimestamp in ms, text,
+  // quoted, fileURL, wasSentByApi, ...) — or the minimal
+  // { id, from, to, text, timestamp } shape used by older builds.
+  const flat = payload.data
+  if (
+    flat &&
+    typeof flat === 'object' &&
+    !('msg' in flat) &&
+    !('message' in flat) &&
+    !('messages' in flat)
+  ) {
+    const isApiSent = flat.wasSentByApi === true
+    const isGroup =
+      flat.isGroup === true || /@g\.us$/.test(String(flat.chatid ?? flat.to ?? ''))
+    if (!isApiSent && !isGroup) {
+      const text = typeof flat.text === 'string' ? flat.text : ''
+      const content = flat.content
+      const contentString =
+        typeof content === 'string' ? content : (content as { text?: string })?.text
+      const body = text || contentString || ''
+      const contentType = mapUazapiContentType(
+        String(flat.messageType ?? flat.type ?? ''),
+        String(flat.mediaType ?? ''),
+      )
+      const resolvedType = contentType || (body ? 'text' : null)
+      if (resolvedType) {
+        const createdAt = uazapiTimestampToIso(flat.messageTimestamp)
+        push({
+          id: String(flat.messageid ?? flat.id ?? ''),
+          from: String(flat.sender_pn ?? flat.chatid ?? flat.sender ?? flat.from ?? ''),
+          fromMe: flat.fromMe === true,
+          pushName: String(flat.senderName ?? ''),
+          contentType: resolvedType,
+          contentText: body || null,
+          mediaUrl:
+            typeof flat.fileURL === 'string' && flat.fileURL ? flat.fileURL : null,
+          quotedId:
+            typeof flat.quoted === 'string' && flat.quoted ? flat.quoted : undefined,
+          createdAt,
+          status: String(flat.status ?? ''),
+          messageType: String(flat.messageType ?? flat.type ?? ''),
+          mediaType: String(flat.mediaType ?? ''),
+        })
+      }
     }
   }
 

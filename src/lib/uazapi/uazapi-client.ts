@@ -191,6 +191,7 @@ export async function instanceStatus(args: {
   } else if (qrCode || pairingCode) {
     status = 'qrcode'
   } else {
+    // disconnected, hibernated (uazapiGO) — neither accepts messages.
     status = 'disconnected'
   }
   return { status, qrCode, pairingCode, profileName: profileName || undefined }
@@ -198,7 +199,8 @@ export async function instanceStatus(args: {
 
 /**
  * Create a Uazapi instance on the server (admin-only).
- * POST /instance/init
+ * POST /instance/create (uazapiGO v2) — falls back to /instance/init
+ * for older servers.
  * Auth: admintoken header (NOT the instance token)
  * Body: { name: "<instance name>" }
  * Response: { id, token, name, ... } — the `token` is the
@@ -210,36 +212,56 @@ export async function instanceInit(args: {
   name: string
 }): Promise<{ token: string; id?: string }> {
   const { serverUrl, adminToken, name } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/instance/init`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      admintoken: adminToken,
-    },
-    body: JSON.stringify({ name }),
-  })
-  if (!response.ok) {
-    await throwUazapiError(response, `Uazapi instance init failed: ${response.status}`)
+  const base = serverUrl.replace(/\/+$/, '')
+
+  let lastError: Error | null = null
+  for (const path of ['/instance/create', '/instance/init']) {
+    try {
+      const response = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          admintoken: adminToken,
+        },
+        body: JSON.stringify({ name }),
+      })
+      if (!response.ok) {
+        await throwUazapiError(
+          response,
+          `Uazapi instance init failed: ${response.status}`,
+        )
+      }
+      const data = (await response.json()) as Record<string, unknown>
+      const nested =
+        data.data && typeof data.data === 'object'
+          ? (data.data as Record<string, unknown>)
+          : data
+      const token = String(
+        nested.token ?? (nested.instance && typeof nested.instance === 'object'
+          ? (nested.instance as Record<string, unknown>).token
+          : '') ?? '',
+      )
+      if (!token) {
+        throw new Error('Uazapi instance init returned no token.')
+      }
+      const id = String(
+        nested.id ?? (nested.instance && typeof nested.instance === 'object'
+          ? (nested.instance as Record<string, unknown>).id
+          : '') ?? '',
+      )
+      return { token, id: id || undefined }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
   }
-  const data = (await response.json()) as Record<string, unknown>
-  const token = String(data.token ?? (data.data && typeof data.data === 'object'
-    ? (data.data as Record<string, unknown>).token
-    : '') ?? '')
-  if (!token) {
-    throw new Error('Uazapi instance init returned no token.')
-  }
-  const id = String(data.id ?? (data.data && typeof data.data === 'object'
-    ? (data.data as Record<string, unknown>).id
-    : '') ?? '')
-  return { token, id: id || undefined }
+  throw lastError ?? new Error('Uazapi instance init failed')
 }
 
 /**
- * Read the currently configured webhook of an instance.
- * GET /webhook
+ * Read the currently configured webhooks of an instance.
+ * GET /webhook (docs.uazapi.com)
  * Auth: token header
- * Response: { url, events, enabled } (some servers wrap under `data`).
+ * Response: ALWAYS an array, even with a single webhook configured.
  * Returns null when the endpoint is unavailable (older servers) or the
  * request fails — callers treat that as "unknown", not "misconfigured".
  */
@@ -256,16 +278,18 @@ export async function getInstanceWebhook(args: {
       signal: AbortSignal.timeout(10000),
     })
     if (!response.ok) return null
-    const data = (await response.json()) as Record<string, unknown>
-    const nested = (data.data && typeof data.data === 'object'
-      ? data.data
-      : data) as Record<string, unknown>
+    const data = (await response.json()) as unknown
+    const list = Array.isArray(data) ? data : [data]
+    const first = list.find((w) => !!w && typeof w === 'object') as
+      | Record<string, unknown>
+      | undefined
+    if (!first) return null
     return {
-      url: String(nested.url ?? nested.webhook_url ?? '') || undefined,
-      events: Array.isArray(nested.events)
-        ? (nested.events as unknown[]).map(String)
+      url: String(first.url ?? first.webhook_url ?? '') || undefined,
+      events: Array.isArray(first.events)
+        ? (first.events as unknown[]).map(String)
         : undefined,
-      enabled: typeof nested.enabled === 'boolean' ? nested.enabled : undefined,
+      enabled: typeof first.enabled === 'boolean' ? first.enabled : undefined,
     }
   } catch (err) {
     console.warn('[uazapi] getInstanceWebhook failed:', err)
@@ -275,7 +299,9 @@ export async function getInstanceWebhook(args: {
 
 /**
  * Configure the instance's webhook server-side.
- * POST /webhook/set
+ * POST /webhook (docs.uazapi.com) — there is NO /webhook/set on
+ * uazapiGO v2; the "simple mode" payload (no action/id) creates or
+ * updates the instance's single webhook.
  * Auth: token header
  * Body: { url, events, enabled, addUrlEvents, excludeMessages }
  *
@@ -299,7 +325,7 @@ export async function setInstanceWebhook(args: {
   excludeMessages?: string[]
 }): Promise<void> {
   const { serverUrl, apiToken, url, events, excludeMessages } = args
-  const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook/set`
+  const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook`
   const eventList = events ?? ['messages', 'messages_update', 'connection']
 
   const attempts: Record<string, unknown>[] = [
@@ -690,13 +716,15 @@ export async function sendMenu(
 
 /**
  * Resolve a download URL for a received media message.
- * POST /message/download with return_link=true
+ * POST /message/download (docs.uazapi.com)
  * Auth: token header
  * Body: { id: "<messageid>", return_link: true }
- * Response: { url: "https://...", mimetype: "..." }
+ * Response: { fileURL, mimetype, ... }
  *
- * `attempts` retries transient failures (server hiccups / short
- * disconnects) before giving up.
+ * The server accepts the full WhatsApp message id ("55119...:3EB0...")
+ * on some builds and ONLY the hash part ("3EB0...") on others — both
+ * are tried. `attempts` retries transient failures (server hiccups /
+ * short disconnects) before giving up.
  */
 export async function downloadMessageUrl(
   args: {
@@ -708,35 +736,41 @@ export async function downloadMessageUrl(
 ): Promise<{ url?: string; mimetype?: string } | null> {
   const { serverUrl, apiToken, messageId } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/message/download`
+  const idVariants = [
+    messageId,
+    messageId.includes(':') ? messageId.split(':').pop() || '' : '',
+  ].filter(Boolean)
   let lastError: unknown = null
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: buildHeaders(apiToken),
-        body: JSON.stringify({ id: messageId, return_link: true }),
-        signal: AbortSignal.timeout(15000),
-      })
-      if (response.ok) {
-        const data = (await response.json()) as Record<string, unknown>
-        const nested = (data.data && typeof data.data === 'object'
-          ? data.data
-          : data) as Record<string, unknown>
-        return {
-          url: String(nested.url ?? nested.fileURL ?? '') || undefined,
-          mimetype: String(nested.mimetype ?? '') || undefined,
+  for (const id of idVariants) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: buildHeaders(apiToken),
+          body: JSON.stringify({ id, return_link: true }),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (response.ok) {
+          const data = (await response.json()) as Record<string, unknown>
+          const nested = (data.data && typeof data.data === 'object'
+            ? data.data
+            : data) as Record<string, unknown>
+          return {
+            url: String(nested.fileURL ?? nested.url ?? '') || undefined,
+            mimetype: String(nested.mimetype ?? '') || undefined,
+          }
         }
+        // Capture the server's actual error body — silent "media broken"
+        // reports are undiagnosable without it.
+        const bodyText = await response.text().catch(() => '')
+        lastError = new Error(
+          `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
+        )
+      } catch (err) {
+        lastError = err
       }
-      // Capture the server's actual error body — silent "media broken"
-      // reports are undiagnosable without it.
-      const bodyText = await response.text().catch(() => '')
-      lastError = new Error(
-        `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
-      )
-    } catch (err) {
-      lastError = err
+      if (attempt < attempts) await new Promise((r) => setTimeout(r, 2000 * attempt))
     }
-    if (attempt < attempts) await new Promise((r) => setTimeout(r, 2000 * attempt))
   }
   console.warn('[uazapi] downloadMessageUrl failed:', { messageId, attempts, error: lastError })
   return null
@@ -783,8 +817,9 @@ export async function downloadMessageFile(args: {
 
   // Last resort: ask the server to hand the bytes back as base64
   // (return_link hosting can be disabled on some uazapiGO builds).
-  // Capped at 12 MB decoded — anything bigger would blow up the
-  // serverless function's memory budget anyway.
+  // Response key per the docs: `base64Data`. Capped at 12 MB decoded —
+  // anything bigger would blow up the serverless function's memory
+  // budget anyway.
   try {
     const response = await fetch(`${base}/message/download`, {
       method: 'POST',
@@ -798,11 +833,13 @@ export async function downloadMessageFile(args: {
         ? data.data
         : data) as Record<string, unknown>
       const b64 =
-        typeof nested.base64 === 'string'
-          ? nested.base64
-          : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
-            ? nested.file
-            : ''
+        typeof nested.base64Data === 'string'
+          ? nested.base64Data
+          : typeof nested.base64 === 'string'
+            ? nested.base64
+            : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
+              ? nested.file
+              : ''
       if (b64 && b64.length < 16_000_000) {
         const binary = Buffer.from(b64, 'base64')
         return {
