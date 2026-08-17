@@ -113,6 +113,11 @@ export function TemplatePicker({
   const [mediaPath, setMediaPath] = useState<string>("");
   const [mediaUploading, setMediaUploading] = useState(false);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  // Set when the user confirms a send: the media object is now owned by
+  // the outgoing message, so closing the dialog must NOT GC it — Meta
+  // re-fetches the link at delivery, and deleting it after the send
+  // would fail the delivery with a red X.
+  const sentRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -180,7 +185,12 @@ export function TemplatePicker({
   );
 
   function resetSelection() {
-    removeUploadedMedia(mediaPath);
+    // Only GC the uploaded media when it was never sent — a confirmed
+    // send hands ownership to the outgoing message (Meta re-fetches the
+    // URL at delivery), so deleting it here would fail the delivery.
+    if (!sentRef.current) removeUploadedMedia(mediaPath);
+    setMediaUrl("");
+    setMediaPath("");
     setSelected(null);
     setParams([]);
     setHeaderText("");
@@ -188,7 +198,10 @@ export function TemplatePicker({
   }
 
   function handleOpenChange(next: boolean) {
-    if (!next) resetSelection();
+    if (!next) {
+      resetSelection();
+      sentRef.current = false;
+    }
     onOpenChange(next);
   }
 
@@ -261,6 +274,9 @@ export function TemplatePicker({
       );
     }
     if (mediaUrl) values.headerMediaUrl = mediaUrl;
+    // Mark the media as sent BEFORE closing — resetSelection (via
+    // handleOpenChange) must not GC the object the send now references.
+    sentRef.current = true;
     onSelect(selected, values);
     handleOpenChange(false);
   }
