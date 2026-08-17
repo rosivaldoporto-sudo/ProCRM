@@ -40,40 +40,85 @@ function buildHeaders(apiToken: string): Record<string, string> {
 // Instance management
 // ============================================================
 
+/**
+ * UAZAPI returns the QR code as a plain base64 string (per its
+ * OpenAPI spec: "QR Code in base64 format"). `data:`-prefixed URLs
+ * pass through unchanged so both response shapes render in an <img>.
+ */
+export function normalizeQrCode(qr: string | undefined | null): string | undefined {
+  if (!qr) return undefined
+  if (/^data:/i.test(qr)) return qr
+  // Plain base64 (PNG/JPEG data) → wrap as a data URL. Non-base64
+  // strings (a URL, or an error placeholder) are passed through.
+  if (/^[A-Za-z0-9+/=\s]+$/.test(qr.trim())) {
+    return `data:image/png;base64,${qr.trim()}`
+  }
+  return qr
+}
+
 export interface InstanceConnectResult {
-  qrCode: string
-  status: 'connected' | 'qrcode' | 'disconnected'
+  qrCode?: string
+  pairingCode?: string
+  status: 'connected' | 'connecting' | 'qrcode' | 'disconnected'
+  profileName?: string
 }
 
 /**
- * Connect a Uazapi instance. Returns a QR code in base64 that must
- * be scanned with WhatsApp to establish the session.
+ * Connect a Uazapi instance. Returns a QR code (base64) to scan
+ * with WhatsApp, or — when `phone` is supplied — a 6-digit pairing
+ * code instead.
+ *
  * POST /instance/connect
  * Auth: token header
- * Response: { "qrcode": "data:image/png;base64,...", "pairingCode": "..." }
- *   or:     { "instance": { "qrcode": "...", "state": "..." } }
+ * Body (optional): { phone: "5511999999999" } → pairing code mode
+ *
+ * Response shapes seen across UAZAPI versions:
+ *   { instance: { status, qrcode, paircode, profileName } }
+ *   { qrcode, paircode, status }
+ *   { instance: { qrcode, state } }
  */
 export async function instanceConnect(args: {
   serverUrl: string
   apiToken: string
+  phone?: string
 }): Promise<InstanceConnectResult> {
-  const { serverUrl, apiToken } = args
+  const { serverUrl, apiToken, phone } = args
   const url = `${serverUrl.replace(/\/+$/, '')}/instance/connect`
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
+    body: phone ? JSON.stringify({ phone }) : undefined,
   })
   if (!response.ok) {
     await throwUazapiError(response, `Uazapi connect failed: ${response.status}`)
   }
-  const data = await response.json()
-  const inst = data.instance || data
-  const qrCode = inst.qrcode || inst.qr_code || inst.qrCode || ''
-  const rawStatus = inst.state || inst.status || ''
-  return {
-    qrCode,
-    status: rawStatus === 'connected' ? 'connected' : qrCode ? 'qrcode' : 'disconnected',
+  const data = (await response.json()) as Record<string, unknown>
+  const inst = (data.instance && typeof data.instance === 'object'
+    ? data.instance
+    : data) as Record<string, unknown>
+
+  const rawStatus = String(inst.status ?? inst.state ?? data.status ?? '')
+  const qrCode = normalizeQrCode(
+    (inst.qrcode ?? inst.qr_code ?? inst.qrCode ?? data.qrcode ?? data.qr_code) as
+      | string
+      | undefined,
+  )
+  const pairingCode = String(
+    inst.paircode ?? inst.pairingCode ?? inst.pairing_code ?? data.paircode ?? '',
+  )
+  const profileName = String(inst.profileName ?? inst.profile_name ?? '')
+
+  let status: InstanceConnectResult['status']
+  if (rawStatus === 'connected' || rawStatus === 'open') {
+    status = 'connected'
+  } else if (qrCode || pairingCode) {
+    status = 'qrcode'
+  } else if (rawStatus === 'connecting' || rawStatus === 'pairing') {
+    status = 'connecting'
+  } else {
+    status = 'disconnected'
   }
+  return { qrCode, pairingCode, status, profileName: profileName || undefined }
 }
 
 /**
@@ -98,15 +143,18 @@ export async function instanceDisconnect(args: {
 }
 
 export interface InstanceStatusResult {
-  status: 'connected' | 'disconnected' | 'qrcode'
+  status: 'connected' | 'connecting' | 'disconnected' | 'qrcode'
   qrCode?: string
+  pairingCode?: string
+  profileName?: string
 }
 
 /**
  * Get the current connection status of a Uazapi instance.
  * GET /instance/status
  * Auth: token header
- * Response: { "instance": { "state": "connected", "instanceName": "..." } }
+ * Response: { "instance": { "status": "connected|connecting|disconnected",
+ *   "qrcode": "...", "profileName": "..." } }
  */
 export async function instanceStatus(args: {
   serverUrl: string
@@ -121,11 +169,102 @@ export async function instanceStatus(args: {
   if (!response.ok) {
     await throwUazapiError(response, `Uazapi status failed: ${response.status}`)
   }
-  const data = await response.json()
-  const inst = data.instance || data
-  return {
-    status: inst.state || inst.status || 'disconnected',
-    qrCode: inst.qrcode || inst.qr_code || data.qrcode || data.qr_code || undefined,
+  const data = (await response.json()) as Record<string, unknown>
+  const inst = (data.instance && typeof data.instance === 'object'
+    ? data.instance
+    : data) as Record<string, unknown>
+
+  const rawStatus = String(inst.status ?? inst.state ?? data.status ?? 'disconnected')
+  const qrCode = normalizeQrCode(
+    (inst.qrcode ?? inst.qr_code ?? inst.qrCode ?? data.qrcode ?? data.qr_code) as
+      | string
+      | undefined,
+  )
+  const pairingCode = String(inst.paircode ?? inst.pairingCode ?? data.paircode ?? '')
+  const profileName = String(inst.profileName ?? inst.profile_name ?? '')
+
+  let status: InstanceStatusResult['status']
+  if (rawStatus === 'connected' || rawStatus === 'open') {
+    status = 'connected'
+  } else if (rawStatus === 'connecting' || rawStatus === 'pairing' || rawStatus === 'qrcode') {
+    status = 'connecting'
+  } else if (qrCode || pairingCode) {
+    status = 'qrcode'
+  } else {
+    status = 'disconnected'
+  }
+  return { status, qrCode, pairingCode, profileName: profileName || undefined }
+}
+
+/**
+ * Create a Uazapi instance on the server (admin-only).
+ * POST /instance/init
+ * Auth: admintoken header (NOT the instance token)
+ * Body: { name: "<instance name>" }
+ * Response: { id, token, name, ... } — the `token` is the
+ * instance-level token used for connect/status/send.
+ */
+export async function instanceInit(args: {
+  serverUrl: string
+  adminToken: string
+  name: string
+}): Promise<{ token: string; id?: string }> {
+  const { serverUrl, adminToken, name } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/instance/init`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      admintoken: adminToken,
+    },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) {
+    await throwUazapiError(response, `Uazapi instance init failed: ${response.status}`)
+  }
+  const data = (await response.json()) as Record<string, unknown>
+  const token = String(data.token ?? (data.data && typeof data.data === 'object'
+    ? (data.data as Record<string, unknown>).token
+    : '') ?? '')
+  if (!token) {
+    throw new Error('Uazapi instance init returned no token.')
+  }
+  const id = String(data.id ?? (data.data && typeof data.data === 'object'
+    ? (data.data as Record<string, unknown>).id
+    : '') ?? '')
+  return { token, id: id || undefined }
+}
+
+/**
+ * Configure the instance's webhook server-side.
+ * POST /webhook/set
+ * Auth: token header
+ * Body: { url, events: [...], excludeMessages: [...] }
+ *
+ * `excludeMessages: ["wasSentByApi"]` keeps messages the CRM itself
+ * sent (via the API) from looping back through the webhook.
+ */
+export async function setInstanceWebhook(args: {
+  serverUrl: string
+  apiToken: string
+  url: string
+  events?: string[]
+  excludeMessages?: string[]
+}): Promise<void> {
+  const { serverUrl, apiToken, url, events, excludeMessages } = args
+  const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook/set`
+  const body: Record<string, unknown> = {
+    url,
+    events: events ?? ['messages', 'messages_update', 'connection'],
+  }
+  if (excludeMessages?.length) body.excludeMessages = excludeMessages
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: buildHeaders(apiToken),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwUazapiError(response, `Uazapi webhook set failed: ${response.status}`)
   }
 }
 

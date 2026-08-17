@@ -39,16 +39,22 @@ export async function GET() {
       return NextResponse.json({ connected: false, reason: 'token_corrupted', message: 'Stored API token is corrupted.' })
     }
 
+    if (!apiToken) {
+      return NextResponse.json({ connected: false, reason: 'no_instance', message: 'Instance not created yet — click Conectar.' })
+    }
+
     const result = await instanceStatus({
       serverUrl: config.server_url,
       apiToken,
     })
 
-    // Sync status to DB
+    // Sync status to DB. The table's CHECK constraint only allows
+    // disconnected/connected/qrcode — collapse `connecting` into
+    // `qrcode` (a connect attempt is in flight).
     await supabase
       .from('uazapi_config')
       .update({
-        status: result.status,
+        status: result.status === 'connected' ? 'connected' : result.status === 'connecting' || result.qrCode ? 'qrcode' : 'disconnected',
         qr_code: result.qrCode || null,
         connected_at: result.status === 'connected' ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
@@ -59,6 +65,8 @@ export async function GET() {
       connected: result.status === 'connected',
       status: result.status,
       qr_code: result.qrCode || null,
+      pairing_code: result.pairingCode || null,
+      profile_name: result.profileName || null,
       instance_name: config.instance_name,
     })
   } catch (error) {

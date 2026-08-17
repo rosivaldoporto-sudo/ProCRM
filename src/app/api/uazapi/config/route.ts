@@ -96,23 +96,27 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { instance_name, server_url, webhook_secret } = body
-    let { api_token } = body
+    const { instance_name, server_url, webhook_secret, pairing_phone } = body
+    let { api_token, admin_token } = body
 
     if (!instance_name || !server_url) {
       return NextResponse.json({ error: 'instance_name and server_url are required' }, { status: 400 })
     }
 
-    // If no api_token was sent but there's an existing config, decrypt
-    // the stored token so the user can update e.g. server_url without
-    // having to re-enter the API token.
-    if (!api_token) {
-      const { data: existingRow } = await supabase
-        .from('uazapi_config')
-        .select('api_token')
-        .eq('account_id', accountId)
-        .maybeSingle()
+    // Load the existing row once — both the token-retention logic below
+    // and the insert-vs-update branch need it.
+    const { data: existingRow } = await supabase
+      .from('uazapi_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .maybeSingle()
 
+    // If no instance token was sent but there's an existing config,
+    // decrypt the stored token so the user can update e.g. server_url
+    // without having to re-enter it. A blank initial setup is allowed
+    // when an ADMIN token is provided — the connect flow will create
+    // the instance via /instance/init and store the instance token.
+    if (!api_token) {
       if (existingRow?.api_token) {
         try {
           api_token = decrypt(existingRow.api_token)
@@ -122,38 +126,47 @@ export async function POST(request: Request) {
             { status: 400 }
           )
         }
-      } else {
-        return NextResponse.json({ error: 'api_token is required for initial setup' }, { status: 400 })
+      } else if (!admin_token && !existingRow?.admin_token) {
+        return NextResponse.json(
+          { error: 'Provide the instance token (or the admin token, and the instance will be created automatically).' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Keep the previously stored admin token unless a new one was sent.
+    if (!admin_token && existingRow?.admin_token) {
+      try {
+        admin_token = decrypt(existingRow.admin_token)
+      } catch {
+        admin_token = ''
       }
     }
 
     // Encrypt sensitive data
-    let encryptedApiToken: string
+    let encryptedApiToken: string | null = api_token ? encrypt(api_token) : null
     let encryptedWebhookSecret: string | null = null
+    let encryptedAdminToken: string | null = null
     try {
-      encryptedApiToken = encrypt(api_token)
+      encryptedApiToken = api_token ? encrypt(api_token) : null
       encryptedWebhookSecret = webhook_secret ? encrypt(webhook_secret) : null
+      encryptedAdminToken = admin_token ? encrypt(admin_token) : null
     } catch {
       return NextResponse.json({ error: 'Failed to encrypt token. Check ENCRYPTION_KEY.' }, { status: 500 })
     }
-
-    // Check for existing config
-    const { data: existing } = await supabase
-      .from('uazapi_config')
-      .select('id, status')
-      .eq('account_id', accountId)
-      .maybeSingle()
 
     const baseRow = {
       instance_name,
       server_url,
       api_token: encryptedApiToken,
+      admin_token: encryptedAdminToken,
       webhook_secret: encryptedWebhookSecret,
-      status: existing?.status || 'disconnected',
+      pairing_phone: pairing_phone?.trim() || null,
+      status: existingRow?.status || 'disconnected',
       updated_at: new Date().toISOString(),
     }
 
-    if (existing) {
+    if (existingRow) {
       const { error: updateError } = await supabase
         .from('uazapi_config')
         .update(baseRow)
