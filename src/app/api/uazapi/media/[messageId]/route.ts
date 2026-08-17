@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import { downloadMessageFile } from '@/lib/uazapi/uazapi-client'
+import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
 
 /**
  * GET /api/uazapi/media/[messageId]
@@ -71,22 +71,25 @@ export async function GET(
       )
     }
 
-    const { data: config } = await supabase
-      .from('uazapi_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .maybeSingle()
-
-    if (!config) {
+    const env = uazapiEnvConfig()
+    if (!env.serverUrl) {
       return NextResponse.json(
-        { error: 'Uazapi not configured' },
+        { error: 'UAZAPI_SERVER_URL is not set in the environment' },
+        { status: 400 },
+      )
+    }
+
+    const apiToken = await getCachedInstanceToken(supabase, accountId)
+    if (!apiToken) {
+      return NextResponse.json(
+        { error: 'Uazapi instance token unavailable' },
         { status: 400 },
       )
     }
 
     const file = await downloadMessageFile({
-      serverUrl: config.server_url,
-      apiToken: decrypt(config.api_token),
+      serverUrl: env.serverUrl,
+      apiToken,
       messageId,
     })
 

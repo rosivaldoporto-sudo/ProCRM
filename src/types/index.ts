@@ -305,6 +305,12 @@ export interface MessageReaction {
 
 export type UazapiInstanceStatus = 'disconnected' | 'connected' | 'qrcode';
 
+/**
+ * uazapi_config row — now a per-account RUNTIME STATE CACHE only.
+ * Credentials (server_url, admin token, instance token) live in the
+ * environment (UAZAPI_* vars); the row keeps the auto-created
+ * instance token, connection status, pending QR code and timestamps.
+ */
 export interface UazapiConfig {
   id: string;
   account_id: string;
@@ -313,6 +319,10 @@ export interface UazapiConfig {
   server_url: string;
   api_token: string;
   webhook_secret?: string;
+  /** Reserved (migration 044) — credentials are env-based now. */
+  admin_token?: string;
+  /** Optional phone for 6-digit pairing code mode (migration 044). */
+  pairing_phone?: string;
   status: UazapiInstanceStatus;
   qr_code?: string;
   connected_at?: string;

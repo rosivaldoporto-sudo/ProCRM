@@ -31,10 +31,9 @@ import {
   Unplug,
   XCircle,
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
-import { buttonVariants } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -54,11 +53,10 @@ type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'qrcode' |
 type QrMode = 'connecting' | 'qrcode' | 'connected';
 
 export function WhatsAppQrConnect() {
-  const supabase = createClient();
   const { accountId, loading: authLoading, profileLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
-  const [configured, setConfigured] = useState(false);
+  const [configured, setConfigured] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
@@ -75,11 +73,12 @@ export function WhatsAppQrConnect() {
   const pollBusyRef = useRef(false);
   const loadedAccountIdRef = useRef<string | null>(null);
 
-  // Check that credentials exist and read the current connection state.
+  // Read the current connection state. Credentials come from the
+  // environment — the status route reports `configured: false` when
+  // UAZAPI_SERVER_URL is missing so we can surface that clearly.
   useEffect(() => {
     if (authLoading || profileLoading) return;
     if (!accountId) {
-      setConfigured(false);
       setLoading(false);
       return;
     }
@@ -88,39 +87,29 @@ export function WhatsAppQrConnect() {
     (async () => {
       setLoading(true);
       try {
-        const { data } = await supabase
-          .from('uazapi_config')
-          .select('status, server_url, api_token, qr_code')
-          .eq('account_id', accountId)
-          .maybeSingle();
-
-        setConfigured(!!data && !!data.server_url);
-
-        if (data) {
-          const res = await fetch('/api/uazapi/instance/status', { method: 'GET' });
-          const payload = await res.json();
-          if (payload.connected) {
-            setConnectionStatus('connected');
-            setProfileName(payload.profile_name || null);
-          } else if (payload.status === 'connecting') {
-            setConnectionStatus('connecting');
-          } else if (payload.status === 'qrcode') {
-            setConnectionStatus('qrcode');
-            setQrCode(payload.qr_code || data.qr_code || null);
-          } else {
-            setConnectionStatus('disconnected');
-            setStatusMessage(payload.message || '');
-          }
+        const res = await fetch('/api/uazapi/instance/status', { method: 'GET' });
+        const payload = await res.json();
+        setConfigured(payload.configured !== false);
+        if (payload.connected) {
+          setConnectionStatus('connected');
+          setProfileName(payload.profile_name || null);
+        } else if (payload.status === 'connecting') {
+          setConnectionStatus('connecting');
+        } else if (payload.status === 'qrcode') {
+          setConnectionStatus('qrcode');
+          setQrCode(payload.qr_code || null);
         } else {
           setConnectionStatus('disconnected');
+          setStatusMessage(payload.message || '');
         }
       } catch {
         setConnectionStatus('disconnected');
+        setStatusMessage('Não foi possível verificar o status da conexão.');
       } finally {
         setLoading(false);
       }
     })();
-  }, [authLoading, profileLoading, accountId, supabase]);
+  }, [authLoading, profileLoading, accountId]);
 
   /**
    * POST /instance/connect (via our route) and render the returned QR
@@ -302,31 +291,17 @@ export function WhatsAppQrConnect() {
         <Card>
           <CardHeader>
             <CardTitle className="text-foreground text-base flex items-center gap-2">
-              <QrCode className="size-5" />
-              Conexão ainda não configurada
+              <XCircle className="size-5" />
+              UAZAPI não configurado no servidor
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              Antes de conectar pelo QR Code, informe as credenciais do servidor Uazapi na tela{' '}
-              <a
-                href="/settings?tab=uazapi"
-                className="text-primary hover:text-primary/80 underline underline-offset-2"
-              >
-                WhatsApp (Uazapi)
-              </a>
-              .
+              As credenciais do Uazapi são lidas das variáveis de ambiente. Adicione{' '}
+              <code className="bg-muted px-1 rounded">UAZAPI_SERVER_URL</code> e{' '}
+              <code className="bg-muted px-1 rounded">UAZAPI_ADMIN_TOKEN</code> (ou{' '}
+              <code className="bg-muted px-1 rounded">UAZAPI_INSTANCE_TOKEN</code>) no{' '}
+              <code className="bg-muted px-1 rounded">.env</code> e recarregue a página.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <a
-              href="/settings?tab=uazapi"
-              className={buttonVariants({
-                variant: 'outline',
-                className: 'border-border text-muted-foreground hover:text-foreground hover:bg-muted',
-              })}
-            >
-              Ir para WhatsApp (Uazapi)
-            </a>
-          </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
@@ -387,6 +362,25 @@ export function WhatsAppQrConnect() {
             </Card>
           )}
 
+          {/* Webhook URL (auto-configurado na conexão; mostrado p/ verificação manual) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-foreground text-base">Webhook</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Ao conectar, o sistema configura o webhook automaticamente no servidor Uazapi. Se o seu servidor não suportar a configuração automática, use esta URL manualmente (evento{' '}
+                <code className="bg-muted px-1 rounded">messages</code>, excluindo{' '}
+                <code className="bg-muted px-1 rounded">wasSentByApi</code>).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Input
+                readOnly
+                value={accountId ? `${window.location.origin}/api/uazapi/webhook/${accountId}` : ''}
+                className="bg-muted border-border text-muted-foreground font-mono text-sm"
+              />
+            </CardContent>
+          </Card>
+
           {/* Actions */}
           <div className="flex flex-wrap gap-3">
             <Button
@@ -430,14 +424,7 @@ export function WhatsAppQrConnect() {
 
           <p className="text-xs text-muted-foreground">
             <Smartphone className="inline size-3.5 mr-1" />
-            O QR Code expira em ~1 minuto e é renovado automaticamente enquanto a janela de conexão estiver aberta. As credenciais do servidor são gerenciadas na tela{' '}
-            <a
-              href="/settings?tab=uazapi"
-              className="text-primary hover:text-primary/80 underline underline-offset-2"
-            >
-              WhatsApp (Uazapi)
-            </a>
-            .
+            O QR Code expira em ~1 minuto e é renovado automaticamente enquanto a janela de conexão estiver aberta.
           </p>
         </div>
       )}

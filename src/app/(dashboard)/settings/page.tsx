@@ -12,7 +12,6 @@ import { ProfileForm } from '@/components/settings/profile-form';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
-import { UazapiConfig } from '@/components/settings/uazapi-config';
 import { WhatsAppQrConnect } from '@/components/settings/whatsapp-qr-connect';
 import { MetaAdsConfig } from '@/components/settings/meta-ads-config';
 import { TemplateManager } from '@/components/settings/template-manager';
@@ -78,7 +77,6 @@ function SettingsPageInner() {
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
-    uazapi: <UazapiConfig />,
     'whatsapp-qr': <WhatsAppQrConnect />,
     'meta-ads': <MetaAdsConfig />,
     templates: <TemplateManager />,

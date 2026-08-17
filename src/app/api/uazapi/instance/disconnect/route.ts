@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import { instanceDisconnect } from '@/lib/uazapi/uazapi-client'
+import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
 
 export async function POST() {
   try {
@@ -22,38 +22,35 @@ export async function POST() {
       return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
     }
 
-    const { data: config } = await supabase
-      .from('uazapi_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (!config) {
-      return NextResponse.json({ error: 'Uazapi not configured.' }, { status: 400 })
+    const env = uazapiEnvConfig()
+    if (!env.serverUrl) {
+      return NextResponse.json({ error: 'UAZAPI_SERVER_URL is not set in the environment.' }, { status: 400 })
     }
 
-    let apiToken: string
-    try {
-      apiToken = decrypt(config.api_token)
-    } catch {
-      return NextResponse.json({ error: 'Stored API token is corrupted.' }, { status: 500 })
+    const instanceToken = await getCachedInstanceToken(supabase, accountId)
+    if (!instanceToken) {
+      return NextResponse.json({ error: 'Uazapi instance not created yet.' }, { status: 400 })
     }
 
     await instanceDisconnect({
-      serverUrl: config.server_url,
-      apiToken,
+      serverUrl: env.serverUrl,
+      apiToken: instanceToken,
     })
 
-    // Reset status
+    // Reset status (the config row is only a state cache now).
     await supabase
       .from('uazapi_config')
-      .update({
-        status: 'disconnected',
-        qr_code: null,
-        connected_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('account_id', accountId)
+      .upsert(
+        {
+          account_id: accountId,
+          user_id: user.id,
+          status: 'disconnected',
+          qr_code: null,
+          connected_at: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'account_id' },
+      )
 
     return NextResponse.json({ success: true })
   } catch (error) {

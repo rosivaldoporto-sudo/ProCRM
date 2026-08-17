@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import { instanceStatus } from '@/lib/uazapi/uazapi-client'
+import {
+  uazapiEnvConfigured,
+  uazapiEnvConfig,
+  getCachedInstanceToken,
+} from '@/lib/uazapi/runtime-config'
 
 export async function GET() {
   try {
@@ -22,56 +26,69 @@ export async function GET() {
       return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
     }
 
-    const { data: config } = await supabase
-      .from('uazapi_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (!config) {
-      return NextResponse.json({ connected: false, reason: 'no_config', message: 'Uazapi not configured.' })
+    if (!uazapiEnvConfigured()) {
+      return NextResponse.json({
+        connected: false,
+        configured: false,
+        status: 'disconnected',
+        reason: 'env_missing',
+        message: 'UAZAPI_SERVER_URL is not set in the environment.',
+      })
     }
 
-    let apiToken: string
-    try {
-      apiToken = decrypt(config.api_token)
-    } catch {
-      return NextResponse.json({ connected: false, reason: 'token_corrupted', message: 'Stored API token is corrupted.' })
+    const instanceToken = await getCachedInstanceToken(supabase, accountId)
+    if (!instanceToken) {
+      return NextResponse.json({
+        connected: false,
+        configured: true,
+        status: 'disconnected',
+        reason: 'no_instance',
+        message: 'Instance not created yet — click Conectar WhatsApp.',
+      })
     }
 
-    if (!apiToken) {
-      return NextResponse.json({ connected: false, reason: 'no_instance', message: 'Instance not created yet — click Conectar.' })
-    }
-
+    const env = uazapiEnvConfig()
     const result = await instanceStatus({
-      serverUrl: config.server_url,
-      apiToken,
+      serverUrl: env.serverUrl,
+      apiToken: instanceToken,
     })
 
     // Sync status to DB. The table's CHECK constraint only allows
     // disconnected/connected/qrcode — collapse `connecting` into
     // `qrcode` (a connect attempt is in flight).
+    const dbStatus =
+      result.status === 'connected'
+        ? 'connected'
+        : result.status === 'connecting' || result.qrCode
+          ? 'qrcode'
+          : 'disconnected'
+
     await supabase
       .from('uazapi_config')
-      .update({
-        status: result.status === 'connected' ? 'connected' : result.status === 'connecting' || result.qrCode ? 'qrcode' : 'disconnected',
-        qr_code: result.qrCode || null,
-        connected_at: result.status === 'connected' ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('account_id', accountId)
+      .upsert(
+        {
+          account_id: accountId,
+          user_id: user.id,
+          status: dbStatus,
+          qr_code: result.qrCode || null,
+          connected_at: result.status === 'connected' ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'account_id' },
+      )
 
     return NextResponse.json({
       connected: result.status === 'connected',
+      configured: true,
       status: result.status,
       qr_code: result.qrCode || null,
       pairing_code: result.pairingCode || null,
       profile_name: result.profileName || null,
-      instance_name: config.instance_name,
+      instance_name: env.instanceName,
     })
   } catch (error) {
     console.error('Error in Uazapi status:', error)
     const message = error instanceof Error ? error.message : 'Failed to get status'
-    return NextResponse.json({ connected: false, reason: 'uazapi_error', message })
+    return NextResponse.json({ connected: false, configured: true, reason: 'uazapi_error', message })
   }
 }

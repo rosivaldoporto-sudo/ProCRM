@@ -1,8 +1,8 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import { fetchChats, fetchMessages, downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
 import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
+import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
 import {
   mapUazapiContentType,
   mapUazapiStatus,
@@ -47,16 +47,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
     }
 
-    const { data: config } = await supabase
-      .from('uazapi_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .maybeSingle()
-
-    if (!config || config.status !== 'connected') {
-      return NextResponse.json({ error: 'Uazapi is not connected.' }, { status: 400 })
-    }
-
     const { searchParams } = new URL(request.url)
     const limit = Math.min(
       Math.max(Number(searchParams.get('limit')) || 100, 1),
@@ -64,11 +54,29 @@ export async function POST(request: Request) {
     )
     const includeMessages = searchParams.get('messages') !== 'false'
 
-    const apiToken = decrypt(config.api_token)
+    const env = uazapiEnvConfig()
+    if (!env.serverUrl) {
+      return NextResponse.json({ error: 'UAZAPI_SERVER_URL is not set in the environment.' }, { status: 400 })
+    }
+
+    const { data: stateRow } = await supabase
+      .from('uazapi_config')
+      .select('status')
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    if (!stateRow || stateRow.status !== 'connected') {
+      return NextResponse.json({ error: 'Uazapi is not connected.' }, { status: 400 })
+    }
+
+    const apiToken = await getCachedInstanceToken(supabase, accountId)
+    if (!apiToken) {
+      return NextResponse.json({ error: 'Uazapi instance token unavailable.' }, { status: 400 })
+    }
     const ownerUserId = await resolveAuditUserId(supabase, accountId)
 
     // Fetch recent chats from Uazapi server
-    const chats = await fetchChats({ serverUrl: config.server_url, apiToken, limit })
+    const chats = await fetchChats({ serverUrl: env.serverUrl, apiToken, limit })
 
     if (chats.length === 0) {
       return NextResponse.json({ synced: 0, messagesImported: 0, message: 'No chats found to sync.' })
@@ -131,7 +139,7 @@ export async function POST(request: Request) {
             accountId,
             contactId,
             phone,
-            serverUrl: config.server_url,
+            serverUrl: env.serverUrl,
             apiToken,
             photoUrl: chat.image,
           })
@@ -202,7 +210,7 @@ export async function POST(request: Request) {
           supabase,
           conversationId,
           chat.id,
-          config.server_url,
+          env.serverUrl,
           apiToken,
         )
         messagesImported += result.imported

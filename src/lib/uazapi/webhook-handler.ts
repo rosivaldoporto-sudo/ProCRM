@@ -1,12 +1,13 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
+import { resolveAuditUserId } from '@/lib/api/v1/contacts'
 import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
 import { ensureLeadDeal } from '@/lib/deals/auto-create'
 import {
@@ -117,9 +118,9 @@ interface BaileysContextInfo {
 /**
  * Shared webhook handler. `accountId` is passed by the per-account route
  * (POST /api/uazapi/webhook/[accountId]) so the webhook URL is unique
- * per CRM account and the config row is resolved deterministically — no
- * guessing between instances. When omitted (legacy single URL), the
- * previous payload-based resolution is used as fallback.
+ * per CRM account. Credentials come from the environment
+ * (UAZAPI_SERVER_URL / UAZAPI_INSTANCE_TOKEN or the cached
+ * auto-created token); the uazapi_config row is only a state cache.
  */
 export async function handleWebhook(request: Request, accountId?: string) {
   const { searchParams } = new URL(request.url)
@@ -135,12 +136,8 @@ export async function handleWebhook(request: Request, accountId?: string) {
     console.log('[uazapi-webhook] POST received:', JSON.stringify(payload).slice(0, 1500))
     const db = supabaseAdmin()
 
-    // Resolve the uazapi_config row. With a per-account URL the account
-    // id comes from the route itself. Otherwise fall back to matching
-    // by instance `owner` / `token` (Uazapi v2) and finally to a
-    // single-config lookup.
-    const config = await resolveConfig(db, payload, accountId)
-    if (!config) {
+    const runtime = await resolveRuntimeConfig(db, accountId)
+    if (!runtime) {
       console.error('[uazapi-webhook] no matching Uazapi config found', { accountId })
       return NextResponse.json(
         debug
@@ -149,6 +146,8 @@ export async function handleWebhook(request: Request, accountId?: string) {
         debug ? { status: 200 } : { status: 404 },
       )
     }
+
+    const { config, apiToken } = runtime
 
     // Handle different payload shapes from Uazapi
     const messages = extractMessages(payload)
@@ -171,8 +170,6 @@ export async function handleWebhook(request: Request, accountId?: string) {
           : { status: 'ok' },
       )
     }
-
-    const apiToken = decrypt(config.api_token)
 
     for (const msg of messages) {
       // Outbound messages (sent from the phone connected to Uazapi) are
@@ -406,55 +403,36 @@ export async function handleWebhook(request: Request, accountId?: string) {
 }
 
 /**
- * Locate the uazapi_config row this webhook belongs to. When the request
- * came in through a per-account URL the account id is known upfront —
- * match directly. Otherwise (legacy URL) fall back to matching by the
- * instance `owner` / `token` carried in the payload, and finally to the
- * single config row when there's exactly one.
+ * Resolve the Uazapi runtime config for a webhook delivery. The
+ * credentials live in the environment; the instance token comes from
+ * UAZAPI_INSTANCE_TOKEN or the per-account cache. The account id must
+ * come from the per-account webhook URL — there is no payload-based
+ * multi-account guessing anymore.
  */
-async function resolveConfig(
+async function resolveRuntimeConfig(
   db: ReturnType<typeof supabaseAdmin>,
-  payload: UazapiWebhookPayload,
   accountId?: string,
-): Promise<{ account_id: string; user_id: string; server_url: string; api_token: string } | null> {
-  if (accountId) {
-    const { data: byAccount } = await db
-      .from('uazapi_config')
-      .select('account_id, user_id, server_url, api_token')
-      .eq('account_id', accountId)
-      .maybeSingle()
-    return byAccount || null
+): Promise<{
+  config: { account_id: string; user_id: string; server_url: string }
+  apiToken: string
+} | null> {
+  if (!accountId) {
+    console.warn('[uazapi-webhook] accountId missing — per-account webhook URL required')
+    return null
   }
 
-  const ownerCandidates = [
-    payload.owner,
-    payload.instance,
-    payload.message?.owner,
-    payload.data?.msg?.owner,
-  ].filter(Boolean) as string[]
+  const env = uazapiEnvConfig()
+  if (!env.serverUrl) return null
 
-  const { data: allConfigs, error } = await db.from('uazapi_config').select('*')
-  if (error || !allConfigs || allConfigs.length === 0) return null
+  const apiToken = await getCachedInstanceToken(db, accountId)
+  if (!apiToken) return null
 
-  if (allConfigs.length === 1) return allConfigs[0]
+  const userId = await resolveAuditUserId(db, accountId)
 
-  // Multiple configs — match by instance name first, then by token.
-  for (const name of ownerCandidates) {
-    const byName = allConfigs.find((c: { instance_name: string }) => c.instance_name === name)
-    if (byName) return byName
+  return {
+    config: { account_id: accountId, user_id: userId, server_url: env.serverUrl },
+    apiToken,
   }
-
-  if (payload.token) {
-    for (const config of allConfigs) {
-      try {
-        if (decrypt(config.api_token) === payload.token) return config
-      } catch {
-        // skip unreadable configs
-      }
-    }
-  }
-
-  return null
 }
 
 // ============================================================

@@ -1,11 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   sendTextMessage,
   sendMediaMessage,
   sendMenu,
   type MediaKind,
 } from '@/lib/uazapi/uazapi-client';
+import {
+  uazapiEnvConfig,
+  getCachedInstanceToken,
+} from '@/lib/uazapi/runtime-config';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
@@ -142,22 +145,24 @@ export async function sendMessageToConversation(
     throw new UazapiSendError('bad_request', 'Invalid phone number format', 400);
   }
 
-  // Load Uazapi config
-  const { data: config, error: configError } = await db
-    .from('uazapi_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-
-  if (configError || !config) {
+  // Uazapi credentials come from the environment; the config row only
+  // caches runtime state (status, pending QR, auto-created token).
+  const env = uazapiEnvConfig();
+  if (!env.serverUrl) {
     throw new UazapiSendError(
       'uazapi_not_configured',
-      'Uazapi not configured. Please set up your Uazapi integration first.',
+      'Uazapi is not configured. Set UAZAPI_SERVER_URL in the environment.',
       400
     );
   }
 
-  if (config.status !== 'connected') {
+  const { data: stateRow } = await db
+    .from('uazapi_config')
+    .select('status')
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (!stateRow || stateRow.status !== 'connected') {
     throw new UazapiSendError(
       'uazapi_not_connected',
       'Uazapi instance is not connected. Please scan the QR code first.',
@@ -165,7 +170,14 @@ export async function sendMessageToConversation(
     );
   }
 
-  const apiToken = decrypt(config.api_token);
+  const apiToken = await getCachedInstanceToken(db, accountId);
+  if (!apiToken) {
+    throw new UazapiSendError(
+      'uazapi_not_configured',
+      'Uazapi instance token unavailable. Connect via the QR code first.',
+      400
+    );
+  }
 
   // Resolve the reply target to its Uazapi message_id. The parent must
   // belong to this same conversation — otherwise a caller could quote
@@ -200,7 +212,7 @@ export async function sendMessageToConversation(
   try {
     if (messageType === 'menu') {
       const result = await sendMenu({
-        serverUrl: config.server_url,
+        serverUrl: env.serverUrl,
         apiToken,
         to,
         body: contentText || '',
@@ -212,7 +224,7 @@ export async function sendMessageToConversation(
       uazapiMessageId = result.messageId;
     } else if (isMediaKind) {
       const result = await sendMediaMessage({
-        serverUrl: config.server_url,
+        serverUrl: env.serverUrl,
         apiToken,
         to,
         kind: messageType as MediaKind,
@@ -224,7 +236,7 @@ export async function sendMessageToConversation(
       uazapiMessageId = result.messageId;
     } else {
       const result = await sendTextMessage({
-        serverUrl: config.server_url,
+        serverUrl: env.serverUrl,
         apiToken,
         to,
         text: contentText!,
