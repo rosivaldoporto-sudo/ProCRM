@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
 import {
   instanceConnect,
   setInstanceWebhook,
@@ -73,7 +74,10 @@ export async function POST(request: Request) {
     const qrCode = result.qrCode ? normalizeQrCode(result.qrCode) : null
 
     // Persist QR + status so a page reload still shows the pending QR.
-    const { error: upsertError } = await supabase
+    // Written via the admin client: RLS on uazapi_config blocks
+    // INSERTs for user-scoped clients (only UPDATE/USING was covered
+    // by the original policy), and this state cache must survive.
+    const { error: upsertError } = await supabaseAdmin()
       .from('uazapi_config')
       .upsert(
         {

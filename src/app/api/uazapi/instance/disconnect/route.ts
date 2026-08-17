@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { instanceDisconnect } from '@/lib/uazapi/uazapi-client'
 import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
 
@@ -38,7 +39,7 @@ export async function POST() {
     })
 
     // Reset status (the config row is only a state cache now).
-    await supabase
+    await supabaseAdmin()
       .from('uazapi_config')
       .upsert(
         {

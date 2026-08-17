@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { instanceStatus } from '@/lib/uazapi/uazapi-client'
 import {
   uazapiEnvConfigured,
@@ -63,7 +64,7 @@ export async function GET() {
           ? 'qrcode'
           : 'disconnected'
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await supabaseAdmin()
       .from('uazapi_config')
       .upsert(
         {

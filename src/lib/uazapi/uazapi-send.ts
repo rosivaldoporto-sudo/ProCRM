@@ -3,6 +3,7 @@ import {
   sendTextMessage,
   sendMediaMessage,
   sendMenu,
+  instanceStatus,
   type MediaKind,
 } from '@/lib/uazapi/uazapi-client';
 import {
@@ -156,20 +157,6 @@ export async function sendMessageToConversation(
     );
   }
 
-  const { data: stateRow } = await db
-    .from('uazapi_config')
-    .select('status')
-    .eq('account_id', accountId)
-    .maybeSingle();
-
-  if (!stateRow || stateRow.status !== 'connected') {
-    throw new UazapiSendError(
-      'uazapi_not_connected',
-      'Uazapi instance is not connected. Please scan the QR code first.',
-      400
-    );
-  }
-
   const apiToken = await getCachedInstanceToken(db, accountId);
   if (!apiToken) {
     throw new UazapiSendError(
@@ -177,6 +164,67 @@ export async function sendMessageToConversation(
       'Uazapi instance token unavailable. Connect via the QR code first.',
       400
     );
+  }
+
+  // The uazapi_config row is only a state cache — never trust it over
+  // the live instance. If the cache says "not connected", ask the
+  // server before refusing: the cache write may have failed (e.g. RLS
+  // denied the INSERT on a brand-new row), and sending must keep
+  // working even then. When the live instance IS connected, repair
+  // the cache via the admin client so the inbox UI stays consistent.
+  const { data: stateRow } = await db
+    .from('uazapi_config')
+    .select('status')
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (!stateRow || stateRow.status !== 'connected') {
+    let liveStatus: string | null = null;
+    try {
+      const live = await instanceStatus({
+        serverUrl: env.serverUrl,
+        apiToken,
+      });
+      liveStatus = live.status;
+    } catch (err) {
+      console.warn('[uazapi-send] live status check failed:', err);
+    }
+
+    if (liveStatus !== 'connected') {
+      throw new UazapiSendError(
+        'uazapi_not_connected',
+        'Uazapi instance is not connected. Please scan the QR code first.',
+        400
+      );
+    }
+
+    try {
+      const { data: account } = await supabaseAdmin()
+        .from('accounts')
+        .select('owner_user_id')
+        .eq('id', accountId)
+        .maybeSingle();
+      const { error: repairError } = await supabaseAdmin()
+        .from('uazapi_config')
+        .upsert(
+          {
+            account_id: accountId,
+            user_id: account?.owner_user_id,
+            instance_name: env.instanceName,
+            server_url: env.serverUrl,
+            status: 'connected',
+            qr_code: null,
+            connected_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'account_id' }
+        );
+      if (repairError) {
+        console.warn('[uazapi-send] state repair failed:', repairError.message);
+      }
+    } catch (err) {
+      console.warn('[uazapi-send] state repair threw:', err);
+    }
   }
 
   // Resolve the reply target to its Uazapi message_id. The parent must
