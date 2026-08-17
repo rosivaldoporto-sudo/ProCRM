@@ -70,6 +70,7 @@ export function WhatsAppQrConnect() {
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [qrRefreshing, setQrRefreshing] = useState(false);
   const qrSetAtRef = useRef<number>(0);
+  const lastQrRequestAtRef = useRef<number>(0);
   const pollBusyRef = useRef(false);
   const loadedAccountIdRef = useRef<string | null>(null);
 
@@ -116,6 +117,7 @@ export function WhatsAppQrConnect() {
    * code (or pairing code) in the dialog.
    */
   const requestQr = useCallback(async (): Promise<boolean> => {
+    lastQrRequestAtRef.current = Date.now();
     setConnecting(true);
     setQrRefreshing(true);
     try {
@@ -160,9 +162,19 @@ export function WhatsAppQrConnect() {
   }, []);
 
   /**
-   * Poll /instance/status while the QR dialog is open: detects when
-   * the phone scanned the code (→ connected), tracks the 'connecting'
-   * state, and auto-refreshes the QR when it expires (~60s).
+   * Poll /instance/status while the QR dialog is open. The poll ONLY
+   * watches for transitions:
+   *
+   *   - connected → flip the dialog to the success state.
+   *   - no QR on screen → request one (with a backoff so a failing
+   *     server doesn't hammer the connect endpoint).
+   *   - QR on screen but expired (~60s) → request a fresh one.
+   *
+   * The QR shown is NEVER replaced by whatever /status returns —
+   * UAZAPI servers may regenerate the code on every status poll, and
+   * swapping it mid-scan breaks the pairing (the "QR disappeared and
+   * kept reloading" bug). The only way to change the QR is expiry or
+   * the "Gerar novo QR" button.
    */
   useEffect(() => {
     if (!qrDialogOpen || qrMode === 'connected') return;
@@ -172,18 +184,6 @@ export function WhatsAppQrConnect() {
       if (pollBusyRef.current) return;
       pollBusyRef.current = true;
       try {
-        // QR expired — request a fresh one
-        if (
-          qrMode === 'qrcode' &&
-          qrCode &&
-          qrSetAtRef.current > 0 &&
-          Date.now() - qrSetAtRef.current > QR_TTL_MS
-        ) {
-          qrSetAtRef.current = 0; // avoid double-refresh
-          await requestQr();
-          return;
-        }
-
         const res = await fetch('/api/uazapi/instance/status', { method: 'GET' });
         const data = await res.json();
         if (stopped) return;
@@ -198,25 +198,37 @@ export function WhatsAppQrConnect() {
               setQrDialogOpen(false);
               toast.success('WhatsApp conectado!');
             }
-          }, 1500);
+          }, 1200);
           return;
         }
 
-        if (data.status === 'connecting') {
-          setQrMode('connecting');
-        } else if (data.status === 'qrcode') {
-          setQrMode('qrcode');
-          if (data.qr_code && data.qr_code !== qrCode) {
-            setQrCode(data.qr_code);
-            qrSetAtRef.current = Date.now();
-            setConnectionStatus('qrcode');
-          }
-          if (data.pairing_code && data.pairing_code !== pairingCode) {
-            setPairingCode(data.pairing_code);
-          }
-        } else if (data.status === 'disconnected') {
-          setQrMode('connecting');
+        if (data.pairing_code && data.pairing_code !== pairingCode) {
+          setPairingCode(data.pairing_code);
         }
+
+        const qrAge =
+          qrSetAtRef.current > 0 ? Date.now() - qrSetAtRef.current : Infinity;
+
+        if (!qrCode) {
+          // No QR on screen yet — (re)request it, but never faster
+          // than once every few seconds when the server keeps failing.
+          setQrMode('connecting');
+          if (Date.now() - lastQrRequestAtRef.current > 5_000) {
+            await requestQr();
+          }
+          return;
+        }
+
+        if (qrAge > QR_TTL_MS) {
+          // The displayed QR expired — fetch a fresh one.
+          setQrMode('connecting');
+          await requestQr();
+          return;
+        }
+
+        // A valid QR is on screen — keep it stable regardless of the
+        // status body (connecting/qrcode both mean "keep waiting").
+        setQrMode('qrcode');
       } catch {
         // transient error — keep polling
       } finally {
@@ -460,7 +472,7 @@ export function WhatsAppQrConnect() {
                   : 'Seu WhatsApp está conectado e pronto para uso.'
                 : qrMode === 'qrcode'
                   ? 'Abra o WhatsApp no celular: Menu > Aparelhos conectados > Conectar um aparelho.'
-                  : 'Gerando o QR Code...'}
+                  : 'Aguarde um instante, gerando o QR Code...'}
             </DialogDescription>
           </DialogHeader>
 
@@ -491,7 +503,7 @@ export function WhatsAppQrConnect() {
             <div className="flex flex-col items-center gap-2 py-8">
               <Loader2 className="size-8 animate-spin text-primary" />
               <p className="text-sm text-muted-foreground">
-                {qrRefreshing ? 'Renovando QR Code...' : 'Estabelecendo conexão...'}
+                {qrRefreshing ? 'Renovando QR Code...' : 'Gerando o QR Code...'}
               </p>
             </div>
           )}
