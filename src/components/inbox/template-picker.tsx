@@ -158,6 +158,16 @@ export function TemplatePicker({
     };
   }, [open]);
 
+  // Meta only accepts JPG/PNG for template-header images and MP4/3GPP
+  // (H.264) for header videos — WEBP passes send validation but the
+  // delivery fails with a silent red X. The picker accepts exactly the
+  // Meta-supported set; handleMediaPicked re-checks the MIME so a file
+  // chosen outside the picker (drag-and-drop etc.) is rejected too.
+  const MEDIA_PICKER_ACCEPT: Record<"image" | "video", string> = {
+    image: "image/jpeg,image/png",
+    video: "video/mp4,video/3gpp",
+  };
+
   // Discard an uploaded-but-unsent header media object. Fire-and-forget
   // so a cancelled pick can't orphan storage objects.
   const removeUploadedMedia = useCallback(
@@ -207,6 +217,14 @@ export function TemplatePicker({
   async function handleMediaPicked(file: File | undefined) {
     if (!file || !selected) return;
     const kind = selected.header_type === "video" ? "video" : "image";
+    if (!MEDIA_PICKER_ACCEPT[kind].includes(file.type)) {
+      toast.error(
+        kind === "image"
+          ? t("mediaFormatErrorImage")
+          : t("mediaFormatErrorVideo"),
+      );
+      return;
+    }
     const max = MEDIA_MAX_BYTES_BY_KIND[kind];
     if (file.size > max) {
       toast.error(
@@ -345,6 +363,11 @@ export function TemplatePicker({
                         : t("videoLabel"),
                   })}
                 </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  {slots.headerMediaType === "image"
+                    ? t("mediaFormatsHintImage")
+                    : t("mediaFormatsHintVideo")}
+                </p>
                 {mediaUrl ? (
                   <div className="rounded-md border border-border bg-background/50 p-2">
                     <div className="max-h-48 overflow-hidden rounded-md">
@@ -413,11 +436,7 @@ export function TemplatePicker({
                 <input
                   ref={mediaInputRef}
                   type="file"
-                  accept={
-                    slots.headerMediaType === "image"
-                      ? "image/png,image/jpeg,image/webp"
-                      : "video/mp4,video/3gpp"
-                  }
+                  accept={MEDIA_PICKER_ACCEPT[slots.headerMediaType]}
                   className="hidden"
                   onChange={(e) => {
                     void handleMediaPicked(e.target.files?.[0]);

@@ -455,7 +455,19 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
+  errors?: { code: number; title: string; details?: string }[]
 }) {
+  // Meta delivers the failure reason on `status.errors` (e.g. #131026
+  // media download failed, #131047 blocked domain). Surface it loudly
+  // here — nothing downstream persists it, so a failed delivery would
+  // otherwise be a silent red X in the thread.
+  if (status.status === 'failed' && status.errors?.length) {
+    console.warn(
+      `[webhook] message ${status.id} failed delivery:`,
+      status.errors.map((e) => `#${e.code} ${e.title}${e.details ? ` — ${e.details}` : ''}`).join('; ')
+    )
+  }
+
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
   //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
@@ -532,6 +544,9 @@ async function handleStatusUpdate(status: {
           whatsapp_message_id: status.id,
           conversation_id: msgRow.conversation_id,
           status: status.status,
+          ...(status.errors?.length
+            ? { error: status.errors[0] }
+            : {}),
         }
       )
     }
