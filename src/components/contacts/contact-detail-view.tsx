@@ -345,6 +345,7 @@ export function ContactDetailView({
             body: values.body,
             headerText: values.headerText,
             buttonParams: values.buttonParams,
+            headerMediaUrl: values.headerMediaUrl,
           },
           template_params: values.body,
         }),

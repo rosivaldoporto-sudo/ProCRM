@@ -272,6 +272,13 @@
       "bodyValuePlaceholder": "Value for {val}",
       "urlSuffixValuePlaceholder": "URL suffix value",
       "finalUrl": "Final URL: {url}",
+      "mediaHeaderHint": "This template has a {kind} header — upload the media to include in this send.",
+      "imageLabel": "image",
+      "videoLabel": "video",
+      "selectFile": "Choose file",
+      "uploadingMedia": "Uploading media…",
+      "replaceMedia": "Replace",
+      "removeMedia": "Remove",
       "back": "Back",
       "cancel": "Cancel",
       "send": "Send template"

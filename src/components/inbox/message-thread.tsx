@@ -669,6 +669,7 @@ export function MessageThread({
         body: string[];
         headerText?: string;
         buttonParams?: Record<number, string>;
+        headerMediaUrl?: string;
       },
     ) => {
       if (!conversation) return;
@@ -706,6 +707,7 @@ export function MessageThread({
               body: values.body,
               headerText: values.headerText,
               buttonParams: values.buttonParams,
+              headerMediaUrl: values.headerMediaUrl,
             },
             template_params: values.body,
             content_text: renderedBody,

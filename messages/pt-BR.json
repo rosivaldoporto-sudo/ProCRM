@@ -272,6 +272,13 @@
       "bodyValuePlaceholder": "Valor para {val}",
       "urlSuffixValuePlaceholder": "Valor do sufixo da URL",
       "finalUrl": "URL final: {url}",
+      "mediaHeaderHint": "Este modelo tem um cabeçalho de {kind} — envie a mídia que será incluída neste envio.",
+      "imageLabel": "imagem",
+      "videoLabel": "vídeo",
+      "selectFile": "Escolher arquivo",
+      "uploadingMedia": "Enviando mídia…",
+      "replaceMedia": "Substituir",
+      "removeMedia": "Remover",
       "back": "Voltar",
       "cancel": "Cancelar",
       "send": "Enviar modelo"
