@@ -22,16 +22,25 @@ export function UazapiSyncBar() {
       }
       const synced = data.synced ?? 0;
       const imported = data.messagesImported ?? 0;
+      const webhook = data.webhook as string | undefined;
+      const webhookNote =
+        webhook === 'repaired'
+          ? ' Webhook de recebimento reativado.'
+          : webhook === 'ok'
+            ? ''
+            : webhook
+              ? ' Webhook: ' + webhook
+              : '';
       if (synced > 0 || imported > 0) {
         toast.success(
           imported > 0
-            ? `${synced} conversations synced, ${imported} messages imported.`
-            : `${synced} conversations synced from Uazapi.`
+            ? `${synced} conversations synced, ${imported} messages imported.${webhookNote}`
+            : `${synced} conversations synced from Uazapi.${webhookNote}`
         );
         setSynced(true);
         setTimeout(() => setSynced(false), 3000);
       } else {
-        toast.info(data.message || 'No new conversations to sync.');
+        toast.info((data.message || 'No new conversations to sync.') + webhookNote);
       }
     } catch {
       toast.error('Failed to sync Uazapi conversations');

@@ -1,6 +1,14 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { fetchChats, fetchMessages, downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
+import {
+  fetchChats,
+  fetchMessages,
+  downloadMessageUrl,
+  instanceStatus,
+  getInstanceWebhook,
+  setInstanceWebhook,
+} from '@/lib/uazapi/uazapi-client'
 import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
 import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
 import {
@@ -65,14 +73,77 @@ export async function POST(request: Request) {
       .eq('account_id', accountId)
       .maybeSingle()
 
-    if (!stateRow || stateRow.status !== 'connected') {
-      return NextResponse.json({ error: 'Uazapi is not connected.' }, { status: 400 })
-    }
-
     const apiToken = await getCachedInstanceToken(supabase, accountId)
     if (!apiToken) {
       return NextResponse.json({ error: 'Uazapi instance token unavailable.' }, { status: 400 })
     }
+
+    // Live-check before syncing — the cached row is only a state cache
+    // and may be stale (e.g. RLS blocked the INSERT before the fix).
+    // The live server is the source of truth; repair the cache when it
+    // IS connected so the inbox UI stays consistent.
+    let liveStatus: string | null = null
+    try {
+      const live = await instanceStatus({ serverUrl: env.serverUrl, apiToken })
+      liveStatus = live.status
+    } catch (err) {
+      console.warn('[uazapi-sync] live status check failed:', err)
+    }
+    if (liveStatus !== 'connected') {
+      return NextResponse.json({ error: 'Uazapi is not connected.' }, { status: 400 })
+    }
+    if (!stateRow || stateRow.status !== 'connected') {
+      try {
+        await supabaseAdmin()
+          .from('uazapi_config')
+          .upsert(
+            {
+              account_id: accountId,
+              user_id: user.id,
+              status: 'connected',
+              qr_code: null,
+              connected_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'account_id' },
+          )
+      } catch (err) {
+        console.warn('[uazapi-sync] state repair failed:', err)
+      }
+    }
+
+    // Ensure the per-account webhook is configured AND enabled — this
+    // is what makes inbound + phone-sent messages arrive in real time.
+    // Repairs silently if it drifted (or was never set).
+    const webhookUrl = `${
+      process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin
+    }/api/uazapi/webhook/${accountId}`
+    let webhook = 'unknown'
+    try {
+      const current = await getInstanceWebhook({ serverUrl: env.serverUrl, apiToken })
+      if (
+        !current ||
+        current.url !== webhookUrl ||
+        current.enabled === false ||
+        !current.events?.includes('messages')
+      ) {
+        await setInstanceWebhook({
+          serverUrl: env.serverUrl,
+          apiToken,
+          url: webhookUrl,
+          events: ['messages', 'messages_update', 'connection'],
+          excludeMessages: ['wasSentByApi'],
+        })
+        webhook = 'repaired'
+        console.log('[uazapi-sync] webhook re-registered:', webhookUrl)
+      } else {
+        webhook = 'ok'
+      }
+    } catch (err) {
+      webhook = `error: ${err instanceof Error ? err.message : 'unknown'}`
+      console.warn('[uazapi-sync] webhook verify/repair failed:', err)
+    }
+
     const ownerUserId = await resolveAuditUserId(supabase, accountId)
 
     // Fetch recent chats from Uazapi server
@@ -223,6 +294,7 @@ export async function POST(request: Request) {
       messagesImported,
       found: chats.length,
       warnings: syncWarnings,
+      webhook,
       message: `Synced ${syncedCount} of ${chats.length} chats found (${messagesImported} messages imported).`,
     })
   } catch (error) {

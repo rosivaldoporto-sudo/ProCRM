@@ -236,6 +236,44 @@ export async function instanceInit(args: {
 }
 
 /**
+ * Read the currently configured webhook of an instance.
+ * GET /webhook
+ * Auth: token header
+ * Response: { url, events, enabled } (some servers wrap under `data`).
+ * Returns null when the endpoint is unavailable (older servers) or the
+ * request fails — callers treat that as "unknown", not "misconfigured".
+ */
+export async function getInstanceWebhook(args: {
+  serverUrl: string
+  apiToken: string
+}): Promise<{ url?: string; events?: string[]; enabled?: boolean } | null> {
+  const { serverUrl, apiToken } = args
+  const url = `${serverUrl.replace(/\/+$/, '')}/webhook`
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildHeaders(apiToken),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!response.ok) return null
+    const data = (await response.json()) as Record<string, unknown>
+    const nested = (data.data && typeof data.data === 'object'
+      ? data.data
+      : data) as Record<string, unknown>
+    return {
+      url: String(nested.url ?? nested.webhook_url ?? '') || undefined,
+      events: Array.isArray(nested.events)
+        ? (nested.events as unknown[]).map(String)
+        : undefined,
+      enabled: typeof nested.enabled === 'boolean' ? nested.enabled : undefined,
+    }
+  } catch (err) {
+    console.warn('[uazapi] getInstanceWebhook failed:', err)
+    return null
+  }
+}
+
+/**
  * Configure the instance's webhook server-side.
  * POST /webhook/set
  * Auth: token header
@@ -680,10 +718,21 @@ export async function downloadMessageUrl(
         signal: AbortSignal.timeout(15000),
       })
       if (response.ok) {
-        const data = await response.json()
-        return { url: data.url || data.fileURL || undefined, mimetype: data.mimetype || undefined }
+        const data = (await response.json()) as Record<string, unknown>
+        const nested = (data.data && typeof data.data === 'object'
+          ? data.data
+          : data) as Record<string, unknown>
+        return {
+          url: String(nested.url ?? nested.fileURL ?? '') || undefined,
+          mimetype: String(nested.mimetype ?? '') || undefined,
+        }
       }
-      lastError = new Error(`HTTP ${response.status}`)
+      // Capture the server's actual error body — silent "media broken"
+      // reports are undiagnosable without it.
+      const bodyText = await response.text().catch(() => '')
+      lastError = new Error(
+        `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
+      )
     } catch (err) {
       lastError = err
     }
@@ -730,6 +779,43 @@ export async function downloadMessageFile(args: {
     } catch {
       // try the next auth strategy
     }
+  }
+
+  // Last resort: ask the server to hand the bytes back as base64
+  // (return_link hosting can be disabled on some uazapiGO builds).
+  // Capped at 12 MB decoded — anything bigger would blow up the
+  // serverless function's memory budget anyway.
+  try {
+    const response = await fetch(`${base}/message/download`, {
+      method: 'POST',
+      headers: buildHeaders(apiToken),
+      body: JSON.stringify({ id: messageId, return_base64: true }),
+      signal: AbortSignal.timeout(30000),
+    })
+    if (response.ok) {
+      const data = (await response.json()) as Record<string, unknown>
+      const nested = (data.data && typeof data.data === 'object'
+        ? data.data
+        : data) as Record<string, unknown>
+      const b64 =
+        typeof nested.base64 === 'string'
+          ? nested.base64
+          : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
+            ? nested.file
+            : ''
+      if (b64 && b64.length < 16_000_000) {
+        const binary = Buffer.from(b64, 'base64')
+        return {
+          buffer: binary.buffer.slice(
+            binary.byteOffset,
+            binary.byteOffset + binary.byteLength,
+          ) as ArrayBuffer,
+          contentType: String(nested.mimetype ?? file.mimetype ?? '') || 'application/octet-stream',
+        }
+      }
+    }
+  } catch {
+    // ignore — diagnostics below
   }
 
   console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', { messageId })
