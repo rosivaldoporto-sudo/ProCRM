@@ -33,7 +33,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -373,25 +372,6 @@ export function WhatsAppQrConnect() {
               </CardContent>
             </Card>
           )}
-
-          {/* Webhook URL (auto-configurado na conexão; mostrado p/ verificação manual) */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-foreground text-base">Webhook</CardTitle>
-              <CardDescription className="text-muted-foreground">
-                Ao conectar, o sistema configura o webhook automaticamente no servidor Uazapi. Se o seu servidor não suportar a configuração automática, use esta URL manualmente (evento{' '}
-                <code className="bg-muted px-1 rounded">messages</code>, excluindo{' '}
-                <code className="bg-muted px-1 rounded">wasSentByApi</code>).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Input
-                readOnly
-                value={accountId ? `${window.location.origin}/api/uazapi/webhook/${accountId}` : ''}
-                className="bg-muted border-border text-muted-foreground font-mono text-sm"
-              />
-            </CardContent>
-          </Card>
 
           {/* Actions */}
           <div className="flex flex-wrap gap-3">

@@ -239,10 +239,19 @@ export async function instanceInit(args: {
  * Configure the instance's webhook server-side.
  * POST /webhook/set
  * Auth: token header
- * Body: { url, events: [...], excludeMessages: [...] }
+ * Body: { url, events, enabled, addUrlEvents, excludeMessages }
+ *
+ * IMPORTANT: per the UAZAPI OpenAPI spec the Webhook model's `enabled`
+ * field DEFAULTS TO FALSE — a request without it is accepted but the
+ * webhook stays off and no events are ever delivered (the "connected
+ * but webhook not working" symptom). We always send `enabled: true`.
  *
  * `excludeMessages: ["wasSentByApi"]` keeps messages the CRM itself
  * sent (via the API) from looping back through the webhook.
+ *
+ * Compatibility: some servers reject the full payload (excludeMessages
+ * / addUrlEvents). We retry with progressively simpler bodies, and
+ * only throw if every attempt fails.
  */
 export async function setInstanceWebhook(args: {
   serverUrl: string
@@ -253,19 +262,35 @@ export async function setInstanceWebhook(args: {
 }): Promise<void> {
   const { serverUrl, apiToken, url, events, excludeMessages } = args
   const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook/set`
-  const body: Record<string, unknown> = {
-    url,
-    events: events ?? ['messages', 'messages_update', 'connection'],
+  const eventList = events ?? ['messages', 'messages_update', 'connection']
+
+  const attempts: Record<string, unknown>[] = [
+    {
+      url,
+      events: eventList,
+      enabled: true,
+      addUrlEvents: true,
+      ...(excludeMessages?.length ? { excludeMessages } : {}),
+    },
+    { url, events: eventList, enabled: true },
+    { url, events: eventList },
+  ]
+
+  let lastError: Error | null = null
+  for (const body of attempts) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: buildHeaders(apiToken),
+        body: JSON.stringify(body),
+      })
+      if (response.ok) return
+      await throwUazapiError(response, `Uazapi webhook set failed: ${response.status}`)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
   }
-  if (excludeMessages?.length) body.excludeMessages = excludeMessages
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    await throwUazapiError(response, `Uazapi webhook set failed: ${response.status}`)
-  }
+  throw lastError ?? new Error('Uazapi webhook set failed')
 }
 
 // ============================================================
