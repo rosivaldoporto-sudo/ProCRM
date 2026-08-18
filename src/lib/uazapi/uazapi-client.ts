@@ -750,22 +750,47 @@ export async function downloadMessageUrl(
           body: JSON.stringify({ id, return_link: true }),
           signal: AbortSignal.timeout(15000),
         })
-        if (response.ok) {
-          const data = (await response.json()) as Record<string, unknown>
-          const nested = (data.data && typeof data.data === 'object'
-            ? data.data
-            : data) as Record<string, unknown>
-          return {
-            url: String(nested.fileURL ?? nested.url ?? '') || undefined,
-            mimetype: String(nested.mimetype ?? '') || undefined,
-          }
-        }
-        // Capture the server's actual error body — silent "media broken"
-        // reports are undiagnosable without it.
         const bodyText = await response.text().catch(() => '')
-        lastError = new Error(
-          `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
-        )
+        if (response.ok) {
+          let data: Record<string, unknown> | null = null
+          try {
+            data = JSON.parse(bodyText) as Record<string, unknown>
+          } catch {
+            data = null
+          }
+          const nested =
+            data?.data && typeof data.data === 'object'
+              ? (data.data as Record<string, unknown>)
+              : data
+          // uazapiGO answers `{ status: false, message }` with HTTP 200
+          // when it can't find the message — treat as a failed attempt
+          // so the next id variant / retry gets a chance.
+          if (
+            nested &&
+            nested.status !== false &&
+            (nested.fileURL || nested.url)
+          ) {
+            return {
+              url: String(nested.fileURL ?? nested.url ?? '') || undefined,
+              mimetype: String(nested.mimetype ?? '') || undefined,
+            }
+          }
+          if (nested?.status === false) {
+            lastError = new Error(
+              `server: status=false${nested.message ? ` — ${String(nested.message).slice(0, 200)}` : ''}`,
+            )
+            continue
+          }
+          lastError = new Error(
+            `HTTP 200 but no url${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
+          )
+        } else {
+          // Capture the server's actual error body — silent "media
+          // broken" reports are undiagnosable without it.
+          lastError = new Error(
+            `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
+          )
+        }
       } catch (err) {
         lastError = err
       }
@@ -819,40 +844,47 @@ export async function downloadMessageFile(args: {
   // (return_link hosting can be disabled on some uazapiGO builds).
   // Response key per the docs: `base64Data`. Capped at 12 MB decoded —
   // anything bigger would blow up the serverless function's memory
-  // budget anyway.
-  try {
-    const response = await fetch(`${base}/message/download`, {
-      method: 'POST',
-      headers: buildHeaders(apiToken),
-      body: JSON.stringify({ id: messageId, return_base64: true }),
-      signal: AbortSignal.timeout(30000),
-    })
-    if (response.ok) {
-      const data = (await response.json()) as Record<string, unknown>
-      const nested = (data.data && typeof data.data === 'object'
-        ? data.data
-        : data) as Record<string, unknown>
-      const b64 =
-        typeof nested.base64Data === 'string'
-          ? nested.base64Data
-          : typeof nested.base64 === 'string'
-            ? nested.base64
-            : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
-              ? nested.file
-              : ''
-      if (b64 && b64.length < 16_000_000) {
-        const binary = Buffer.from(b64, 'base64')
-        return {
-          buffer: binary.buffer.slice(
-            binary.byteOffset,
-            binary.byteOffset + binary.byteLength,
-          ) as ArrayBuffer,
-          contentType: String(nested.mimetype ?? file.mimetype ?? '') || 'application/octet-stream',
+  // budget anyway. Like downloadMessageUrl, both id formats are tried.
+  const b64IdVariants = [
+    messageId,
+    messageId.includes(':') ? messageId.split(':').pop() || '' : '',
+  ].filter(Boolean)
+  for (const b64Id of b64IdVariants) {
+    try {
+      const response = await fetch(`${base}/message/download`, {
+        method: 'POST',
+        headers: buildHeaders(apiToken),
+        body: JSON.stringify({ id: b64Id, return_base64: true }),
+        signal: AbortSignal.timeout(30000),
+      })
+      if (response.ok) {
+        const data = (await response.json()) as Record<string, unknown>
+        const nested = (data.data && typeof data.data === 'object'
+          ? data.data
+          : data) as Record<string, unknown>
+        if (nested.status === false) continue
+        const b64 =
+          typeof nested.base64Data === 'string'
+            ? nested.base64Data
+            : typeof nested.base64 === 'string'
+              ? nested.base64
+              : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
+                ? nested.file
+                : ''
+        if (b64 && b64.length < 16_000_000) {
+          const binary = Buffer.from(b64, 'base64')
+          return {
+            buffer: binary.buffer.slice(
+              binary.byteOffset,
+              binary.byteOffset + binary.byteLength,
+            ) as ArrayBuffer,
+            contentType: String(nested.mimetype ?? file.mimetype ?? '') || 'application/octet-stream',
+          }
         }
       }
+    } catch {
+      // ignore — try the next id variant
     }
-  } catch {
-    // ignore — diagnostics below
   }
 
   console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', { messageId })

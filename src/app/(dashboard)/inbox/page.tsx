@@ -205,12 +205,12 @@ function InboxPageInner() {
           .select("status")
           .eq("account_id", accountId)
           .maybeSingle(),
-        // Live-check for Uazapi: /api/uazapi/status asks the instance
-        // server itself and repairs the state cache (the DB row is
-        // only a cache and can be stale — e.g. it predates the QR
-        // connect fix, which is why the banner kept showing even after
-        // a successful scan).
-        fetch("/api/uazapi/status", {
+        // Live-check for Uazapi: /api/uazapi/instance/status asks the
+        // instance server itself and repairs the state cache (the DB row
+        // is only a cache and can be stale — e.g. it predates the QR
+        // connect fix, which is why the banner kept showing even after a
+        // successful scan).
+        fetch("/api/uazapi/instance/status", {
           headers: { Accept: "application/json" },
           cache: "no-store",
         })
