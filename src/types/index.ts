@@ -183,6 +183,9 @@ export interface Conversation {
   assigned_agent_id?: string;
   last_message_text?: string;
   last_message_at?: string;
+  /** sender_type ('customer'|'agent'|'bot') of the most recent message
+   *  (migration 048 — computed by the inbox_conversations view). */
+  last_message_sender_type?: string | null;
   unread_count: number;
   /** UTM / source-tracking fields (migration 037). Copied from the
    *  contact at conversation-creation time so each conversation

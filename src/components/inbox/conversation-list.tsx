@@ -47,7 +47,7 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 
 
-type InboxFilter = ConversationStatus | "all" | "unread";
+type InboxFilter = ConversationStatus | "all" | "unread" | "awaitingReply";
 type SourceFilter = "all" | "whatsapp" | "uazapi";
 
 export function ConversationList({
@@ -59,10 +59,11 @@ export function ConversationList({
   onConversationCreated,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
-  
+
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
     { label: t("filterUnread"), value: "unread" },
+    { label: t("filterAwaitingReply"), value: "awaitingReply" },
     { label: t("filterOpen"), value: "open" },
     { label: t("filterPending"), value: "pending" },
     { label: t("filterClosed"), value: "closed" },
@@ -105,7 +106,7 @@ export function ConversationList({
 
       if (sourceFilter === "all") {
         const { data: all, error } = await supabase
-          .from("conversations")
+          .from("inbox_conversations")
           .select(CONVERSATION_SELECT)
           .order("last_message_at", { ascending: false });
 
@@ -134,11 +135,11 @@ export function ConversationList({
         //    match alone would miss them.
         const [bySource, byMessage] = await Promise.all([
           supabase
-            .from("conversations")
+            .from("inbox_conversations")
             .select(CONVERSATION_SELECT)
             .eq("source", sourceFilter),
           supabase
-            .from("conversations")
+            .from("inbox_conversations")
             .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
             .eq("messages.source", sourceFilter),
         ]);
@@ -221,6 +222,10 @@ export function ConversationList({
 
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
+    } else if (filter === "awaitingReply") {
+      result = result.filter(
+        (c) => c.last_message_sender_type === "customer",
+      );
     } else if (filter !== "all") {
       result = result.filter((c) => c.status === filter);
     }

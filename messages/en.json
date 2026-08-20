@@ -145,7 +145,8 @@
       "channelAll": "All",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "filterAwaitingReply": "Customer replied last"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",

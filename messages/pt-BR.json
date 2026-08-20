@@ -145,7 +145,8 @@
       "channelAll": "Todos",
       "noConversations": "Nenhuma conversa encontrada",
       "noMessagesYet": "Nenhuma mensagem ainda",
-      "unknown": "Desconhecido"
+      "unknown": "Desconhecido",
+      "filterAwaitingReply": "Cliente enviou por último"
     },
     "messageThread": {
       "backToConversations": "Voltar para conversas",

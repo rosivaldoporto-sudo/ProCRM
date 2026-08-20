@@ -138,7 +138,7 @@ function InboxPageInner() {
     try {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from("conversations")
+        .from("inbox_conversations")
         .select(CONVERSATION_SELECT)
         .eq("id", convId)
         .maybeSingle();
@@ -260,6 +260,7 @@ function InboxPageInner() {
                     ...c,
                     last_message_text: newMsg.content_text ?? "",
                     last_message_at: newMsg.created_at,
+                    last_message_sender_type: newMsg.sender_type,
                     unread_count:
                       activeConversation?.id === newMsg.conversation_id
                         ? 0
