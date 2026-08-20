@@ -17,10 +17,13 @@ import {
   StickyNote,
   Megaphone,
   Plus,
+  X,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { addContactTag, deleteContactTag } from "@/lib/contacts/tag-api";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -49,6 +52,9 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [savingTagId, setSavingTagId] = useState<string | null>(null);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
   const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
@@ -64,7 +70,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     const supabase = createClient();
 
     // Fetch deals, notes, tags, pipelines and stages in parallel
-    const [dealsRes, notesRes, tagsRes, pipelinesRes, stagesRes] =
+    const [dealsRes, notesRes, tagsRes, allTagsRes, pipelinesRes, stagesRes] =
       await Promise.all([
         supabase
           .from("deals")
@@ -80,6 +86,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           .from("contact_tags")
           .select("id, tag_id, tags(*)")
           .eq("contact_id", contact.id),
+        supabase.from("tags").select("*").order("name"),
         supabase
           .from("pipelines")
           .select("id, name")
@@ -102,6 +109,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         }));
       setTags(mapped);
     }
+    if (allTagsRes.data) setAllTags(allTagsRes.data);
     if (pipelinesRes.data) setPipelines(pipelinesRes.data);
     if (stagesRes.data) {
       const byPipeline: Record<string, PipelineStage[]> = {};
@@ -127,6 +135,45 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     // React Compiler's inference agrees with the manual dep list —
     // fixes the `preserve-manual-memoization` lint error.
   }, [contact]);
+
+  // Add/remove a tag on the contact via the API route (same path the
+  // Contacts detail view uses — also fires tag-triggered automations).
+  const handleToggleTag = useCallback(
+    async (tagId: string) => {
+      if (!contact || savingTagId) return;
+      const attached = tags.some((t) => t.id === tagId);
+      setSavingTagId(tagId);
+      try {
+        if (attached) {
+          await deleteContactTag(contact.id, tagId);
+        } else {
+          await addContactTag(contact.id, tagId);
+        }
+        // Re-fetch the contact's tag rows so contact_tag_id stays accurate.
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("contact_tags")
+          .select("id, tag_id, tags(*)")
+          .eq("contact_id", contact.id);
+        if (data) {
+          const mapped = data
+            .filter((ct: Record<string, unknown>) => ct.tags)
+            .map((ct: Record<string, unknown>) => ({
+              ...(ct.tags as Tag),
+              contact_tag_id: ct.id as string,
+            }));
+          setTags(mapped);
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : tSidebar("toastTagUpdateFailed"),
+        );
+      } finally {
+        setSavingTagId(null);
+      }
+    },
+    [contact, tags, savingTagId, tSidebar],
+  );
 
   const handleAddNote = useCallback(async () => {
     if (!contact || !newNote.trim()) return;
@@ -324,23 +371,78 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               <TagIcon className="h-3 w-3" />
               {tSidebar("tags")}
             </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {tags.length === 0 ? (
-                <p className="px-1 text-xs text-muted-foreground">{tSidebar("noTags")}</p>
-              ) : (
-                tags.map((tag) => (
-                  <span
-                    key={tag.contact_tag_id}
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                    style={{
-                      backgroundColor: `${tag.color}20`,
-                      color: tag.color,
-                    }}
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {tags.map((tag) => (
+                <span
+                  key={tag.contact_tag_id}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                  style={{
+                    backgroundColor: `${tag.color}20`,
+                    color: tag.color,
+                  }}
+                >
+                  {tag.name}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleTag(tag.id)}
+                    disabled={savingTagId === tag.id}
+                    aria-label={tSidebar("removeTag")}
+                    title={tSidebar("removeTag")}
+                    className="opacity-60 transition-opacity hover:opacity-100 disabled:opacity-40"
                   >
-                    {tag.name}
-                  </span>
-                ))
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              ))}
+              {tags.length === 0 && (
+                <p className="px-1 text-xs text-muted-foreground">
+                  {tSidebar("noTags")}
+                </p>
               )}
+              <Popover open={tagMenuOpen} onOpenChange={setTagMenuOpen}>
+                <PopoverTrigger
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={tSidebar("addTag")}
+                  title={tSidebar("addTag")}
+                >
+                  <Plus className="h-3 w-3" />
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-1.5">
+                  {allTags.length === 0 ? (
+                    <p className="px-2 py-1 text-xs text-muted-foreground">
+                      {tSidebar("noTagsFound")}
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      {allTags
+                        .filter((t) => !tags.some((ct) => ct.id === t.id))
+                        .map((tag) => (
+                          <button
+                            key={tag.id}
+                            type="button"
+                            onClick={() => {
+                              setTagMenuOpen(false);
+                              handleToggleTag(tag.id);
+                            }}
+                            disabled={savingTagId === tag.id}
+                            className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                          >
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: tag.color }}
+                            />
+                            {tag.name}
+                          </button>
+                        ))}
+                      {allTags.every((t) => tags.some((ct) => ct.id === t.id)) && (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">
+                          {tSidebar("allTagsApplied")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 

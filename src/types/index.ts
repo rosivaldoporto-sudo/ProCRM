@@ -473,6 +473,8 @@ export interface Broadcast {
   audience_filter?: Record<string, unknown>;
   /** Tags applied to contacts after their message is sent (migration 046). */
   post_send_tag_ids?: string[];
+  /** Media URL used for a media-header template at send time (migration 047). */
+  header_media_url?: string;
   scheduled_at?: string;
   status: BroadcastStatus;
   total_recipients: number;

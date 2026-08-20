@@ -304,7 +304,12 @@
       "changeStage": "Alterar etapa",
       "dealAdded": "Negócio adicionado ao pipeline",
       "toastFailedMoveDeal": "Falha ao alterar a etapa",
-      "toastFailedAddDeal": "Falha ao adicionar ao pipeline"
+      "toastFailedAddDeal": "Falha ao adicionar ao pipeline",
+      "addTag": "Adicionar tag",
+      "removeTag": "Remover tag",
+      "noTagsFound": "Nenhuma tag disponível. Crie tags na página de Contatos.",
+      "toastTagUpdateFailed": "Falha ao atualizar tags",
+      "allTagsApplied": "Todas as tags já foram aplicadas"
     },
     "aiBanner": {
       "pausedTitle": "Assistente de IA está pausado aqui",
@@ -402,9 +407,9 @@
         "custom": "Campos Personalizados",
         "deals": "Negócios",
         "tags": "Tags",
-      "noTags": "Sem tags",
-      "noDeals": "Sem negócios",
-      "addNotePlaceholder": "Adicionar uma anotação..."
+        "noTags": "Sem tags",
+        "noDeals": "Sem negócios",
+        "addNotePlaceholder": "Adicionar uma anotação..."
       },
       "actions": {
         "edit": "Editar",
@@ -699,10 +704,17 @@
         "delivered": "Entregues",
         "read": "Lidas",
         "replied": "Responderam",
-        "failed": "Falhas"
+        "failed": "Falhas",
+        "pending": "Pendentes"
       },
       "toastFailedDelete": "Falha ao excluir: {error}",
-      "toastDeleted": "Transmissão excluída"
+      "toastDeleted": "Transmissão excluída",
+      "resume": "Retomar envio ({count} pendentes)",
+      "resuming": "Enviando… {pct}%",
+      "resumeHover": "Envia os destinatários que ainda estão pendentes (ex.: após o limite diário da Meta liberar)",
+      "toastResumeDone": "Envio retomado: {sent} enviadas, {failed} falhas",
+      "toastResumeNothing": "Não há destinatários pendentes",
+      "toastResumeFailed": "Falha ao retomar o envio"
     },
     "new": {
       "title": "Nova Transmissão",
@@ -1412,13 +1424,11 @@
       "deleteLocallyAria": "Excluir modelo localmente",
       "deleteMetaLocallyTitle": "Excluir do Meta e localmente",
       "deleteLocallyTitle": "Excluir localmente",
-      
       "dialogEditTitle": "Editar Modelo de Mensagem",
       "dialogNewTitle": "Novo Modelo de Mensagem",
       "dialogEditDesc": "Salve suas alterações para reenviar ao Meta. O status voltará para PENDENTE durante a análise.",
       "dialogNewDesc": "Crie um modelo e envie para aprovação do Meta. Após aprovado, você pode usá-lo em transmissões e na caixa de entrada.",
       "authWarning": "Modelos de AUTENTICAÇÃO têm um formato fixo de corpo + botão OTP que precisa de um construtor diferente. Crie-os no Gerenciador WhatsApp do Meta por enquanto e use <bold>Sincronizar do Meta</bold> para trazê-los.",
-      
       "templateName": "Nome do Modelo",
       "namePlaceholder": "ex: confirmacao_pedido",
       "nameFixed": "O nome é fixo após a criação do modelo no Meta — crie um novo modelo para alterá-lo.",
@@ -1427,7 +1437,6 @@
       "language": "Idioma",
       "langFixed": "O idioma é fixo após a criação do modelo no Meta.",
       "langHint": "Deve corresponder ao código exato no Meta — <code>pt_BR</code> e <code>pt</code> são distintos.",
-      
       "header": "Cabeçalho",
       "headerNone": "Nenhum",
       "headerText": "Texto",
@@ -1437,7 +1446,6 @@
       "headerTextPlaceholder": "Texto do cabeçalho (máx. 60 caracteres, opcional {{1}})",
       "headerSampleAria": "Valor de exemplo para variável do cabeçalho",
       "headerSamplePlaceholder": "Valor de exemplo para {{1}} (obrigatório para análise do Meta)",
-      
       "uploadImage": "Enviar imagem",
       "uploadHint": "JPEG ou PNG, ≤5 MB",
       "mediaUrlPlaceholder": "https://… (ou cole um link {format} público)",
@@ -1445,17 +1453,14 @@
       "mediaHint": "Deve ser um link HTTPS publicamente acessível. O Meta o busca uma vez durante a análise, então precisa ficar ativo por ~24h.",
       "videoHint": "Recomendado: MP4 / 3GPP, ≤16 MB, ≤60 segundos.",
       "documentHint": "Recomendado: PDF, ≤100 MB.",
-      
       "bodyText": "Texto do Corpo",
       "bodyPlaceholder": "Olá {{1}}, seu pedido {{2}} foi confirmado.",
       "bodyHint": "Use {{1}}, {{2}} para variáveis (devem ser contíguas começando em {{1}}).",
       "sampleValues": "Valores de exemplo (o Meta usa estes para analisar seu modelo)",
       "sampleAria": "Valor de exemplo para variável do corpo {var}",
       "samplePlaceholder": "Exemplo para {var}",
-      
       "footer": "Rodapé (opcional)",
       "footerPlaceholder": "Texto opcional do rodapé (máx. 60 caracteres)",
-      
       "buttons": "Botões (opcional)",
       "addButton": "Adicionar Botão",
       "buttonsLimit": "Até {max} botões. Botões QUICK_REPLY devem vir antes de botões URL / telefone / copiar código.",
@@ -1468,19 +1473,16 @@
       "urlSamplePlaceholder": "Valor de exemplo para {{1}} (obrigatório quando a URL tem variável)",
       "phonePlaceholder": "+5511999999999",
       "codePlaceholder": "Código de exemplo (ex: PROMO20)",
-      
       "cancel": "Cancelar",
       "saving": "Salvando…",
       "submitting": "Enviando…",
       "saveResubmit": "Salvar e Reenviar",
       "submitApproval": "Enviar para Aprovação",
-      
       "deleteDialogTitle": "Excluir modelo?",
       "deleteMetaDesc": "\"{name}\" será excluído do Meta e do ProCRM. Transmissões ativas usando este modelo começarão a falhar no próximo envio. Isto não pode ser desfeito.",
       "deleteLocalDesc": "\"{name}\" será excluído do ProCRM. Nunca foi enviado ao Meta, portanto nenhuma limpeza remota é necessária.",
       "deleting": "Excluindo…",
       "delete": "Excluir",
-      
       "toastLoadFailed": "Falha ao carregar modelos",
       "toastSubmitFailed": "Falha ao enviar",
       "toastSubmitEditSuccess": "Edição enviada — o Meta geralmente analisa em até 24 horas.",
@@ -1657,7 +1659,6 @@
       "profileSaved": "Perfil salvo",
       "emailChangeFailed": "Falha na alteração de e-mail: {message}",
       "profileSavedEmailCheck": "Perfil salvo — verifique seu e-mail para confirmar a alteração de endereço",
-      
       "passwordTitle": "Senha",
       "passwordDesc": "Use pelo menos {min} caracteres. Você permanecerá logado neste dispositivo após alterá-la.",
       "currentPassword": "Senha atual",
@@ -1671,7 +1672,6 @@
       "currentPasswordIncorrect": "A senha atual está incorreta",
       "passwordUpdateFailed": "Falha na atualização da senha: {message}",
       "passwordUpdated": "Senha atualizada",
-      
       "sessionsTitle": "Sessões ativas",
       "sessionsDesc": "Saia de todos os dispositivos onde você está logado — incluindo este. Útil se você perdeu um laptop ou compartilhou sua senha.",
       "signOutAll": "Sair de todos os dispositivos",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
@@ -28,6 +28,8 @@ import {
   Eye,
   AlertCircle,
   MessageCircle,
+  Clock,
+  Play,
   Filter,
   Download,
   ChevronDown,
@@ -38,6 +40,7 @@ import {
   getBroadcastStatus,
   getRecipientStatus,
 } from '@/lib/broadcast-status';
+import { sendPendingRecipients } from '@/lib/broadcast-send';
 import { useTranslations } from 'next-intl';
 
 interface StatCardProps {
@@ -158,38 +161,75 @@ export default function BroadcastDetailPage() {
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [resumeProgress, setResumeProgress] = useState(0);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const supabase = createClient();
+
+      const { data: bc, error: bcError } = await supabase
+        .from('broadcasts')
+        .select('*')
+        .eq('id', broadcastId)
+        .single();
+
+      if (bcError) throw bcError;
+      setBroadcast(bc);
+
+      const { data: recs, error: recsError } = await supabase
+        .from('broadcast_recipients')
+        .select('*, contact:contacts(*)')
+        .eq('broadcast_id', broadcastId)
+        .order('created_at', { ascending: false });
+
+      if (recsError) throw recsError;
+      setRecipients(recs ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notFound'));
+    } finally {
+      setLoading(false);
+    }
+  }, [broadcastId, t]);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const supabase = createClient();
-
-        const { data: bc, error: bcError } = await supabase
-          .from('broadcasts')
-          .select('*')
-          .eq('id', broadcastId)
-          .single();
-
-        if (bcError) throw bcError;
-        setBroadcast(bc);
-
-        const { data: recs, error: recsError } = await supabase
-          .from('broadcast_recipients')
-          .select('*, contact:contacts(*)')
-          .eq('broadcast_id', broadcastId)
-          .order('created_at', { ascending: false });
-
-        if (recsError) throw recsError;
-        setRecipients(recs ?? []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t('notFound'));
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchData();
-  }, [broadcastId]);
+  }, [fetchData]);
+
+  // Finish the recipients the original run never reached (tab closed /
+  // background throttling / upstream limit). Uses the same shared
+  // dispatch loop as the wizard — safe to re-run for whatever is left.
+  const handleResume = useCallback(async () => {
+    if (resuming) return;
+    setResuming(true);
+    setResumeProgress(0);
+    try {
+      const result = await sendPendingRecipients(
+        createClient(),
+        broadcastId,
+        setResumeProgress,
+      );
+      if (result.sent === 0 && result.failed === 0) {
+        toast.info(t('toastResumeNothing'));
+      } else {
+        toast.success(
+          t('toastResumeDone', {
+            sent: result.sent,
+            failed: result.failed,
+          }),
+        );
+      }
+      await fetchData();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t('toastResumeFailed'),
+      );
+      await fetchData();
+    } finally {
+      setResuming(false);
+      setResumeProgress(0);
+    }
+  }, [resuming, broadcastId, fetchData, t]);
 
   const filteredRecipients = useMemo(
     () =>
@@ -265,6 +305,13 @@ export default function BroadcastDetailPage() {
 
   const status = getBroadcastStatus(broadcast.status);
 
+  // delivered/read/replied are stages past 'sent' — the pending rows
+  // are whatever was never dispatched nor failed.
+  const pendingCount = Math.max(
+    0,
+    broadcast.total_recipients - broadcast.sent_count - broadcast.failed_count,
+  );
+
   const funnelSteps: FunnelStep[] = [
     { label: t('stats.sent'), value: broadcast.sent_count, color: 'bg-primary' },
     { label: t('stats.delivered'), value: broadcast.delivered_count, color: 'bg-teal-500' },
@@ -308,6 +355,24 @@ export default function BroadcastDetailPage() {
             "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
             because orphaning in-flight Meta messages would leave the
             funnel inconsistent. */}
+        {pendingCount > 0 && (
+          <Button
+            size="sm"
+            onClick={handleResume}
+            disabled={resuming}
+            className="h-8 gap-1.5"
+            title={t('resumeHover')}
+          >
+            {resuming ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            {resuming
+              ? t('resuming', { pct: resumeProgress })
+              : t('resume', { count: pendingCount })}
+          </Button>
+        )}
         {confirmDelete ? (
           <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
             <span className="text-red-300">{t('deletePrompt')}</span>
@@ -333,10 +398,10 @@ export default function BroadcastDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={broadcast.status === 'sending'}
+            disabled={broadcast.status === 'sending' || resuming}
             onClick={() => setConfirmDelete(true)}
             title={
-              broadcast.status === 'sending'
+              broadcast.status === 'sending' || resuming
                 ? t('cannotDeleteSending')
                 : t('deleteHover')
             }
@@ -348,8 +413,8 @@ export default function BroadcastDetailPage() {
         )}
       </div>
 
-      {/* Stats — 6 cards: Total / Sent / Delivered / Read / Replied / Failed */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {/* Stats — 7 cards: Total / Sent / Delivered / Read / Replied / Failed / Pending */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <StatCard
           label={t('stats.totalRecipients')}
           value={broadcast.total_recipients}
@@ -391,6 +456,13 @@ export default function BroadcastDetailPage() {
           total={broadcast.total_recipients}
           icon={<AlertCircle className="h-4 w-4" />}
           color="bg-red-500/10 text-red-400"
+        />
+        <StatCard
+          label={t('stats.pending')}
+          value={pendingCount}
+          total={broadcast.total_recipients}
+          icon={<Clock className="h-4 w-4" />}
+          color="bg-amber-500/10 text-amber-400"
         />
       </div>
 
