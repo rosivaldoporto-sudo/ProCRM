@@ -246,19 +246,24 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     }
     const phones = [...uniqueByPhone.keys()];
 
-    // Single round-trip lookup of existing contacts by phone.
-    const { data: existing, error: lookupErr } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('phone', phones);
-    if (lookupErr) {
-      throw new Error(`Failed to look up CSV contacts: ${lookupErr.message}`);
-    }
-
+    // Look up existing contacts by phone in chunks — PostgREST rejects
+    // URLs beyond its length cap, so a single `in.(...)` with thousands
+    // of phones fails with 400 Bad Request.
+    const LOOKUP_CHUNK = 200;
     const byPhone = new Map<string, Contact>();
-    for (const c of (existing ?? []) as Contact[]) {
-      if (c.phone) byPhone.set(c.phone, c);
+    for (let i = 0; i < phones.length; i += LOOKUP_CHUNK) {
+      const chunk = phones.slice(i, i + LOOKUP_CHUNK);
+      const { data: existing, error: lookupErr } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('phone', chunk);
+      if (lookupErr) {
+        throw new Error(`Failed to look up CSV contacts: ${lookupErr.message}`);
+      }
+      for (const c of (existing ?? []) as Contact[]) {
+        if (c.phone) byPhone.set(c.phone, c);
+      }
     }
 
     // Insert only missing contacts, in one batch per 200 rows (PostgREST
