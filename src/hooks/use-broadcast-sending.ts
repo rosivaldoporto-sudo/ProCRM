@@ -46,6 +46,12 @@ interface BroadcastPayload {
    * falls back to the template's stored URL only when this is empty.
    */
   headerMediaUrl?: string;
+  /**
+   * Tags applied to a contact once its message has been dispatched
+   * (status 'sent'). Lets campaigns mark their audience for later
+   * filtering, e.g. "campaign_july".
+   */
+  postSendTagIds?: string[];
 }
 
 interface UseBroadcastSendingReturn {
@@ -368,6 +374,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             customField: payload.audience.customField,
             excludeTagIds: payload.audience.excludeTagIds,
           },
+          post_send_tag_ids: payload.postSendTagIds ?? [],
           status: 'sending',
           total_recipients: contacts.length,
           sent_count: 0,
@@ -440,6 +447,10 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       let failedCount = 0;
       const totalRecipients = recipients.length;
+      // Contacts whose message was actually dispatched — the post-send
+      // tag marking applies only to these (a failed send shouldn't mark
+      // the contact as reached).
+      const sentContactIds = new Set<string>();
 
       // Media-header templates (image/video/document) require a media
       // URL on every send. Collected in the personalize step and applied
@@ -512,6 +523,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             }
 
             if (result.status === 'sent') {
+              if (recipient.contact?.id) sentContactIds.add(recipient.contact.id);
               await supabase
                 .from('broadcast_recipients')
                 .update({
@@ -551,6 +563,35 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
         if (i + SEND_BATCH_SIZE < recipients.length) {
           await sleep(SEND_BATCH_DELAY_MS);
+        }
+      }
+
+      // ── Step 4.5: Apply post-send tags ──────────────────────────
+      // Mark every contact whose message was dispatched with the
+      // configured tags (upsert ignores rows already carrying the tag).
+      // Best-effort: a tagging failure is logged, never fatal — the
+      // broadcast itself already completed.
+      if (payload.postSendTagIds && payload.postSendTagIds.length > 0) {
+        const tagRows = [...sentContactIds].flatMap((contactId) =>
+          payload.postSendTagIds!.map((tagId) => ({
+            contact_id: contactId,
+            tag_id: tagId,
+          })),
+        );
+        for (let i = 0; i < tagRows.length; i += INSERT_BATCH_SIZE) {
+          const batch = tagRows.slice(i, i + INSERT_BATCH_SIZE);
+          const { error: tagError } = await supabase
+            .from('contact_tags')
+            .upsert(batch, {
+              onConflict: 'contact_id,tag_id',
+              ignoreDuplicates: true,
+            });
+          if (tagError) {
+            console.error(
+              `Failed to apply post-send tags (batch ${i / INSERT_BATCH_SIZE + 1}):`,
+              tagError.message,
+            );
+          }
         }
       }
 

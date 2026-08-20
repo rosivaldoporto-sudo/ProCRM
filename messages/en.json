@@ -790,6 +790,16 @@
         "headerImageDesc": "This template requires a header image.",
         "imageUrl": "Image URL",
         "imageUrlPlaceholder": "https://example.com/image.jpg",
+        "selectFile": "Choose file",
+        "uploadingMedia": "Uploading media…",
+        "replaceMedia": "Replace",
+        "removeMedia": "Remove",
+        "mediaFormatsHintImage": "Accepted formats: JPG or PNG (Meta doesn't accept WebP for template headers).",
+        "mediaFormatsHintVideo": "Accepted format: MP4 (H.264 encoded) or 3GPP.",
+        "mediaFormatsHintDocument": "Accepted formats: PDF, DOC, XLS, PPT or TXT.",
+        "mediaFormatErrorImage": "Unsupported format. Use JPG or PNG — Meta doesn't accept WebP for template headers.",
+        "mediaFormatErrorVideo": "Unsupported format. Use MP4 (H.264) or 3GPP.",
+        "mediaFormatErrorDocument": "Unsupported format. Use PDF, DOC, XLS, PPT or TXT.",
         "variables": "Variables",
         "varDesc": "Set values for {{name}}",
         "type": "Type",
@@ -830,6 +840,11 @@
         "sending": "Sending...",
         "preparing": "Preparing...",
         "progressDesc": "Processing {current} of {total} recipients...",
+        "sendingModalTitle": "Sending broadcast with media",
+        "sendingModalDesc": "The broadcast is being sent. Don't close this window until it finishes.",
+        "tagAfterSendTitle": "Tag contacts after sending",
+        "tagAfterSendDesc": "(optional) Applies the tag to contacts whose message was sent.",
+        "noTagsFound": "No tags found. Create tags on the Contacts page.",
         "toastFailedPreview": "Failed to load preview data"
       }
     }

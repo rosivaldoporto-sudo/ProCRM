@@ -44,6 +44,7 @@ export default function NewBroadcastPage() {
     Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
   >({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
+  const [postSendTagIds, setPostSendTagIds] = useState<string[]>([]);
   const [name, setName] = useState('');
 
   async function handleSend() {
@@ -62,6 +63,7 @@ export default function NewBroadcastPage() {
         },
         variables,
         headerMediaUrl,
+        postSendTagIds,
       });
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
@@ -112,6 +114,7 @@ export default function NewBroadcastPage() {
         type: audience.type,
         tagIds: audience.tagIds,
       },
+      post_send_tag_ids: postSendTagIds,
       status: 'draft',
       total_recipients: 0,
       sent_count: 0,
@@ -221,6 +224,8 @@ export default function NewBroadcastPage() {
               onNameChange={setName}
               template={template}
               audience={audience}
+              postSendTagIds={postSendTagIds}
+              onPostSendTagIdsChange={setPostSendTagIds}
               onSend={handleSend}
               onSaveDraft={handleSaveDraft}
               onBack={() => setCurrentStep(2)}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { MessageTemplate } from '@/types';
+import { MessageTemplate, Tag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Loader2, Users, Save } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, Save, Tags } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 interface AudienceConfig {
@@ -28,6 +28,9 @@ interface Step4Props {
   onNameChange: (name: string) => void;
   template: MessageTemplate;
   audience: AudienceConfig;
+  /** Tags to apply to contacts after their message is sent. */
+  postSendTagIds: string[];
+  onPostSendTagIdsChange: (ids: string[]) => void;
   onSend: () => void;
   onSaveDraft?: () => void;
   onBack: () => void;
@@ -35,11 +38,15 @@ interface Step4Props {
   progress: number;
 }
 
+const MEDIA_HEADER_TYPES = ['image', 'video', 'document'];
+
 export function Step4ScheduleSend({
   name,
   onNameChange,
   template,
   audience,
+  postSendTagIds,
+  onPostSendTagIdsChange,
   onSend,
   onSaveDraft,
   onBack,
@@ -50,6 +57,10 @@ export function Step4ScheduleSend({
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [loadingTags, setLoadingTags] = useState(true);
+
+  const hasMediaHeader = MEDIA_HEADER_TYPES.includes(template.header_type ?? '');
 
   useEffect(() => {
     async function calculateReach() {
@@ -82,6 +93,30 @@ export function Step4ScheduleSend({
 
     calculateReach();
   }, [audience]);
+
+  // Tags to mark sent contacts after the dispatch — same account-scoped
+  // list the audience step uses.
+  useEffect(() => {
+    async function fetchTags() {
+      setLoadingTags(true);
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.from('tags').select('*').order('name');
+        setTags(data ?? []);
+      } finally {
+        setLoadingTags(false);
+      }
+    }
+    fetchTags();
+  }, []);
+
+  function togglePostSendTag(tagId: string) {
+    const current = postSendTagIds ?? [];
+    const updated = current.includes(tagId)
+      ? current.filter((id) => id !== tagId)
+      : [...current, tagId];
+    onPostSendTagIdsChange(updated);
+  }
 
   const audienceLabel =
     audience.type === 'all'
@@ -146,6 +181,49 @@ export function Step4ScheduleSend({
         </div>
       </div>
 
+      {/* Post-send tag marking — contacts whose message was dispatched
+          receive these tags, e.g. "campaign_july" for later filtering. */}
+      <div className="rounded-xl border border-border bg-card/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Tags className="h-4 w-4 text-primary" />
+          <p className="text-sm font-medium text-foreground">{t('scheduleSend.tagAfterSendTitle')}</p>
+          <span className="text-xs text-muted-foreground">
+            {t('scheduleSend.tagAfterSendDesc')}
+          </span>
+        </div>
+        {loadingTags ? (
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        ) : tags.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {t('scheduleSend.noTagsFound')}
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => {
+              const isSelected = postSendTagIds?.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => togglePostSendTag(tag.id)}
+                  className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                    isSelected
+                      ? 'border-primary/30 bg-primary/10 text-primary'
+                      : 'border-border bg-muted text-muted-foreground hover:border-border'
+                  }`}
+                >
+                  <span
+                    className="mr-1.5 h-2 w-2 rounded-full"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  {tag.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Processing overlay */}
       {isProcessing && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -164,6 +242,41 @@ export function Step4ScheduleSend({
           </div>
         </div>
       )}
+
+      {/* Loading modal while a media-header broadcast dispatches — the
+          same blocking modal pattern the inbox template send shows while
+          the media is being handled. Non-dismissible so the send can't be
+          cancelled mid-flight. */}
+      <Dialog open={isProcessing && hasMediaHeader} onOpenChange={() => {}}>
+        <DialogContent
+          showCloseButton={false}
+          className="border-border bg-popover sm:max-w-sm"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-popover-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              {t('scheduleSend.sendingModalTitle')}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {t('scheduleSend.sendingModalDesc')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {t('scheduleSend.sending')}
+              </span>
+              <span className="text-xs font-medium text-primary">{progress}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted">
+              <div
+                className="h-1.5 rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
         <Button

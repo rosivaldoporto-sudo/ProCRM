@@ -770,6 +770,16 @@
         "headerImageDesc": "이 템플릿에는 헤더 이미지가 필요합니다.",
         "imageUrl": "이미지 URL",
         "imageUrlPlaceholder": "https://example.com/image.jpg",
+        "selectFile": "파일 선택",
+        "uploadingMedia": "미디어 업로드 중…",
+        "replaceMedia": "교체",
+        "removeMedia": "제거",
+        "mediaFormatsHintImage": "허용 형식: JPG 또는 PNG (Meta는 템플릿 헤더에 WebP를 허용하지 않습니다).",
+        "mediaFormatsHintVideo": "허용 형식: MP4 (H.264 인코딩) 또는 3GPP.",
+        "mediaFormatsHintDocument": "허용 형식: PDF, DOC, XLS, PPT 또는 TXT.",
+        "mediaFormatErrorImage": "지원되지 않는 형식입니다. JPG 또는 PNG를 사용하세요 — Meta는 템플릿 헤더에 WebP를 허용하지 않습니다.",
+        "mediaFormatErrorVideo": "지원되지 않는 형식입니다. MP4 (H.264) 또는 3GPP를 사용하세요.",
+        "mediaFormatErrorDocument": "지원되지 않는 형식입니다. PDF, DOC, XLS, PPT 또는 TXT를 사용하세요.",
         "variables": "변수",
         "varDesc": "{{name}}의 값을 설정하세요",
         "type": "유형",
@@ -809,6 +819,11 @@
         "sending": "전송 중...",
         "preparing": "준비 중...",
         "progressDesc": "수신자 {total}명 중 {current}명 처리 중...",
+        "sendingModalTitle": "미디어 브로드캐스트 전송 중",
+        "sendingModalDesc": "브로드캐스트를 전송 중입니다. 완료될 때까지 이 창을 닫지 마세요.",
+        "tagAfterSendTitle": "전송 후 연락처 태그 지정",
+        "tagAfterSendDesc": "(선택) 메시지가 전송된 연락처에 태그를 적용합니다.",
+        "noTagsFound": "태그가 없습니다. 연락처 페이지에서 태그를 만드세요.",
         "toastFailedPreview": "미리보기 데이터를 불러오지 못했습니다"
       }
     }

@@ -790,6 +790,16 @@
         "headerImageDesc": "Este modelo requer uma imagem de cabeçalho.",
         "imageUrl": "URL da Imagem",
         "imageUrlPlaceholder": "https://exemplo.com/imagem.jpg",
+        "selectFile": "Escolher arquivo",
+        "uploadingMedia": "Enviando mídia…",
+        "replaceMedia": "Substituir",
+        "removeMedia": "Remover",
+        "mediaFormatsHintImage": "Formatos aceitos: JPG ou PNG (o Meta não aceita WebP em cabeçalho de modelo).",
+        "mediaFormatsHintVideo": "Formato aceito: MP4 (codificado em H.264) ou 3GPP.",
+        "mediaFormatsHintDocument": "Formatos aceitos: PDF, DOC, XLS, PPT ou TXT.",
+        "mediaFormatErrorImage": "Formato não suportado. Use JPG ou PNG — o Meta não aceita WebP em cabeçalho de modelo.",
+        "mediaFormatErrorVideo": "Formato não suportado. Use MP4 (H.264) ou 3GPP.",
+        "mediaFormatErrorDocument": "Formato não suportado. Use PDF, DOC, XLS, PPT ou TXT.",
         "variables": "Variáveis",
         "varDesc": "Defina valores para {{name}}",
         "type": "Tipo",
@@ -830,6 +840,11 @@
         "sending": "Enviando...",
         "preparing": "Preparando...",
         "progressDesc": "Processando {current} de {total} destinatários...",
+        "sendingModalTitle": "Enviando transmissão com mídia",
+        "sendingModalDesc": "A transmissão está sendo enviada. Não feche esta janela até a conclusão.",
+        "tagAfterSendTitle": "Marcar contatos após o envio",
+        "tagAfterSendDesc": "(opcional) Aplica a tag aos contatos cuja mensagem foi enviada.",
+        "noTagsFound": "Nenhuma tag encontrada. Crie tags na página de Contatos.",
         "toastFailedPreview": "Falha ao carregar dados de visualização"
       }
     }

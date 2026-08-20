@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Contact, CustomField, MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  FileText,
+  ImageIcon,
+  Loader2,
+  RefreshCw,
+  Video,
+  X,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
+import {
+  deleteAccountMedia,
+  MEDIA_MAX_BYTES_BY_KIND,
+  uploadAccountMedia,
+} from '@/lib/storage/upload-media';
+import { CHAT_MEDIA_BUCKET } from '@/components/inbox/message-composer';
 
 type VariableType = 'static' | 'field' | 'custom_field';
 
@@ -67,6 +84,17 @@ const SAMPLE_CONTACT: Contact = {
   updated_at: new Date().toISOString(),
 };
 
+// Meta only accepts JPG/PNG for template-header images, MP4/3GPP (H.264)
+// for header videos and a fixed document set — the same accepted set as
+// the inbox template picker, so a file that would be rejected at send
+// time is caught before upload.
+const MEDIA_PICKER_ACCEPT: Record<MediaHeaderType, string> = {
+  image: 'image/jpeg,image/png',
+  video: 'video/mp4,video/3gpp',
+  document:
+    'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain',
+};
+
 export function Step3Personalize({
   template,
   variables,
@@ -84,6 +112,15 @@ export function Step3Personalize({
     Map<string, string>
   >(new Map());
   const [loadingPreview, setLoadingPreview] = useState(true);
+
+  // Header-media upload state, mirroring the inbox template picker:
+  // the file goes to the account-scoped chat-media bucket and its public
+  // URL rides along as `headerMediaUrl` at send time. `mediaPath` lets
+  // us GC the storage object if the user removes/replaces the pick.
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [mediaPath, setMediaPath] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
   // Load user's custom fields + a representative contact for the
   // live preview. Fall back to sample data if no contacts exist yet.
@@ -160,6 +197,56 @@ export function Step3Personalize({
     if (!isValidHttpUrl(value)) return 'invalid';
     return null;
   }, [mediaHeaderType, headerMediaUrl]);
+
+  // Discard an uploaded-but-replaced header media object. Fire-and-forget
+  // so a failed delete can't orphan the wizard flow.
+  function removeUploadedMedia() {
+    if (mediaPath) void deleteAccountMedia(CHAT_MEDIA_BUCKET, mediaPath).catch(() => {});
+    setMediaPath('');
+    setUploadedFileName('');
+  }
+
+  // Upload the file picked for an image/video/document template header.
+  // While the upload runs the dropzone turns into the loading state —
+  // the same "modal de carregamento" the inbox template picker shows.
+  async function handleMediaPicked(file: File | undefined) {
+    if (!file || !mediaHeaderType) return;
+    if (!MEDIA_PICKER_ACCEPT[mediaHeaderType].includes(file.type)) {
+      const errorKey =
+        mediaHeaderType === 'image'
+          ? 'personalize.mediaFormatErrorImage'
+          : mediaHeaderType === 'video'
+            ? 'personalize.mediaFormatErrorVideo'
+            : 'personalize.mediaFormatErrorDocument';
+      toast.error(t(errorKey));
+      return;
+    }
+    const max = MEDIA_MAX_BYTES_BY_KIND[mediaHeaderType];
+    if (file.size > max) {
+      toast.error(
+        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${mediaHeaderType} limit is ${Math.round(
+          max / 1024 / 1024,
+        )} MB.`,
+      );
+      return;
+    }
+    setMediaUploading(true);
+    try {
+      const { publicUrl, path } = await uploadAccountMedia(
+        CHAT_MEDIA_BUCKET,
+        file,
+      );
+      // Replacing an earlier pick? GC the previous object first.
+      removeUploadedMedia();
+      setMediaPath(path);
+      setUploadedFileName(file.name);
+      onHeaderMediaUrlChange(publicUrl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setMediaUploading(false);
+    }
+  }
 
   /**
    * A placeholder is "unmapped" if the user hasn't picked either a
@@ -251,7 +338,99 @@ export function Step3Personalize({
               {mediaHeaderType}
             </span>
           </div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+
+          {/* Media upload — same UX as the inbox template picker: the
+              dropzone turns into a loading state while the file uploads,
+              then shows a preview with replace/remove controls. */}
+          {mediaUploading ? (
+            <div className="flex w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-4 py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span className="text-xs text-muted-foreground">
+                {t('personalize.uploadingMedia')}
+              </span>
+            </div>
+          ) : mediaPath ? (
+            <div className="rounded-md border border-border bg-background/50 p-2">
+              <div className="max-h-48 overflow-hidden rounded-md">
+                {mediaHeaderType === 'image' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={headerMediaUrl}
+                    alt={uploadedFileName}
+                    className="w-full object-cover"
+                  />
+                ) : mediaHeaderType === 'video' ? (
+                  <video src={headerMediaUrl} controls className="w-full" />
+                ) : (
+                  <div className="flex items-center gap-2 p-3 text-sm text-foreground">
+                    <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{uploadedFileName}</span>
+                  </div>
+                )}
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => mediaInputRef.current?.click()}
+                  className="border-border text-foreground hover:bg-muted"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  {t('personalize.replaceMedia')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    removeUploadedMedia();
+                    onHeaderMediaUrlChange('');
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                  {t('personalize.removeMedia')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => mediaInputRef.current?.click()}
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-4 py-8 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+            >
+              {mediaHeaderType === 'image' ? (
+                <ImageIcon className="h-6 w-6" />
+              ) : mediaHeaderType === 'video' ? (
+                <Video className="h-6 w-6" />
+              ) : (
+                <FileText className="h-6 w-6" />
+              )}
+              <span className="text-xs">{t('personalize.selectFile')}</span>
+            </button>
+          )}
+          <input
+            ref={mediaInputRef}
+            type="file"
+            accept={MEDIA_PICKER_ACCEPT[mediaHeaderType]}
+            className="hidden"
+            onChange={(e) => {
+              void handleMediaPicked(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            {mediaHeaderType === 'image'
+              ? t('personalize.mediaFormatsHintImage')
+              : mediaHeaderType === 'video'
+                ? t('personalize.mediaFormatsHintVideo')
+                : t('personalize.mediaFormatsHintDocument')}
+          </p>
+
+          {/* URL fallback — lets advanced users reuse an existing hosted
+              file (e.g. the template's approved sample) without upload. */}
+          <label className="mt-3 mb-1.5 block text-xs font-medium text-muted-foreground">
             {t('personalize.imageUrl')}
           </label>
           <Input
@@ -265,6 +444,7 @@ export function Step3Personalize({
             {t('personalize.headerImageDesc')}
           </p>
           {mediaHeaderType === 'image' &&
+            !mediaPath &&
             headerMediaError === null &&
             headerMediaUrl.trim() && (
               // eslint-disable-next-line @next/next/no-img-element
@@ -441,7 +621,7 @@ export function Step3Personalize({
         </Button>
         <Button
           onClick={onNext}
-          disabled={unmappedKeys.length > 0 || headerMediaError !== null}
+          disabled={unmappedKeys.length > 0 || headerMediaError !== null || mediaUploading}
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {t('next')}
