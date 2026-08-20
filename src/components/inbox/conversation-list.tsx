@@ -105,10 +105,20 @@ export function ConversationList({
       let data: Conversation[] = [];
 
       if (sourceFilter === "all") {
-        const { data: all, error } = await supabase
+        // Prefer the inbox_conversations view (adds last_message_sender_type,
+        // migration 048). If it's not deployed yet, fall back to the base
+        // table so a missing migration never blanks the whole inbox.
+        let res = await supabase
           .from("inbox_conversations")
           .select(CONVERSATION_SELECT)
           .order("last_message_at", { ascending: false });
+        if (res.error) {
+          res = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .order("last_message_at", { ascending: false });
+        }
+        const { data: all, error } = res;
 
         if (cancelled) return;
 
@@ -133,7 +143,7 @@ export function ConversationList({
         //    channel. Mixed conversations (Meta + Uazapi) get
         //    `source = null` (see the Uazapi webhook), so a column
         //    match alone would miss them.
-        const [bySource, byMessage] = await Promise.all([
+        let [bySource, byMessage] = await Promise.all([
           supabase
             .from("inbox_conversations")
             .select(CONVERSATION_SELECT)
@@ -143,6 +153,21 @@ export function ConversationList({
             .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
             .eq("messages.source", sourceFilter),
         ]);
+
+        // Fall back to the base table if the view (migration 048) isn't
+        // deployed yet — same reason as the "all" branch above.
+        if (bySource.error || byMessage.error) {
+          [bySource, byMessage] = await Promise.all([
+            supabase
+              .from("conversations")
+              .select(CONVERSATION_SELECT)
+              .eq("source", sourceFilter),
+            supabase
+              .from("conversations")
+              .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
+              .eq("messages.source", sourceFilter),
+          ]);
+        }
 
         if (cancelled) return;
 

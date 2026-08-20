@@ -137,11 +137,22 @@ function InboxPageInner() {
     hydratingConvIdsRef.current.add(convId);
     try {
       const supabase = createClient();
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("inbox_conversations")
         .select(CONVERSATION_SELECT)
         .eq("id", convId)
         .maybeSingle();
+      // Fall back to the base table if the view (migration 048) isn't
+      // deployed yet — a missing migration must never break hydration.
+      if (error || !data) {
+        const fb = await supabase
+          .from("conversations")
+          .select(CONVERSATION_SELECT)
+          .eq("id", convId)
+          .maybeSingle();
+        data = fb.data;
+        error = fb.error;
+      }
       if (error) {
         // Supabase errors have non-enumerable properties — log fields
         // explicitly so the console message isn't just `{}`.
