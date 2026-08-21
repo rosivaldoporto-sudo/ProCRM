@@ -185,7 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             accountRow = {
               id: account.id,
               name: account.name,
-              default_currency: account.default_currency ?? DEFAULT_CURRENCY,
+              default_currency:
+        account.default_currency === 'USD'
+          ? DEFAULT_CURRENCY
+          : account.default_currency ?? DEFAULT_CURRENCY,
             };
           }
         }
