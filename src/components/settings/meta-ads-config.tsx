@@ -18,8 +18,16 @@ import {
 } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { SettingsPanelHead } from './settings-panel-head';
-import type { MetaAdsConfig as MetaAdsConfigType } from '@/types';
 import type { PipelineStage } from '@/types';
+
+interface SafeMetaAdsConfig {
+  configured: boolean;
+  id?: string;
+  pixel_id?: string | null;
+  test_event_code?: string | null;
+  capi_trigger_stage_ids?: string[];
+  has_access_token?: boolean;
+}
 
 export function MetaAdsConfig() {
   const t = useTranslations('Settings.metaAds');
@@ -28,29 +36,32 @@ export function MetaAdsConfig() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [config, setConfig] = useState<MetaAdsConfigType | null>(null);
+  const [config, setConfig] = useState<SafeMetaAdsConfig | null>(null);
 
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [testEventCode, setTestEventCode] = useState('');
   const [triggerStageIds, setTriggerStageIds] = useState<string[]>([]);
   const [stages, setStages] = useState<PipelineStage[]>([]);
-  const [pipelineNames, setPipelineNames] = useState<Record<string, string>>({});
+  const [pipelineNames, setPipelineNames] = useState<Record<string, string>>(
+    {}
+  );
   const [loadingStages, setLoadingStages] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('meta_ads_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .maybeSingle();
-      if (data) {
-        setConfig(data as MetaAdsConfigType);
+      const response = await fetch('/api/meta-ads/config', {
+        cache: 'no-store',
+      });
+      if (!response.ok)
+        throw new Error('Failed to load Meta Ads configuration');
+      const data = (await response.json()) as SafeMetaAdsConfig;
+      if (data.configured) {
+        setConfig(data);
         setPixelId(data.pixel_id ?? '');
-        setAccessToken(data.access_token ?? '');
+        setAccessToken('');
         setTestEventCode(data.test_event_code ?? '');
         setTriggerStageIds(data.capi_trigger_stage_ids ?? []);
       } else {
@@ -63,7 +74,7 @@ export function MetaAdsConfig() {
     } finally {
       setLoading(false);
     }
-  }, [accountId, supabase]);
+  }, [accountId]);
 
   useEffect(() => {
     fetchConfig();
@@ -108,7 +119,7 @@ export function MetaAdsConfig() {
     setTriggerStageIds((prev) =>
       prev.includes(stageId)
         ? prev.filter((id) => id !== stageId)
-        : [...prev, stageId],
+        : [...prev, stageId]
     );
   }
 
@@ -117,30 +128,30 @@ export function MetaAdsConfig() {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        account_id: accountId,
         pixel_id: pixelId.trim() || null,
-        access_token: accessToken.trim() || null,
         test_event_code: testEventCode.trim() || null,
-        capi_trigger_stage_ids: triggerStageIds.length > 0 ? triggerStageIds : null,
+        capi_trigger_stage_ids:
+          triggerStageIds.length > 0 ? triggerStageIds : null,
       };
+      if (accessToken.trim()) payload.access_token = accessToken.trim();
 
-      if (config) {
-        const { error } = await supabase
-          .from('meta_ads_config')
-          .update(payload)
-          .eq('id', config.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('meta_ads_config')
-          .insert(payload);
-        if (error) throw error;
-      }
+      const response = await fetch('/api/meta-ads/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(result.error || 'Failed to save configuration');
 
       toast.success(t('saved'));
       await fetchConfig();
     } catch (err) {
-      toast.error(t('saveError', { error: err instanceof Error ? err.message : 'Unknown' }));
+      toast.error(
+        t('saveError', {
+          error: err instanceof Error ? err.message : 'Unknown',
+        })
+      );
     } finally {
       setSaving(false);
     }
@@ -153,23 +164,20 @@ export function MetaAdsConfig() {
       acc[key].push(s);
       return acc;
     },
-    {},
+    {}
   );
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <Loader2 className="text-primary h-6 w-6 animate-spin" />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <SettingsPanelHead
-        title={t('pageTitle')}
-        description={t('pageDesc')}
-      />
+      <SettingsPanelHead title={t('pageTitle')} description={t('pageDesc')} />
 
       <Alert>
         <HelpCircle className="h-4 w-4" />
@@ -185,7 +193,7 @@ export function MetaAdsConfig() {
             href="https://developers.facebook.com/docs/marketing-api/conversions-api/get-started"
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            className="text-primary mt-2 inline-flex items-center gap-1 text-sm hover:underline"
           >
             {t('howToLink')}
             <ExternalLink className="h-3 w-3" />
@@ -217,7 +225,12 @@ export function MetaAdsConfig() {
               type="password"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
-              placeholder={t('accessTokenPlaceholder')}
+              placeholder={
+                config?.has_access_token
+                  ? '••••••••••••••••'
+                  : t('accessTokenPlaceholder')
+              }
+              autoComplete="new-password"
               className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
             />
           </div>
@@ -225,7 +238,7 @@ export function MetaAdsConfig() {
           <div className="space-y-2">
             <Label htmlFor="test-event-code">
               {t('testEventCode')}
-              <span className="ml-1 text-xs text-muted-foreground">
+              <span className="text-muted-foreground ml-1 text-xs">
                 ({t('optional')})
               </span>
             </Label>
@@ -259,43 +272,47 @@ export function MetaAdsConfig() {
         <CardContent>
           {loadingStages ? (
             <div className="flex items-center justify-center py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <Loader2 className="text-primary h-5 w-5 animate-spin" />
             </div>
           ) : Object.keys(stagesByPipeline).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noPipelines')}</p>
+            <p className="text-muted-foreground text-sm">{t('noPipelines')}</p>
           ) : (
             <div className="space-y-4">
-              {Object.entries(stagesByPipeline).map(([pipelineName, pipelineStages]) => (
-                <div key={pipelineName}>
-                  <p className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    {pipelineName}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {pipelineStages.map((stage) => {
-                      const isSelected = triggerStageIds.includes(stage.id);
-                      return (
-                        <button
-                          key={stage.id}
-                          onClick={() => toggleStage(stage.id)}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
-                            isSelected
-                              ? 'border-primary/40 bg-primary/10 text-primary'
-                              : 'border-border bg-muted text-muted-foreground hover:border-border'
-                          }`}
-                        >
-                          {isSelected && <Check className="h-3 w-3" />}
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: stage.color }}
-                          />
-                          {stage.name}
-                        </button>
-                      );
-                    })}
+              {Object.entries(stagesByPipeline).map(
+                ([pipelineName, pipelineStages]) => (
+                  <div key={pipelineName}>
+                    <p className="text-muted-foreground mb-2 text-xs font-semibold tracking-wider uppercase">
+                      {pipelineName}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {pipelineStages.map((stage) => {
+                        const isSelected = triggerStageIds.includes(stage.id);
+                        return (
+                          <button
+                            key={stage.id}
+                            onClick={() => toggleStage(stage.id)}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                              isSelected
+                                ? 'border-primary/40 bg-primary/10 text-primary'
+                                : 'border-border bg-muted text-muted-foreground hover:border-border'
+                            }`}
+                          >
+                            {isSelected && <Check className="h-3 w-3" />}
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: stage.color }}
+                            />
+                            {stage.name}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-              <p className="text-xs text-muted-foreground">{t('qualifiedLeadHint')}</p>
+                )
+              )}
+              <p className="text-muted-foreground text-xs">
+                {t('qualifiedLeadHint')}
+              </p>
             </div>
           )}
         </CardContent>
@@ -307,20 +324,37 @@ export function MetaAdsConfig() {
           <CardDescription>{t('trackingLinksDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-lg border border-border bg-muted/50 p-4">
-            <p className="mb-2 text-sm font-medium text-foreground">{t('linkExample')}</p>
-            <code className="block break-all rounded bg-muted px-3 py-2 text-xs text-muted-foreground">
+          <div className="border-border bg-muted/50 rounded-lg border p-4">
+            <p className="text-foreground mb-2 text-sm font-medium">
+              {t('linkExample')}
+            </p>
+            <code className="bg-muted text-muted-foreground block rounded px-3 py-2 text-xs break-all">
               https://wa.me/5511999999999?utm_source=facebook&amp;utm_campaign=promo_verao&amp;utm_content=ad_01
             </code>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">{t('linkParams')}</p>
-            <ul className="list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
-              <li><code className="rounded bg-muted px-1">utm_source</code> — {t('paramSource')}</li>
-              <li><code className="rounded bg-muted px-1">utm_campaign</code> — {t('paramCampaign')}</li>
-              <li><code className="rounded bg-muted px-1">utm_medium</code> — {t('paramMedium')}</li>
-              <li><code className="rounded bg-muted px-1">utm_content</code> — {t('paramContent')}</li>
-              <li><code className="rounded bg-muted px-1">utm_term</code> — {t('paramTerm')}</li>
+            <p className="text-muted-foreground text-xs">{t('linkParams')}</p>
+            <ul className="text-muted-foreground list-inside list-disc space-y-0.5 text-xs">
+              <li>
+                <code className="bg-muted rounded px-1">utm_source</code> —{' '}
+                {t('paramSource')}
+              </li>
+              <li>
+                <code className="bg-muted rounded px-1">utm_campaign</code> —{' '}
+                {t('paramCampaign')}
+              </li>
+              <li>
+                <code className="bg-muted rounded px-1">utm_medium</code> —{' '}
+                {t('paramMedium')}
+              </li>
+              <li>
+                <code className="bg-muted rounded px-1">utm_content</code> —{' '}
+                {t('paramContent')}
+              </li>
+              <li>
+                <code className="bg-muted rounded px-1">utm_term</code> —{' '}
+                {t('paramTerm')}
+              </li>
             </ul>
           </div>
         </CardContent>

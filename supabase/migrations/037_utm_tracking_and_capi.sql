@@ -71,54 +71,26 @@ CREATE TRIGGER trg_meta_ads_config_updated_at
 -- Enable RLS
 ALTER TABLE meta_ads_config ENABLE ROW LEVEL SECURITY;
 
--- Account members can read their own config
+-- Admins can read the encrypted configuration. Other members do not need
+-- direct access; server routes expose only secret-free status fields.
+DROP POLICY IF EXISTS meta_ads_config_select ON meta_ads_config;
 CREATE POLICY meta_ads_config_select ON meta_ads_config
   FOR SELECT
-  USING (
-    account_id IN (
-      SELECT account_id FROM account_members
-      WHERE user_id = auth.uid()
-    )
-  );
+  USING (is_account_member(account_id, 'admin'));
 
 -- Admin+ can insert/update/delete
+DROP POLICY IF EXISTS meta_ads_config_insert ON meta_ads_config;
 CREATE POLICY meta_ads_config_insert ON meta_ads_config
   FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_id = meta_ads_config.account_id
-        AND user_id = auth.uid()
-        AND role IN ('admin', 'owner')
-    )
-  );
+  WITH CHECK (is_account_member(account_id, 'admin'));
 
+DROP POLICY IF EXISTS meta_ads_config_update ON meta_ads_config;
 CREATE POLICY meta_ads_config_update ON meta_ads_config
   FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_id = meta_ads_config.account_id
-        AND user_id = auth.uid()
-        AND role IN ('admin', 'owner')
-    )
-  )
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_id = meta_ads_config.account_id
-        AND user_id = auth.uid()
-        AND role IN ('admin', 'owner')
-    )
-  );
+  USING (is_account_member(account_id, 'admin'))
+  WITH CHECK (is_account_member(account_id, 'admin'));
 
+DROP POLICY IF EXISTS meta_ads_config_delete ON meta_ads_config;
 CREATE POLICY meta_ads_config_delete ON meta_ads_config
   FOR DELETE
-  USING (
-    EXISTS (
-      SELECT 1 FROM account_members
-      WHERE account_id = meta_ads_config.account_id
-        AND user_id = auth.uid()
-        AND role IN ('admin', 'owner')
-    )
-  );
+  USING (is_account_member(account_id, 'admin'));

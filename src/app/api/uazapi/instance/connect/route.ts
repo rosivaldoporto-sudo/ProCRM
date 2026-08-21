@@ -1,15 +1,16 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { supabaseAdmin } from '@/lib/flows/admin-client'
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   instanceConnect,
   setInstanceWebhook,
   normalizeQrCode,
-} from '@/lib/uazapi/uazapi-client'
+} from '@/lib/uazapi/uazapi-client';
 import {
   uazapiEnvConfig,
   resolveUazapiInstance,
-} from '@/lib/uazapi/runtime-config'
+} from '@/lib/uazapi/runtime-config';
+import { buildUazapiWebhookUrl } from '@/lib/uazapi/webhook-auth';
 
 /**
  * POST /api/uazapi/instance/connect
@@ -32,46 +33,56 @@ import {
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('account_id')
       .eq('user_id', user.id)
-      .maybeSingle()
+      .maybeSingle();
 
-    const accountId = profile?.account_id as string | undefined
+    const accountId = profile?.account_id as string | undefined;
     if (!accountId) {
-      return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
+      return NextResponse.json(
+        { error: 'Profile not linked to an account.' },
+        { status: 403 }
+      );
     }
 
-    const env = uazapiEnvConfig()
+    const env = uazapiEnvConfig();
     const { serverUrl, instanceToken } = await resolveUazapiInstance(
       supabase,
       accountId,
-      user.id,
-    )
+      user.id
+    );
 
     let result = await instanceConnect({
       serverUrl,
       apiToken: instanceToken,
       phone: env.pairingPhone || undefined,
-    })
+    });
 
     // Some servers fail the first connect right after init; retry once.
-    if (result.status === 'disconnected' && !result.qrCode && !result.pairingCode) {
+    if (
+      result.status === 'disconnected' &&
+      !result.qrCode &&
+      !result.pairingCode
+    ) {
       result = await instanceConnect({
         serverUrl,
         apiToken: instanceToken,
         phone: env.pairingPhone || undefined,
-      })
+      });
     }
 
-    const qrCode = result.qrCode ? normalizeQrCode(result.qrCode) : null
+    const qrCode = result.qrCode ? normalizeQrCode(result.qrCode) : null;
 
     // Persist QR + status so a page reload still shows the pending QR.
     // Written via the admin client: RLS on uazapi_config blocks
@@ -85,34 +96,49 @@ export async function POST(request: Request) {
           user_id: user.id,
           instance_name: env.instanceName,
           server_url: serverUrl,
-          status: result.status === 'connected' ? 'connected' : result.status === 'connecting' || result.qrCode ? 'qrcode' : 'disconnected',
+          status:
+            result.status === 'connected'
+              ? 'connected'
+              : result.status === 'connecting' || result.qrCode
+                ? 'qrcode'
+                : 'disconnected',
           qr_code: qrCode,
-          connected_at: result.status === 'connected' ? new Date().toISOString() : null,
+          connected_at:
+            result.status === 'connected' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'account_id' },
-      )
+        { onConflict: 'account_id' }
+      );
     if (upsertError) {
-      console.error('[uazapi-connect] state upsert failed (send will report not-connected):', upsertError.message)
+      console.error(
+        '[uazapi-connect] state upsert failed (send will report not-connected):',
+        upsertError.message
+      );
     }
 
     // Best-effort webhook registration — never fails the connect.
     if (result.status === 'connected' || result.qrCode || result.pairingCode) {
       try {
         const origin =
-          process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin
+          process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+          new URL(request.url).origin;
+        const webhookUrl = buildUazapiWebhookUrl(
+          origin,
+          accountId,
+          env.webhookSecret
+        );
         await setInstanceWebhook({
           serverUrl,
           apiToken: instanceToken,
-          url: `${origin}/api/uazapi/webhook/${accountId}`,
+          url: webhookUrl,
           events: ['messages', 'messages_update', 'connection'],
           excludeMessages: ['wasSentByApi'],
-        })
+        });
       } catch (err) {
         console.warn(
           '[uazapi-connect] webhook setup skipped (configure manually if needed):',
-          err instanceof Error ? err.message : err,
-        )
+          err instanceof Error ? err.message : err
+        );
       }
     }
 
@@ -123,10 +149,11 @@ export async function POST(request: Request) {
       status: result.status,
       profile_name: result.profileName || null,
       instance_name: env.instanceName,
-    })
+    });
   } catch (error) {
-    console.error('[uazapi-connect] Error:', error)
-    const message = error instanceof Error ? error.message : 'Failed to connect'
-    return NextResponse.json({ error: message }, { status: 502 })
+    console.error('[uazapi-connect] Error:', error);
+    const message =
+      error instanceof Error ? error.message : 'Failed to connect';
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

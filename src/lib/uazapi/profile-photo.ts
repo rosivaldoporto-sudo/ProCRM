@@ -1,5 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
-import { fetchProfilePhoto } from '@/lib/uazapi/uazapi-client'
+import { createClient } from '@supabase/supabase-js';
+import { fetchProfilePhoto } from '@/lib/uazapi/uazapi-client';
+import { fetchRemoteBytes, isSameOrigin } from '@/lib/uazapi/safe-fetch';
+
+const PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
  * Best-effort enrichment of WhatsApp contacts with their profile
@@ -19,64 +22,67 @@ import { fetchProfilePhoto } from '@/lib/uazapi/uazapi-client'
  * without a photo and is retried on the next inbound message / sync.
  */
 export async function refreshContactProfilePhoto(args: {
-  accountId: string
-  contactId: string
-  phone: string
-  serverUrl: string
-  apiToken: string
+  accountId: string;
+  contactId: string;
+  phone: string;
+  serverUrl: string;
+  apiToken: string;
   /**
    * Profile picture URL already available (e.g. `chat.image` in the
    * v2 webhook payload) — skips the GetNameAndImageURL API call.
    */
-  photoUrl?: string | null
+  photoUrl?: string | null;
 }): Promise<void> {
-  const { accountId, contactId, phone, serverUrl, apiToken, photoUrl } = args
+  const { accountId, contactId, phone, serverUrl, apiToken, photoUrl } = args;
   try {
     const resolvedPhotoUrl =
-      photoUrl || (await fetchProfilePhoto({ serverUrl, apiToken, number: phone }))
-    if (!resolvedPhotoUrl) return
+      photoUrl ||
+      (await fetchProfilePhoto({ serverUrl, apiToken, number: phone }));
+    if (!resolvedPhotoUrl) return;
 
-    const buffer = await downloadPhotoBytes(resolvedPhotoUrl, serverUrl, apiToken)
-    if (!buffer) return
+    const buffer = await downloadPhotoBytes(
+      resolvedPhotoUrl,
+      serverUrl,
+      apiToken
+    );
+    if (!buffer) return;
 
-    const db = adminClient()
-    const path = `contacts/${accountId}/${contactId}.jpg`
-    const { error: uploadErr } = await db.storage.from('avatars').upload(
-      path,
-      new Blob([buffer], { type: 'image/jpeg' }),
-      {
+    const db = adminClient();
+    const path = `contacts/${accountId}/${contactId}.jpg`;
+    const { error: uploadErr } = await db.storage
+      .from('avatars')
+      .upload(path, new Blob([buffer], { type: 'image/jpeg' }), {
         cacheControl: '31536000',
         upsert: true,
         contentType: 'image/jpeg',
-      },
-    )
+      });
     if (uploadErr) {
-      console.error('[uazapi] avatar upload failed:', uploadErr.message)
-      return
+      console.error('[uazapi] avatar upload failed:', uploadErr.message);
+      return;
     }
 
     const {
       data: { publicUrl },
-    } = db.storage.from('avatars').getPublicUrl(path)
+    } = db.storage.from('avatars').getPublicUrl(path);
     await db
       .from('contacts')
       .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
-      .eq('id', contactId)
+      .eq('id', contactId);
   } catch (err) {
-    console.error('[uazapi] refreshContactProfilePhoto failed:', err)
+    console.error('[uazapi] refreshContactProfilePhoto failed:', err);
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _adminClient: any = null
+let _adminClient: any = null;
 function adminClient() {
   if (!_adminClient) {
     _adminClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
   }
-  return _adminClient
+  return _adminClient;
 }
 
 /**
@@ -85,41 +91,53 @@ function adminClient() {
  * proxies the file it requires the `token` header — so try both.
  * Some servers hand out `data:` URIs (base64) — decode those directly.
  */
-async function downloadPhotoBytes(
+export async function downloadPhotoBytes(
   photoUrl: string,
   serverUrl: string,
-  apiToken: string,
+  apiToken: string
 ): Promise<ArrayBuffer | null> {
   if (photoUrl.startsWith('data:')) {
     try {
-      const comma = photoUrl.indexOf(',')
-      const base64 = comma >= 0 ? photoUrl.slice(comma + 1) : photoUrl
-      const buffer = Buffer.from(base64, 'base64')
-      return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,/i.exec(
+        photoUrl
+      );
+      if (!match) return null;
+      const comma = photoUrl.indexOf(',');
+      const base64 = comma >= 0 ? photoUrl.slice(comma + 1) : photoUrl;
+      if (base64.length > Math.ceil((PROFILE_PHOTO_MAX_BYTES * 4) / 3) + 4)
+        return null;
+      const buffer = Buffer.from(base64, 'base64');
+      if (buffer.byteLength > PROFILE_PHOTO_MAX_BYTES) return null;
+      return buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength
+      );
     } catch (err) {
-      console.warn('[uazapi] profile photo data-URI decode failed:', err)
-      return null
+      console.warn('[uazapi] profile photo data-URI decode failed:', err);
+      return null;
     }
   }
 
-  const base = serverUrl.replace(/\/+$/, '')
-  const isOwnServer = photoUrl.startsWith(base)
+  const isOwnServer = isSameOrigin(photoUrl, serverUrl);
   const attempts: Record<string, string>[] = [
     isOwnServer ? { token: apiToken } : {},
     {},
-  ]
+  ];
   for (const headers of attempts) {
     try {
-      const response = await fetch(photoUrl, {
+      const response = await fetchRemoteBytes({
+        url: photoUrl,
         headers,
-        signal: AbortSignal.timeout(15000),
-      })
-      if (!response.ok) continue
-      return await response.arrayBuffer()
+        maxBytes: PROFILE_PHOTO_MAX_BYTES,
+        allowedContentTypes: ['image'],
+        timeoutMs: 15_000,
+      });
+      if (!response) continue;
+      return response.buffer;
     } catch {
       // try the next auth strategy
     }
   }
-  console.warn('[uazapi] profile photo download failed:', { photoUrl })
-  return null
+  console.warn('[uazapi] profile photo download failed:', { photoUrl });
+  return null;
 }

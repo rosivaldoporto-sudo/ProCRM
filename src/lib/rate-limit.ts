@@ -21,6 +21,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 
 export interface RateLimitOptions {
   /** Max requests allowed in `windowMs`. */
@@ -59,7 +60,7 @@ function sweepExpired(now: number) {
 
 export function checkRateLimit(
   key: string,
-  { limit, windowMs }: RateLimitOptions,
+  { limit, windowMs }: RateLimitOptions
 ): RateLimitResult {
   const now = Date.now();
 
@@ -73,7 +74,12 @@ export function checkRateLimit(
 
   if (!entry || entry.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { success: true, remaining: limit - 1, reset: now + windowMs, limit };
+    return {
+      success: true,
+      remaining: limit - 1,
+      reset: now + windowMs,
+      limit,
+    };
   }
 
   if (entry.count >= limit) {
@@ -90,11 +96,62 @@ export function checkRateLimit(
 }
 
 /**
+ * Database-backed variant for unauthenticated, machine-to-machine and
+ * cost-bearing endpoints. Unlike the in-memory limiter, this budget is
+ * shared across server processes and deploys.
+ *
+ * Production fails closed if the database counter cannot be reached; a
+ * broken limiter must not silently turn into unlimited access. Tests and
+ * local setups without service credentials retain the deterministic local
+ * implementation.
+ */
+export async function checkDistributedRateLimit(
+  key: string,
+  options: RateLimitOptions
+): Promise<RateLimitResult> {
+  if (
+    process.env.NODE_ENV === 'test' ||
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    return checkRateLimit(key, options);
+  }
+
+  const { data, error } = await supabaseAdmin().rpc('consume_rate_limit', {
+    p_key: key,
+    p_limit: options.limit,
+    p_window_ms: options.windowMs,
+  });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (error || !row) {
+    console.error('[rate-limit] distributed counter unavailable', {
+      code: error?.code,
+    });
+    return {
+      success: false,
+      remaining: 0,
+      reset: Date.now() + options.windowMs,
+      limit: options.limit,
+    };
+  }
+
+  return {
+    success: Boolean(row.success),
+    remaining: Number(row.remaining),
+    reset: Number(row.reset),
+    limit: Number(row.limit_value),
+  };
+}
+
+/**
  * Standard 429 response with the headers clients expect (RFC 6585 +
  * draft-ietf-httpapi-ratelimit-headers). Callers just `return` this.
  */
 export function rateLimitResponse(result: RateLimitResult): NextResponse {
-  const retryAfterSec = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
+  const retryAfterSec = Math.max(
+    1,
+    Math.ceil((result.reset - Date.now()) / 1000)
+  );
   return NextResponse.json(
     {
       error: 'Rate limit exceeded',
@@ -108,7 +165,7 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
         'X-RateLimit-Remaining': String(result.remaining),
         'X-RateLimit-Reset': String(Math.ceil(result.reset / 1000)),
       },
-    },
+    }
   );
 }
 

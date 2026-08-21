@@ -10,21 +10,23 @@
  * (migration 038) and configured in the Meta Ads settings panel.
  */
 
-import { createClient } from '@supabase/supabase-js'
-import { sendCapiEvents } from './conversions-api'
+import { sendCapiEvents } from './conversions-api';
+import { decrypt, encrypt } from '@/lib/whatsapp/encryption';
+import { supabaseAdmin as createAdminClient } from '@/lib/flows/admin-client';
 
 interface AdsConfigRow {
-  pixel_id: string | null
-  access_token: string | null
-  test_event_code: string | null
-  capi_trigger_stage_ids: string[] | null
+  id: string;
+  pixel_id: string | null;
+  access_token: string | null;
+  test_event_code: string | null;
+  capi_trigger_stage_ids: string[] | null;
 }
 
 interface ContactRow {
-  phone: string | null
-  name: string | null
-  utm_campaign: string | null
-  utm_content: string | null
+  phone: string | null;
+  name: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
 }
 
 /**
@@ -39,38 +41,63 @@ interface ContactRow {
  * Designed to be fire-and-forget (no await needed in the caller).
  */
 export async function fireQualifiedLeadEvent(
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: ReturnType<typeof createAdminClient>,
   accountId: string,
   dealId: string,
   contactId: string | null,
   newStageId: string,
-  stageName?: string,
+  stageName?: string
 ): Promise<void> {
-  if (!contactId) return
+  if (!contactId) return;
 
   const { data: rawConfig } = await supabaseAdmin
     .from('meta_ads_config')
-    .select('pixel_id, access_token, test_event_code, capi_trigger_stage_ids')
+    .select(
+      'id, pixel_id, access_token, test_event_code, capi_trigger_stage_ids'
+    )
     .eq('account_id', accountId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const adsConfig = rawConfig as AdsConfigRow | null
-  if (!adsConfig?.pixel_id || !adsConfig?.access_token) return
-  if (!adsConfig.capi_trigger_stage_ids?.includes(newStageId)) return
+  const adsConfig = rawConfig as AdsConfigRow | null;
+  if (!adsConfig?.pixel_id || !adsConfig?.access_token) return;
+  if (!adsConfig.capi_trigger_stage_ids?.includes(newStageId)) return;
+
+  let accessToken: string;
+  if (!adsConfig.access_token.includes(':')) {
+    // Compatibility for rows saved before this column was encrypted.
+    accessToken = adsConfig.access_token;
+    const { error: upgradeError } = await supabaseAdmin
+      .from('meta_ads_config')
+      .update({ access_token: encrypt(accessToken) })
+      .eq('id', adsConfig.id);
+    if (upgradeError) {
+      console.error('[capi] failed to encrypt legacy Meta token', {
+        code: upgradeError.code,
+      });
+      return;
+    }
+  } else {
+    try {
+      accessToken = decrypt(adsConfig.access_token);
+    } catch {
+      console.error('[capi] stored Meta token could not be decrypted');
+      return;
+    }
+  }
 
   const { data: rawContact } = await supabaseAdmin
     .from('contacts')
     .select('phone, name, utm_campaign, utm_content')
     .eq('id', contactId)
-    .single()
+    .single();
 
-  const contactRow = rawContact as ContactRow | null
-  if (!contactRow?.phone) return
+  const contactRow = rawContact as ContactRow | null;
+  if (!contactRow?.phone) return;
 
   await sendCapiEvents(
     {
       pixelId: adsConfig.pixel_id,
-      accessToken: adsConfig.access_token,
+      accessToken,
       testEventCode: adsConfig.test_event_code ?? undefined,
     },
     [
@@ -91,6 +118,6 @@ export async function fireQualifiedLeadEvent(
           ad_name: contactRow.utm_content ?? undefined,
         },
       },
-    ],
-  )
+    ]
+  );
 }

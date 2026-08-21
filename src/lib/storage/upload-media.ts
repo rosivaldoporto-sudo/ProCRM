@@ -1,11 +1,11 @@
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from '@/lib/supabase/client';
 
 /**
  * Shared media-upload helper for Supabase Storage buckets that use the
  * account-scoped path convention introduced in migration 020
  * (`flow-media`) and reused by migration 023 (`chat-media`):
  *
- *   <bucket>/account-<account_id>/<timestamp>-<basename>.<ext>
+ *   <bucket>/account-<account_id>/<timestamp>-<random-id>.<ext>
  *
  * The first path segment (`account-<uuid>`) is what the bucket's RLS
  * write policies match on, so every caller MUST go through here rather
@@ -37,28 +37,27 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
  * Build the account-scoped object path for an upload. Pure + exported so
  * it can be unit-tested without a Supabase client.
  *
- * - `basename` is stripped of its extension, lower-cased non-safe chars
- *   are collapsed to `_`, and it's capped at 40 chars (falls back to
- *   "file" when empty).
- * - The timestamp + the original name keep collisions between two
- *   concurrent uploads astronomically unlikely.
+ * - Original filenames are deliberately omitted: public media URLs must
+ *   not disclose customer names or document titles.
+ * - A cryptographically random UUID prevents guessing/enumeration and
+ *   makes concurrent collisions negligible.
  */
 export function buildMediaPath(
   accountId: string,
   fileName: string,
   now: number = Date.now(),
+  randomId: string = crypto.randomUUID()
 ): string {
   // Only treat the trailing segment as an extension when there's a real
   // one — a bare name like "README" has no extension and falls back to
   // "bin" rather than becoming "readme".
   const hasExt = /\.[^.]+$/.test(fileName);
-  const ext = hasExt ? fileName.split(".").pop()!.toLowerCase() : "bin";
-  const safeBase =
-    fileName
-      .replace(/\.[^.]+$/, "")
-      .replace(/[^a-zA-Z0-9_-]+/g, "_")
-      .slice(0, 40) || "file";
-  return `account-${accountId}/${now}-${safeBase}.${ext}`;
+  const rawExt = hasExt ? fileName.split('.').pop()!.toLowerCase() : 'bin';
+  const ext = /^[a-z0-9]{1,10}$/.test(rawExt) ? rawExt : 'bin';
+  const safeRandomId = randomId.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+  if (!safeRandomId)
+    throw new Error('Could not generate a safe media identifier');
+  return `account-${accountId}/${now}-${safeRandomId}.${ext}`;
 }
 
 export interface UploadAccountMediaResult {
@@ -78,7 +77,7 @@ export interface UploadAccountMediaResult {
  */
 export async function uploadAccountMedia(
   bucket: string,
-  file: File,
+  file: File
 ): Promise<UploadAccountMediaResult> {
   const supabase = createClient();
 
@@ -87,27 +86,29 @@ export async function uploadAccountMedia(
     error: userErr,
   } = await supabase.auth.getUser();
   if (userErr || !user) {
-    throw new Error("Not signed in.");
+    throw new Error('Not signed in.');
   }
 
   // Resolve account_id so the path is account-scoped (matches the
   // bucket's RLS write policy from migration 020/023). User-scoped
   // paths would be rejected.
   const { data: profile, error: profileErr } = await supabase
-    .from("profiles")
-    .select("account_id")
-    .eq("user_id", user.id)
+    .from('profiles')
+    .select('account_id')
+    .eq('user_id', user.id)
     .maybeSingle();
   if (profileErr || !profile?.account_id) {
-    throw new Error("Could not resolve your account.");
+    throw new Error('Could not resolve your account.');
   }
 
   const path = buildMediaPath(profile.account_id as string, file.name);
-  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: file.type,
-  });
+  const { error: upErr } = await supabase.storage
+    .from(bucket)
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type,
+    });
   if (upErr) throw new Error(upErr.message);
 
   const {
@@ -129,7 +130,7 @@ export async function uploadAccountMedia(
  */
 export async function deleteAccountMedia(
   bucket: string,
-  path: string,
+  path: string
 ): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase.storage.from(bucket).remove([path]);

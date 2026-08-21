@@ -1,3 +1,5 @@
+import { fetchRemoteBytes, isSameOrigin } from '@/lib/uazapi/safe-fetch';
+
 /**
  * Uazapi API client — communicates with a Uazapi server to manage
  * WhatsApp Web instances and send/receive messages.
@@ -9,31 +11,34 @@
  */
 
 export interface UazapiSendResult {
-  messageId: string
+  messageId: string;
 }
 
 interface UazapiErrorResponse {
-  error?: string
-  message?: string
-  response?: string
+  error?: string;
+  message?: string;
+  response?: string;
 }
 
-async function throwUazapiError(response: Response, fallback: string): Promise<never> {
-  let message = fallback
+async function throwUazapiError(
+  response: Response,
+  fallback: string
+): Promise<never> {
+  let message = fallback;
   try {
-    const data = (await response.json()) as UazapiErrorResponse
-    message = data.error || data.message || data.response || fallback
+    const data = (await response.json()) as UazapiErrorResponse;
+    message = data.error || data.message || data.response || fallback;
   } catch {
     // response body wasn't JSON
   }
-  throw new Error(message)
+  throw new Error(message);
 }
 
 function buildHeaders(apiToken: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     token: apiToken,
-  }
+  };
 }
 
 // ============================================================
@@ -45,22 +50,24 @@ function buildHeaders(apiToken: string): Record<string, string> {
  * OpenAPI spec: "QR Code in base64 format"). `data:`-prefixed URLs
  * pass through unchanged so both response shapes render in an <img>.
  */
-export function normalizeQrCode(qr: string | undefined | null): string | undefined {
-  if (!qr) return undefined
-  if (/^data:/i.test(qr)) return qr
+export function normalizeQrCode(
+  qr: string | undefined | null
+): string | undefined {
+  if (!qr) return undefined;
+  if (/^data:/i.test(qr)) return qr;
   // Plain base64 (PNG/JPEG data) → wrap as a data URL. Non-base64
   // strings (a URL, or an error placeholder) are passed through.
   if (/^[A-Za-z0-9+/=\s]+$/.test(qr.trim())) {
-    return `data:image/png;base64,${qr.trim()}`
+    return `data:image/png;base64,${qr.trim()}`;
   }
-  return qr
+  return qr;
 }
 
 export interface InstanceConnectResult {
-  qrCode?: string
-  pairingCode?: string
-  status: 'connected' | 'connecting' | 'qrcode' | 'disconnected'
-  profileName?: string
+  qrCode?: string;
+  pairingCode?: string;
+  status: 'connected' | 'connecting' | 'qrcode' | 'disconnected';
+  profileName?: string;
 }
 
 /**
@@ -78,47 +85,56 @@ export interface InstanceConnectResult {
  *   { instance: { qrcode, state } }
  */
 export async function instanceConnect(args: {
-  serverUrl: string
-  apiToken: string
-  phone?: string
+  serverUrl: string;
+  apiToken: string;
+  phone?: string;
 }): Promise<InstanceConnectResult> {
-  const { serverUrl, apiToken, phone } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/instance/connect`
+  const { serverUrl, apiToken, phone } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/instance/connect`;
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: phone ? JSON.stringify({ phone }) : undefined,
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, `Uazapi connect failed: ${response.status}`)
+    await throwUazapiError(
+      response,
+      `Uazapi connect failed: ${response.status}`
+    );
   }
-  const data = (await response.json()) as Record<string, unknown>
-  const inst = (data.instance && typeof data.instance === 'object'
-    ? data.instance
-    : data) as Record<string, unknown>
+  const data = (await response.json()) as Record<string, unknown>;
+  const inst = (
+    data.instance && typeof data.instance === 'object' ? data.instance : data
+  ) as Record<string, unknown>;
 
-  const rawStatus = String(inst.status ?? inst.state ?? data.status ?? '')
+  const rawStatus = String(inst.status ?? inst.state ?? data.status ?? '');
   const qrCode = normalizeQrCode(
-    (inst.qrcode ?? inst.qr_code ?? inst.qrCode ?? data.qrcode ?? data.qr_code) as
-      | string
-      | undefined,
-  )
+    (inst.qrcode ??
+      inst.qr_code ??
+      inst.qrCode ??
+      data.qrcode ??
+      data.qr_code) as string | undefined
+  );
   const pairingCode = String(
-    inst.paircode ?? inst.pairingCode ?? inst.pairing_code ?? data.paircode ?? '',
-  )
-  const profileName = String(inst.profileName ?? inst.profile_name ?? '')
+    inst.paircode ??
+      inst.pairingCode ??
+      inst.pairing_code ??
+      data.paircode ??
+      ''
+  );
+  const profileName = String(inst.profileName ?? inst.profile_name ?? '');
 
-  let status: InstanceConnectResult['status']
+  let status: InstanceConnectResult['status'];
   if (rawStatus === 'connected' || rawStatus === 'open') {
-    status = 'connected'
+    status = 'connected';
   } else if (qrCode || pairingCode) {
-    status = 'qrcode'
+    status = 'qrcode';
   } else if (rawStatus === 'connecting' || rawStatus === 'pairing') {
-    status = 'connecting'
+    status = 'connecting';
   } else {
-    status = 'disconnected'
+    status = 'disconnected';
   }
-  return { qrCode, pairingCode, status, profileName: profileName || undefined }
+  return { qrCode, pairingCode, status, profileName: profileName || undefined };
 }
 
 /**
@@ -128,25 +144,28 @@ export async function instanceConnect(args: {
  * Response: { "status": "disconnected" } or { "error": "..." }
  */
 export async function instanceDisconnect(args: {
-  serverUrl: string
-  apiToken: string
+  serverUrl: string;
+  apiToken: string;
 }): Promise<void> {
-  const { serverUrl, apiToken } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/instance/disconnect`
+  const { serverUrl, apiToken } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/instance/disconnect`;
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, `Uazapi disconnect failed: ${response.status}`)
+    await throwUazapiError(
+      response,
+      `Uazapi disconnect failed: ${response.status}`
+    );
   }
 }
 
 export interface InstanceStatusResult {
-  status: 'connected' | 'connecting' | 'disconnected' | 'qrcode'
-  qrCode?: string
-  pairingCode?: string
-  profileName?: string
+  status: 'connected' | 'connecting' | 'disconnected' | 'qrcode';
+  qrCode?: string;
+  pairingCode?: string;
+  profileName?: string;
 }
 
 /**
@@ -157,44 +176,57 @@ export interface InstanceStatusResult {
  *   "qrcode": "...", "profileName": "..." } }
  */
 export async function instanceStatus(args: {
-  serverUrl: string
-  apiToken: string
+  serverUrl: string;
+  apiToken: string;
 }): Promise<InstanceStatusResult> {
-  const { serverUrl, apiToken } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/instance/status`
+  const { serverUrl, apiToken } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/instance/status`;
   const response = await fetch(url, {
     method: 'GET',
     headers: buildHeaders(apiToken),
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, `Uazapi status failed: ${response.status}`)
+    await throwUazapiError(
+      response,
+      `Uazapi status failed: ${response.status}`
+    );
   }
-  const data = (await response.json()) as Record<string, unknown>
-  const inst = (data.instance && typeof data.instance === 'object'
-    ? data.instance
-    : data) as Record<string, unknown>
+  const data = (await response.json()) as Record<string, unknown>;
+  const inst = (
+    data.instance && typeof data.instance === 'object' ? data.instance : data
+  ) as Record<string, unknown>;
 
-  const rawStatus = String(inst.status ?? inst.state ?? data.status ?? 'disconnected')
+  const rawStatus = String(
+    inst.status ?? inst.state ?? data.status ?? 'disconnected'
+  );
   const qrCode = normalizeQrCode(
-    (inst.qrcode ?? inst.qr_code ?? inst.qrCode ?? data.qrcode ?? data.qr_code) as
-      | string
-      | undefined,
-  )
-  const pairingCode = String(inst.paircode ?? inst.pairingCode ?? data.paircode ?? '')
-  const profileName = String(inst.profileName ?? inst.profile_name ?? '')
+    (inst.qrcode ??
+      inst.qr_code ??
+      inst.qrCode ??
+      data.qrcode ??
+      data.qr_code) as string | undefined
+  );
+  const pairingCode = String(
+    inst.paircode ?? inst.pairingCode ?? data.paircode ?? ''
+  );
+  const profileName = String(inst.profileName ?? inst.profile_name ?? '');
 
-  let status: InstanceStatusResult['status']
+  let status: InstanceStatusResult['status'];
   if (rawStatus === 'connected' || rawStatus === 'open') {
-    status = 'connected'
-  } else if (rawStatus === 'connecting' || rawStatus === 'pairing' || rawStatus === 'qrcode') {
-    status = 'connecting'
+    status = 'connected';
+  } else if (
+    rawStatus === 'connecting' ||
+    rawStatus === 'pairing' ||
+    rawStatus === 'qrcode'
+  ) {
+    status = 'connecting';
   } else if (qrCode || pairingCode) {
-    status = 'qrcode'
+    status = 'qrcode';
   } else {
     // disconnected, hibernated (uazapiGO) — neither accepts messages.
-    status = 'disconnected'
+    status = 'disconnected';
   }
-  return { status, qrCode, pairingCode, profileName: profileName || undefined }
+  return { status, qrCode, pairingCode, profileName: profileName || undefined };
 }
 
 /**
@@ -207,14 +239,14 @@ export async function instanceStatus(args: {
  * instance-level token used for connect/status/send.
  */
 export async function instanceInit(args: {
-  serverUrl: string
-  adminToken: string
-  name: string
+  serverUrl: string;
+  adminToken: string;
+  name: string;
 }): Promise<{ token: string; id?: string }> {
-  const { serverUrl, adminToken, name } = args
-  const base = serverUrl.replace(/\/+$/, '')
+  const { serverUrl, adminToken, name } = args;
+  const base = serverUrl.replace(/\/+$/, '');
 
-  let lastError: Error | null = null
+  let lastError: Error | null = null;
   for (const path of ['/instance/create', '/instance/init']) {
     try {
       const response = await fetch(`${base}${path}`, {
@@ -224,37 +256,41 @@ export async function instanceInit(args: {
           admintoken: adminToken,
         },
         body: JSON.stringify({ name }),
-      })
+      });
       if (!response.ok) {
         await throwUazapiError(
           response,
-          `Uazapi instance init failed: ${response.status}`,
-        )
+          `Uazapi instance init failed: ${response.status}`
+        );
       }
-      const data = (await response.json()) as Record<string, unknown>
+      const data = (await response.json()) as Record<string, unknown>;
       const nested =
         data.data && typeof data.data === 'object'
           ? (data.data as Record<string, unknown>)
-          : data
+          : data;
       const token = String(
-        nested.token ?? (nested.instance && typeof nested.instance === 'object'
-          ? (nested.instance as Record<string, unknown>).token
-          : '') ?? '',
-      )
+        nested.token ??
+          (nested.instance && typeof nested.instance === 'object'
+            ? (nested.instance as Record<string, unknown>).token
+            : '') ??
+          ''
+      );
       if (!token) {
-        throw new Error('Uazapi instance init returned no token.')
+        throw new Error('Uazapi instance init returned no token.');
       }
       const id = String(
-        nested.id ?? (nested.instance && typeof nested.instance === 'object'
-          ? (nested.instance as Record<string, unknown>).id
-          : '') ?? '',
-      )
-      return { token, id: id || undefined }
+        nested.id ??
+          (nested.instance && typeof nested.instance === 'object'
+            ? (nested.instance as Record<string, unknown>).id
+            : '') ??
+          ''
+      );
+      return { token, id: id || undefined };
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error('Uazapi instance init failed')
+  throw lastError ?? new Error('Uazapi instance init failed');
 }
 
 /**
@@ -266,34 +302,33 @@ export async function instanceInit(args: {
  * request fails — callers treat that as "unknown", not "misconfigured".
  */
 export async function getInstanceWebhook(args: {
-  serverUrl: string
-  apiToken: string
+  serverUrl: string;
+  apiToken: string;
 }): Promise<{ url?: string; events?: string[]; enabled?: boolean } | null> {
-  const { serverUrl, apiToken } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/webhook`
+  const { serverUrl, apiToken } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/webhook`;
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers: buildHeaders(apiToken),
       signal: AbortSignal.timeout(10000),
-    })
-    if (!response.ok) return null
-    const data = (await response.json()) as unknown
-    const list = Array.isArray(data) ? data : [data]
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as unknown;
+    const list = Array.isArray(data) ? data : [data];
     const first = list.find((w) => !!w && typeof w === 'object') as
-      | Record<string, unknown>
-      | undefined
-    if (!first) return null
+      Record<string, unknown> | undefined;
+    if (!first) return null;
     return {
       url: String(first.url ?? first.webhook_url ?? '') || undefined,
       events: Array.isArray(first.events)
         ? (first.events as unknown[]).map(String)
         : undefined,
       enabled: typeof first.enabled === 'boolean' ? first.enabled : undefined,
-    }
+    };
   } catch (err) {
-    console.warn('[uazapi] getInstanceWebhook failed:', err)
-    return null
+    console.warn('[uazapi] getInstanceWebhook failed:', err);
+    return null;
   }
 }
 
@@ -318,15 +353,15 @@ export async function getInstanceWebhook(args: {
  * only throw if every attempt fails.
  */
 export async function setInstanceWebhook(args: {
-  serverUrl: string
-  apiToken: string
-  url: string
-  events?: string[]
-  excludeMessages?: string[]
+  serverUrl: string;
+  apiToken: string;
+  url: string;
+  events?: string[];
+  excludeMessages?: string[];
 }): Promise<void> {
-  const { serverUrl, apiToken, url, events, excludeMessages } = args
-  const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook`
-  const eventList = events ?? ['messages', 'messages_update', 'connection']
+  const { serverUrl, apiToken, url, events, excludeMessages } = args;
+  const endpoint = `${serverUrl.replace(/\/+$/, '')}/webhook`;
+  const eventList = events ?? ['messages', 'messages_update', 'connection'];
 
   const attempts: Record<string, unknown>[] = [
     {
@@ -338,23 +373,26 @@ export async function setInstanceWebhook(args: {
     },
     { url, events: eventList, enabled: true },
     { url, events: eventList },
-  ]
+  ];
 
-  let lastError: Error | null = null
+  let lastError: Error | null = null;
   for (const body of attempts) {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: buildHeaders(apiToken),
         body: JSON.stringify(body),
-      })
-      if (response.ok) return
-      await throwUazapiError(response, `Uazapi webhook set failed: ${response.status}`)
+      });
+      if (response.ok) return;
+      await throwUazapiError(
+        response,
+        `Uazapi webhook set failed: ${response.status}`
+      );
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error('Uazapi webhook set failed')
+  throw lastError ?? new Error('Uazapi webhook set failed');
 }
 
 // ============================================================
@@ -362,16 +400,16 @@ export async function setInstanceWebhook(args: {
 // ============================================================
 
 export interface SendTextMessageArgs {
-  serverUrl: string
-  apiToken: string
-  to: string
-  text: string
+  serverUrl: string;
+  apiToken: string;
+  to: string;
+  text: string;
   /**
    * Uazapi message id of the message being quoted (reply). Sent as the
    * `quoted` body field — same shape the server stores on inbound
    * webhook messages.
    */
-  quotedMessageId?: string
+  quotedMessageId?: string;
 }
 
 /**
@@ -383,36 +421,36 @@ export interface SendTextMessageArgs {
 export async function sendTextMessage(
   args: SendTextMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, text, quotedMessageId } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/send/text`
+  const { serverUrl, apiToken, to, text, quotedMessageId } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/send/text`;
   const body: Record<string, unknown> = {
     number: to,
     text,
-  }
-  if (quotedMessageId) body.quoted = quotedMessageId
+  };
+  if (quotedMessageId) body.quoted = quotedMessageId;
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: JSON.stringify(body),
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send text failed')
+    await throwUazapiError(response, 'Uazapi send text failed');
   }
-  const data = await response.json()
-  return { messageId: data.id || data.message_id || data.key?.id || '' }
+  const data = await response.json();
+  return { messageId: data.id || data.message_id || data.key?.id || '' };
 }
 
-export type MediaKind = 'image' | 'video' | 'document' | 'audio'
+export type MediaKind = 'image' | 'video' | 'document' | 'audio';
 
 export interface SendMediaMessageArgs {
-  serverUrl: string
-  apiToken: string
-  to: string
-  kind: MediaKind
-  link: string
-  caption?: string
-  filename?: string
-  quotedMessageId?: string
+  serverUrl: string;
+  apiToken: string;
+  to: string;
+  kind: MediaKind;
+  link: string;
+  caption?: string;
+  filename?: string;
+  quotedMessageId?: string;
 }
 
 /**
@@ -424,44 +462,53 @@ export interface SendMediaMessageArgs {
 export async function sendMediaMessage(
   args: SendMediaMessageArgs
 ): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, kind, link, caption, filename, quotedMessageId } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/send/media`
+  const {
+    serverUrl,
+    apiToken,
+    to,
+    kind,
+    link,
+    caption,
+    filename,
+    quotedMessageId,
+  } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/send/media`;
   const body: Record<string, unknown> = {
     number: to,
     type: kind === 'document' ? 'file' : kind,
     link,
-  }
-  if (caption && kind !== 'audio') body.caption = caption
-  if (kind === 'document' && filename) body.filename = filename
-  if (quotedMessageId) body.quoted = quotedMessageId
+  };
+  if (caption && kind !== 'audio') body.caption = caption;
+  if (kind === 'document' && filename) body.filename = filename;
+  if (quotedMessageId) body.quoted = quotedMessageId;
 
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: JSON.stringify(body),
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send media failed')
+    await throwUazapiError(response, 'Uazapi send media failed');
   }
-  const data = await response.json()
-  return { messageId: data.id || data.message_id || data.key?.id || '' }
+  const data = await response.json();
+  return { messageId: data.id || data.message_id || data.key?.id || '' };
 }
 
 export interface MenuRow {
-  id: string
-  title: string
-  description?: string
+  id: string;
+  title: string;
+  description?: string;
 }
 
 export interface SendMenuArgs {
-  serverUrl: string
-  apiToken: string
-  to: string
-  body: string
-  title?: string
-  footer?: string
-  rows: MenuRow[]
-  quotedMessageId?: string
+  serverUrl: string;
+  apiToken: string;
+  to: string;
+  body: string;
+  title?: string;
+  footer?: string;
+  rows: MenuRow[];
+  quotedMessageId?: string;
 }
 
 /**
@@ -476,21 +523,21 @@ export interface SendMenuArgs {
 
 export interface UazapiChat {
   /** Full JID of the chat, e.g. `5511999999999@s.whatsapp.net`. */
-  id: string
+  id: string;
   /** Alias of `id` — the JID needed by /message/find. */
-  chatid?: string
-  name?: string
+  chatid?: string;
+  name?: string;
   /** Raw phone as reported by the server (`+55 41 ...` or digits). */
-  phone: string
-  lastMessage?: string
-  lastMessageAt?: string
-  unreadCount?: number
-  isGroup?: boolean
+  phone: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  unreadCount?: number;
+  isGroup?: boolean;
   /**
    * Profile picture URL of the chat/contact, when the server provides
    * it on /chat/find rows (`image` / `imagePreview` on Uazapi v2).
    */
-  image?: string
+  image?: string;
 }
 
 /**
@@ -499,13 +546,13 @@ export interface UazapiChat {
  * to legacy GET patterns for older implementations.
  */
 export async function fetchChats(args: {
-  serverUrl: string
-  apiToken: string
-  limit?: number
-  offset?: number
+  serverUrl: string;
+  apiToken: string;
+  limit?: number;
+  offset?: number;
 }): Promise<UazapiChat[]> {
-  const { serverUrl, apiToken, limit = 50, offset = 0 } = args
-  const base = serverUrl.replace(/\/+$/, '')
+  const { serverUrl, apiToken, limit = 50, offset = 0 } = args;
+  const base = serverUrl.replace(/\/+$/, '');
 
   // Uazapi v2: POST /chat/find — body-sorted, individual chats only.
   try {
@@ -520,59 +567,59 @@ export async function fetchChats(args: {
         operator: 'AND',
       }),
       signal: AbortSignal.timeout(15000),
-    })
+    });
     if (response.ok) {
-      const data = await response.json()
-      const chats = extractChatsFromResponse(data)
-      if (chats.length > 0) return chats
+      const data = await response.json();
+      const chats = extractChatsFromResponse(data);
+      if (chats.length > 0) return chats;
     }
   } catch {
     // fall through to legacy patterns
   }
 
   // Legacy: try common GET chat-list endpoint patterns
-  const patterns = ['/chats', '/chat/find', '/conversations']
+  const patterns = ['/chats', '/chat/find', '/conversations'];
 
   for (const path of patterns) {
     try {
-      const url = `${base}${path}?limit=${limit}`
+      const url = `${base}${path}?limit=${limit}`;
       const response = await fetch(url, {
         method: 'GET',
         headers: buildHeaders(apiToken),
         signal: AbortSignal.timeout(10000),
-      })
-      if (!response.ok) continue
+      });
+      if (!response.ok) continue;
 
-      const data = await response.json()
-      const chats = extractChatsFromResponse(data)
-      if (chats.length > 0) return chats
+      const data = await response.json();
+      const chats = extractChatsFromResponse(data);
+      if (chats.length > 0) return chats;
     } catch {
-      continue
+      continue;
     }
   }
 
-  return []
+  return [];
 }
 
 export interface UazapiStoredMessage {
-  messageid?: string
-  fromMe?: boolean
-  isGroup?: boolean
-  messageType?: string
-  mediaType?: string
-  text?: string
-  content?: unknown
-  messageTimestamp?: number | string
-  status?: string
-  fileURL?: string
-  wasSentByApi?: boolean
-  senderName?: string
+  messageid?: string;
+  fromMe?: boolean;
+  isGroup?: boolean;
+  messageType?: string;
+  mediaType?: string;
+  text?: string;
+  content?: unknown;
+  messageTimestamp?: number | string;
+  status?: string;
+  fileURL?: string;
+  wasSentByApi?: boolean;
+  senderName?: string;
   /**
    * Uazapi message id of the message this one replies to (quoted).
    * String on Uazapi v2; some servers expose the Baileys contextInfo
    * inside `content` instead.
    */
-  quoted?: string
+  quoted?: string;
 }
 
 /**
@@ -584,70 +631,75 @@ export interface UazapiStoredMessage {
  * messages" from "fetch failed" instead of silently losing history.
  */
 export async function fetchMessages(args: {
-  serverUrl: string
-  apiToken: string
-  chatid: string
-  limit?: number
-  offset?: number
+  serverUrl: string;
+  apiToken: string;
+  chatid: string;
+  limit?: number;
+  offset?: number;
 }): Promise<{ messages: UazapiStoredMessage[]; error?: string }> {
-  const { serverUrl, apiToken, chatid, limit = 100, offset = 0 } = args
-  const base = serverUrl.replace(/\/+$/, '')
+  const { serverUrl, apiToken, chatid, limit = 100, offset = 0 } = args;
+  const base = serverUrl.replace(/\/+$/, '');
   try {
     const response = await fetch(`${base}/message/find`, {
       method: 'POST',
       headers: buildHeaders(apiToken),
       body: JSON.stringify({ chatid, limit, offset }),
       signal: AbortSignal.timeout(15000),
-    })
+    });
     if (!response.ok) {
-      return { messages: [], error: `HTTP ${response.status}` }
+      return { messages: [], error: `HTTP ${response.status}` };
     }
-    const data = await response.json()
+    const data = await response.json();
     const messages: unknown[] = Array.isArray(data)
       ? data
-      : (data.messages as unknown[]) ?? []
+      : ((data.messages as unknown[]) ?? []);
     return {
       messages: messages.filter(
-        (m): m is UazapiStoredMessage => !!m && typeof m === 'object',
+        (m): m is UazapiStoredMessage => !!m && typeof m === 'object'
       ),
-    }
+    };
   } catch (err) {
     return {
       messages: [],
       error: err instanceof Error ? err.message : 'network error',
-    }
+    };
   }
 }
 
 function extractChatsFromResponse(data: unknown): UazapiChat[] {
-  if (!data || typeof data !== 'object') return []
+  if (!data || typeof data !== 'object') return [];
 
-  const obj = data as Record<string, unknown>
+  const obj = data as Record<string, unknown>;
   const arr: unknown[] = Array.isArray(data)
     ? data
-    : (obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []
+    : ((obj.chats as unknown[]) ?? (obj.data as unknown[]) ?? []);
 
-  if (!Array.isArray(arr)) return []
+  if (!Array.isArray(arr)) return [];
 
   const items: (UazapiChat | null)[] = arr.map((item: unknown) => {
-    if (!item || typeof item !== 'object') return null
-    const row = item as Record<string, unknown>
-    const key = row.key as Record<string, unknown> | undefined
-    const lastMessage = row.last_message as Record<string, unknown> | undefined
+    if (!item || typeof item !== 'object') return null;
+    const row = item as Record<string, unknown>;
+    const key = row.key as Record<string, unknown> | undefined;
+    const lastMessage = row.last_message as Record<string, unknown> | undefined;
 
     // v2 chats carry wa_chatid (full JID); legacy shapes use id/chatId/jid.
     const chatId = String(
-      row.wa_chatid ?? row.chatid ?? row.id ?? key?.remoteJid ?? row.jid ?? '',
-    )
-    const rawPhone = String(row.phone ?? '')
+      row.wa_chatid ?? row.chatid ?? row.id ?? key?.remoteJid ?? row.jid ?? ''
+    );
+    const rawPhone = String(row.phone ?? '');
     const phone = rawPhone
       ? rawPhone.replace(/@.*$/, '')
-      : chatId.replace(/@.*$/, '').replace(/:.*$/, '')
-    if (!phone) return null
+      : chatId.replace(/@.*$/, '').replace(/:.*$/, '');
+    if (!phone) return null;
 
     const name = String(
-      row.name ?? row.wa_name ?? row.wa_contactName ?? row.pushName ?? row.contactName ?? '',
-    )
+      row.name ??
+        row.wa_name ??
+        row.wa_contactName ??
+        row.pushName ??
+        row.contactName ??
+        ''
+    );
     const lastMsg = String(
       row.wa_lastMessageTextVote ??
         row.wa_lastMessageText ??
@@ -655,19 +707,32 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
         lastMessage?.text ??
         lastMessage?.conversation ??
         row.lastMessage ??
-        '',
-    ).replace(/^undefined$/, '')
+        ''
+    ).replace(/^undefined$/, '');
     const rawTs =
-      row.wa_lastMsgTimestamp ?? row.lastMessageAt ?? row.last_message_at ?? row.timestamp ?? lastMessage?.timestamp ?? ''
-    let lastMessageAt: string | undefined
+      row.wa_lastMsgTimestamp ??
+      row.lastMessageAt ??
+      row.last_message_at ??
+      row.timestamp ??
+      lastMessage?.timestamp ??
+      '';
+    let lastMessageAt: string | undefined;
     if (typeof rawTs === 'number' && rawTs > 0) {
-      lastMessageAt = new Date(rawTs > 1e12 ? rawTs : rawTs * 1000).toISOString()
+      lastMessageAt = new Date(
+        rawTs > 1e12 ? rawTs : rawTs * 1000
+      ).toISOString();
     } else if (typeof rawTs === 'string' && !isNaN(Date.parse(rawTs))) {
-      lastMessageAt = new Date(rawTs).toISOString()
+      lastMessageAt = new Date(rawTs).toISOString();
     }
-    const unread = Number(row.wa_unreadCount ?? row.unreadCount ?? row.unread_count ?? row.unread ?? 0)
-    const isGroup = row.wa_isGroup === true || /@g\.us$/.test(chatId)
-    const image = String(row.image ?? row.imagePreview ?? '')
+    const unread = Number(
+      row.wa_unreadCount ??
+        row.unreadCount ??
+        row.unread_count ??
+        row.unread ??
+        0
+    );
+    const isGroup = row.wa_isGroup === true || /@g\.us$/.test(chatId);
+    const image = String(row.image ?? row.imagePreview ?? '');
 
     return {
       id: chatId,
@@ -679,17 +744,24 @@ function extractChatsFromResponse(data: unknown): UazapiChat[] {
       unreadCount: unread || undefined,
       isGroup: isGroup || undefined,
       image: image || undefined,
-    }
-  })
+    };
+  });
 
-  return items.filter((c): c is UazapiChat => c !== null)
+  return items.filter((c): c is UazapiChat => c !== null);
 }
 
-export async function sendMenu(
-  args: SendMenuArgs
-): Promise<UazapiSendResult> {
-  const { serverUrl, apiToken, to, body, title, footer, rows, quotedMessageId } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/send/menu`
+export async function sendMenu(args: SendMenuArgs): Promise<UazapiSendResult> {
+  const {
+    serverUrl,
+    apiToken,
+    to,
+    body,
+    title,
+    footer,
+    rows,
+    quotedMessageId,
+  } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/send/menu`;
   const payload: Record<string, unknown> = {
     number: to,
     title: title || '',
@@ -700,18 +772,18 @@ export async function sendMenu(
       title: r.title,
       description: r.description || '',
     })),
-  }
-  if (quotedMessageId) payload.quoted = quotedMessageId
+  };
+  if (quotedMessageId) payload.quoted = quotedMessageId;
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders(apiToken),
     body: JSON.stringify(payload),
-  })
+  });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send menu failed')
+    await throwUazapiError(response, 'Uazapi send menu failed');
   }
-  const data = await response.json()
-  return { messageId: data.id || data.message_id || data.key?.id || '' }
+  const data = await response.json();
+  return { messageId: data.id || data.message_id || data.key?.id || '' };
 }
 
 /**
@@ -728,19 +800,19 @@ export async function sendMenu(
  */
 export async function downloadMessageUrl(
   args: {
-    serverUrl: string
-    apiToken: string
-    messageId: string
+    serverUrl: string;
+    apiToken: string;
+    messageId: string;
   },
-  attempts = 1,
+  attempts = 1
 ): Promise<{ url?: string; mimetype?: string } | null> {
-  const { serverUrl, apiToken, messageId } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/message/download`
+  const { serverUrl, apiToken, messageId } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/message/download`;
   const idVariants = [
     messageId,
     messageId.includes(':') ? messageId.split(':').pop() || '' : '',
-  ].filter(Boolean)
-  let lastError: unknown = null
+  ].filter(Boolean);
+  let lastError: unknown = null;
   for (const id of idVariants) {
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -749,19 +821,19 @@ export async function downloadMessageUrl(
           headers: buildHeaders(apiToken),
           body: JSON.stringify({ id, return_link: true }),
           signal: AbortSignal.timeout(15000),
-        })
-        const bodyText = await response.text().catch(() => '')
+        });
+        const bodyText = await response.text().catch(() => '');
         if (response.ok) {
-          let data: Record<string, unknown> | null = null
+          let data: Record<string, unknown> | null = null;
           try {
-            data = JSON.parse(bodyText) as Record<string, unknown>
+            data = JSON.parse(bodyText) as Record<string, unknown>;
           } catch {
-            data = null
+            data = null;
           }
           const nested =
             data?.data && typeof data.data === 'object'
               ? (data.data as Record<string, unknown>)
-              : data
+              : data;
           // uazapiGO answers `{ status: false, message }` with HTTP 200
           // when it can't find the message — treat as a failed attempt
           // so the next id variant / retry gets a chance.
@@ -773,32 +845,37 @@ export async function downloadMessageUrl(
             return {
               url: String(nested.fileURL ?? nested.url ?? '') || undefined,
               mimetype: String(nested.mimetype ?? '') || undefined,
-            }
+            };
           }
           if (nested?.status === false) {
             lastError = new Error(
-              `server: status=false${nested.message ? ` — ${String(nested.message).slice(0, 200)}` : ''}`,
-            )
-            continue
+              `server: status=false${nested.message ? ` — ${String(nested.message).slice(0, 200)}` : ''}`
+            );
+            continue;
           }
           lastError = new Error(
-            `HTTP 200 but no url${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
-          )
+            `HTTP 200 but no url${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`
+          );
         } else {
           // Capture the server's actual error body — silent "media
           // broken" reports are undiagnosable without it.
           lastError = new Error(
-            `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`,
-          )
+            `HTTP ${response.status}${bodyText ? ` — ${bodyText.slice(0, 300)}` : ''}`
+          );
         }
       } catch (err) {
-        lastError = err
+        lastError = err;
       }
-      if (attempt < attempts) await new Promise((r) => setTimeout(r, 2000 * attempt))
+      if (attempt < attempts)
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
   }
-  console.warn('[uazapi] downloadMessageUrl failed:', { messageId, attempts, error: lastError })
-  return null
+  console.warn('[uazapi] downloadMessageUrl failed:', {
+    messageId,
+    attempts,
+    error: lastError,
+  });
+  return null;
 }
 
 /**
@@ -808,33 +885,39 @@ export async function downloadMessageUrl(
  * Uazapi file endpoints require auth beyond the plain link.
  */
 export async function downloadMessageFile(args: {
-  serverUrl: string
-  apiToken: string
-  messageId: string
+  serverUrl: string;
+  apiToken: string;
+  messageId: string;
 }): Promise<{ buffer: ArrayBuffer; contentType: string } | null> {
-  const { serverUrl, apiToken, messageId } = args
-  const file = await downloadMessageUrl({ serverUrl, apiToken, messageId }, 3)
-  if (!file?.url) return null
+  const { serverUrl, apiToken, messageId } = args;
+  const file = await downloadMessageUrl({ serverUrl, apiToken, messageId }, 3);
+  if (!file?.url) return null;
 
-  const base = serverUrl.replace(/\/+$/, '')
-  const isOwnServer = file.url.startsWith(base)
-  const headers: Record<string, string> = isOwnServer ? buildHeaders(apiToken) : {}
+  const base = serverUrl.replace(/\/+$/, '');
+  const isOwnServer = isSameOrigin(file.url, base);
+  const headers: Record<string, string> = isOwnServer
+    ? buildHeaders(apiToken)
+    : {};
   const attempts: Record<string, string>[] = [
     headers,
     isOwnServer ? { ...headers, Authorization: `Bearer ${apiToken}` } : {},
     {},
-  ]
+  ];
 
   for (const attemptHeaders of attempts) {
     try {
-      const response = await fetch(file.url, {
+      const downloaded = await fetchRemoteBytes({
+        url: file.url,
         headers: attemptHeaders,
-        signal: AbortSignal.timeout(20000),
-      })
-      if (!response.ok) continue
-      const contentType = response.headers.get('content-type') || file.mimetype || 'application/octet-stream'
-      const buffer = await response.arrayBuffer()
-      return { buffer, contentType }
+        maxBytes: 16 * 1024 * 1024,
+        timeoutMs: 20_000,
+      });
+      if (!downloaded) continue;
+      return {
+        buffer: downloaded.buffer,
+        contentType:
+          downloaded.contentType || file.mimetype || 'application/octet-stream',
+      };
     } catch {
       // try the next auth strategy
     }
@@ -848,7 +931,7 @@ export async function downloadMessageFile(args: {
   const b64IdVariants = [
     messageId,
     messageId.includes(':') ? messageId.split(':').pop() || '' : '',
-  ].filter(Boolean)
+  ].filter(Boolean);
   for (const b64Id of b64IdVariants) {
     try {
       const response = await fetch(`${base}/message/download`, {
@@ -856,30 +939,33 @@ export async function downloadMessageFile(args: {
         headers: buildHeaders(apiToken),
         body: JSON.stringify({ id: b64Id, return_base64: true }),
         signal: AbortSignal.timeout(30000),
-      })
+      });
       if (response.ok) {
-        const data = (await response.json()) as Record<string, unknown>
-        const nested = (data.data && typeof data.data === 'object'
-          ? data.data
-          : data) as Record<string, unknown>
-        if (nested.status === false) continue
+        const data = (await response.json()) as Record<string, unknown>;
+        const nested = (
+          data.data && typeof data.data === 'object' ? data.data : data
+        ) as Record<string, unknown>;
+        if (nested.status === false) continue;
         const b64 =
           typeof nested.base64Data === 'string'
             ? nested.base64Data
             : typeof nested.base64 === 'string'
               ? nested.base64
-              : typeof nested.file === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
+              : typeof nested.file === 'string' &&
+                  /^[A-Za-z0-9+/=\s]+$/.test(nested.file)
                 ? nested.file
-                : ''
+                : '';
         if (b64 && b64.length < 16_000_000) {
-          const binary = Buffer.from(b64, 'base64')
+          const binary = Buffer.from(b64, 'base64');
           return {
             buffer: binary.buffer.slice(
               binary.byteOffset,
-              binary.byteOffset + binary.byteLength,
+              binary.byteOffset + binary.byteLength
             ) as ArrayBuffer,
-            contentType: String(nested.mimetype ?? file.mimetype ?? '') || 'application/octet-stream',
-          }
+            contentType:
+              String(nested.mimetype ?? file.mimetype ?? '') ||
+              'application/octet-stream',
+          };
         }
       }
     } catch {
@@ -887,8 +973,10 @@ export async function downloadMessageFile(args: {
     }
   }
 
-  console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', { messageId })
-  return null
+  console.warn('[uazapi] downloadMessageFile failed to fetch bytes:', {
+    messageId,
+  });
+  return null;
 }
 
 /**
@@ -903,26 +991,24 @@ export async function downloadMessageFile(args: {
  * parse is defensive. Never throws.
  */
 export async function fetchProfilePhoto(args: {
-  serverUrl: string
-  apiToken: string
-  number: string
+  serverUrl: string;
+  apiToken: string;
+  number: string;
 }): Promise<string | null> {
-  const { serverUrl, apiToken, number } = args
-  const url = `${serverUrl.replace(/\/+$/, '')}/chat/GetNameAndImageURL`
+  const { serverUrl, apiToken, number } = args;
+  const url = `${serverUrl.replace(/\/+$/, '')}/chat/GetNameAndImageURL`;
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: buildHeaders(apiToken),
       body: JSON.stringify({ number, preview: false, returnMoreNames: true }),
       signal: AbortSignal.timeout(10000),
-    })
-    if (!response.ok) return null
-    const data = await response.json()
-    if (data && data.status === false) return null
-    const nested = typeof data?.data === 'object' && data.data !== null
-    const entry = nested
-      ? (data.data[number] ?? data.data)
-      : data
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data && data.status === false) return null;
+    const nested = typeof data?.data === 'object' && data.data !== null;
+    const entry = nested ? (data.data[number] ?? data.data) : data;
     const candidate =
       entry?.photoURL ||
       entry?.photoUrl ||
@@ -931,10 +1017,12 @@ export async function fetchProfilePhoto(args: {
       entry?.imgUrl ||
       entry?.imageUrl ||
       entry?.picture ||
-      entry?.url
-    return typeof candidate === 'string' && candidate.length > 0 ? candidate : null
+      entry?.url;
+    return typeof candidate === 'string' && candidate.length > 0
+      ? candidate
+      : null;
   } catch (err) {
-    console.warn('[uazapi] fetchProfilePhoto failed:', { number, error: err })
-    return null
+    console.warn('[uazapi] fetchProfilePhoto failed:', { number, error: err });
+    return null;
   }
 }

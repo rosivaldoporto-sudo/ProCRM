@@ -1,33 +1,45 @@
-import { NextResponse, after } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { normalizePhone } from '@/lib/whatsapp/phone-utils'
-import { findExistingContact, isUniqueViolation, resolveContactName } from '@/lib/contacts/dedupe'
-import { runAutomationsForTrigger } from '@/lib/automations/engine'
-import { dispatchInboundToFlows } from '@/lib/flows/engine'
-import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
-import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client'
-import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
-import { resolveAuditUserId } from '@/lib/api/v1/contacts'
-import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo'
-import { ensureLeadDeal } from '@/lib/deals/auto-create'
+import { NextResponse, after } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import {
+  findExistingContact,
+  isUniqueViolation,
+  resolveContactName,
+} from '@/lib/contacts/dedupe';
+import { runAutomationsForTrigger } from '@/lib/automations/engine';
+import { dispatchInboundToFlows } from '@/lib/flows/engine';
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import { downloadMessageUrl } from '@/lib/uazapi/uazapi-client';
+import {
+  uazapiEnvConfig,
+  getCachedInstanceToken,
+} from '@/lib/uazapi/runtime-config';
+import { resolveAuditUserId } from '@/lib/api/v1/contacts';
+import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo';
+import { ensureLeadDeal } from '@/lib/deals/auto-create';
+import {
+  readWebhookBody,
+  verifyUazapiWebhookCredential,
+  WebhookPayloadTooLargeError,
+} from '@/lib/uazapi/webhook-auth';
 import {
   mapUazapiContentType,
   mapUazapiStatus,
   uazapiTimestampToIso,
-} from '@/lib/uazapi/message-mapping'
+} from '@/lib/uazapi/message-mapping';
 
-export const maxDuration = 60
+export const maxDuration = 60;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _adminClient: any = null
+let _adminClient: any = null;
 function supabaseAdmin() {
   if (!_adminClient) {
     _adminClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    );
   }
-  return _adminClient
+  return _adminClient;
 }
 
 /**
@@ -38,86 +50,120 @@ function supabaseAdmin() {
  * `messages[]`) are still accepted for backward compatibility.
  */
 interface UazapiWebhookPayload {
-  EventType?: string
-  instance?: string
-  owner?: string
-  token?: string
-  message?: UazapiWebhookMessage
+  EventType?: string;
+  instance?: string;
+  owner?: string;
+  token?: string;
+  message?: UazapiWebhookMessage;
   chat?: {
-    image?: string
-    imagePreview?: string
-  }
+    image?: string;
+    imagePreview?: string;
+  };
   data?: UazapiWebhookMessage & {
     /** uazapiGO v2 flat payload: `data` IS the Message object. */
-    from?: string
-    to?: string
-    fileURL?: string
+    from?: string;
+    to?: string;
+    fileURL?: string;
   } & {
     msg?: UazapiWebhookMessage & {
-      key?: { id?: string; remoteJid?: string; fromMe?: boolean }
+      key?: { id?: string; remoteJid?: string; fromMe?: boolean };
       message?: {
-        conversation?: string
-        extendedTextMessage?: { text: string; contextInfo?: BaileysContextInfo }
-        imageMessage?: { url?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
-        audioMessage?: { url?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
-        videoMessage?: { url?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
-        documentMessage?: { url?: string; fileName?: string; caption?: string; mimetype?: string; contextInfo?: BaileysContextInfo }
+        conversation?: string;
+        extendedTextMessage?: {
+          text: string;
+          contextInfo?: BaileysContextInfo;
+        };
+        imageMessage?: {
+          url?: string;
+          caption?: string;
+          mimetype?: string;
+          contextInfo?: BaileysContextInfo;
+        };
+        audioMessage?: {
+          url?: string;
+          mimetype?: string;
+          contextInfo?: BaileysContextInfo;
+        };
+        videoMessage?: {
+          url?: string;
+          caption?: string;
+          mimetype?: string;
+          contextInfo?: BaileysContextInfo;
+        };
+        documentMessage?: {
+          url?: string;
+          fileName?: string;
+          caption?: string;
+          mimetype?: string;
+          contextInfo?: BaileysContextInfo;
+        };
         documentWithCaptionMessage?: {
-          message?: { documentMessage?: { url?: string; fileName?: string; caption?: string; contextInfo?: BaileysContextInfo } }
-        }
-        locationMessage?: { degreesLatitude?: number; degreesLongitude?: number; contextInfo?: BaileysContextInfo }
-        viewOnceMessage?: Record<string, unknown>
-      }
-      pushName?: string
-    }
-    message?: UazapiWebhookMessage
-    from?: string
-    to?: string
-    text?: string
-    id?: string
-  }
+          message?: {
+            documentMessage?: {
+              url?: string;
+              fileName?: string;
+              caption?: string;
+              contextInfo?: BaileysContextInfo;
+            };
+          };
+        };
+        locationMessage?: {
+          degreesLatitude?: number;
+          degreesLongitude?: number;
+          contextInfo?: BaileysContextInfo;
+        };
+        viewOnceMessage?: Record<string, unknown>;
+      };
+      pushName?: string;
+    };
+    message?: UazapiWebhookMessage;
+    from?: string;
+    to?: string;
+    text?: string;
+    id?: string;
+  };
   messages?: Array<{
-    id: string
-    from: string
-    to: string
-    text?: string
-    type?: string
-    media?: string
-    caption?: string
-    timestamp?: string
-    quoted?: string
-  }>
+    id: string;
+    from: string;
+    to: string;
+    text?: string;
+    type?: string;
+    media?: string;
+    caption?: string;
+    timestamp?: string;
+    quoted?: string;
+  }>;
 }
 
 interface UazapiWebhookMessage {
-  id?: string
-  messageid?: string
-  chatid?: string
-  sender?: string
-  senderName?: string
-  sender_pn?: string
-  text?: string
-  content?: unknown
-  messageType?: string
-  mediaType?: string
-  type?: string
-  fromMe?: boolean
-  wasSentByApi?: boolean
-  isGroup?: boolean
-  status?: string
-  groupName?: string
-  messageTimestamp?: number | string
-  owner?: string
+  id?: string;
+  messageid?: string;
+  chatid?: string;
+  sender?: string;
+  senderName?: string;
+  sender_pn?: string;
+  text?: string;
+  content?: unknown;
+  messageType?: string;
+  mediaType?: string;
+  type?: string;
+  fromMe?: boolean;
+  wasSentByApi?: boolean;
+  isGroup?: boolean;
+  status?: string;
+  groupName?: string;
+  messageTimestamp?: number | string;
+  owner?: string;
   /**
    * Uazapi message id of the message being replied to (quoted). The
    * Uazapi v2 webhook sends it as a plain string on the flat payload.
    */
-  quoted?: string
+  quoted?: string;
 }
 
 interface BaileysContextInfo {
-  stanzaId?: string
-  stanzaID?: string
+  stanzaId?: string;
+  stanzaID?: string;
 }
 
 /**
@@ -128,35 +174,71 @@ interface BaileysContextInfo {
  * auto-created token); the uazapi_config row is only a state cache.
  */
 export async function handleWebhook(request: Request, accountId?: string) {
-  const { searchParams } = new URL(request.url)
-  const challenge = searchParams.get('challenge')
+  const { searchParams } = new URL(request.url);
+  const challenge = searchParams.get('challenge');
 
   if (challenge) {
-    return new NextResponse(challenge, { status: 200 })
+    const secret = uazapiEnvConfig().webhookSecret;
+    if (
+      !secret ||
+      !verifyUazapiWebhookCredential({
+        request,
+        instanceToken: '',
+        webhookSecret: secret,
+      })
+    ) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    return new NextResponse(challenge, { status: 200 });
   }
 
-  const debug = searchParams.get('debug') === '1'
+  const debug = searchParams.get('debug') === '1';
   try {
-    const payload = (await request.json()) as UazapiWebhookPayload
-    console.log('[uazapi-webhook] POST received:', JSON.stringify(payload).slice(0, 1500))
-    const db = supabaseAdmin()
+    const rawBody = await readWebhookBody(request);
+    const payload = JSON.parse(rawBody) as UazapiWebhookPayload;
+    const db = supabaseAdmin();
 
-    const runtime = await resolveRuntimeConfig(db, accountId)
+    const runtime = await resolveRuntimeConfig(db, accountId);
     if (!runtime) {
-      console.error('[uazapi-webhook] no matching Uazapi config found', { accountId })
+      console.error('[uazapi-webhook] no matching Uazapi config found', {
+        accountId,
+      });
       return NextResponse.json(
         debug
-          ? { status: 'ok', debug: { config: 'none', accountId: accountId || null } }
+          ? {
+              status: 'ok',
+              debug: { config: 'none', accountId: accountId || null },
+            }
           : { error: 'No matching Uazapi config found' },
-        debug ? { status: 200 } : { status: 404 },
-      )
+        debug ? { status: 200 } : { status: 404 }
+      );
     }
 
-    const { config, apiToken } = runtime
+    const { config, apiToken } = runtime;
+    if (
+      !verifyUazapiWebhookCredential({
+        request,
+        payloadToken: payload.token,
+        instanceToken: apiToken,
+        webhookSecret: uazapiEnvConfig().webhookSecret,
+      })
+    ) {
+      console.warn(
+        '[uazapi-webhook] rejected request with invalid credentials',
+        {
+          accountId: config.account_id,
+        }
+      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Handle different payload shapes from Uazapi
-    const messages = extractMessages(payload)
-    console.log(`[uazapi-webhook] extracted ${messages.length} message(s) from payload`)
+    const messages = extractMessages(payload);
+    console.log('[uazapi-webhook] accepted delivery', {
+      accountId: config.account_id,
+      eventType: payload.EventType || 'unknown',
+      messages: messages.length,
+    });
 
     if (messages.length === 0) {
       return NextResponse.json(
@@ -169,11 +251,13 @@ export async function handleWebhook(request: Request, accountId?: string) {
                 extracted: 0,
                 // Payload keys help identify the shape your Uazapi sends.
                 payloadKeys: Object.keys(payload),
-                messageKeys: payload.message ? Object.keys(payload.message) : undefined,
+                messageKeys: payload.message
+                  ? Object.keys(payload.message)
+                  : undefined,
               },
             }
-          : { status: 'ok' },
-      )
+          : { status: 'ok' }
+      );
     }
 
     for (const msg of messages) {
@@ -182,35 +266,55 @@ export async function handleWebhook(request: Request, accountId?: string) {
       // real time. Messages sent via the API (wasSentByApi) never reach
       // this point — extraction skips them since uazapi-send already
       // persists those.
-      const isOutbound = !!msg.fromMe
+      const isOutbound = !!msg.fromMe;
 
-      const phone = normalizePhone(msg.from)
-      if (!phone) continue
+      const phone = normalizePhone(msg.from);
+      if (!phone) continue;
 
       // Find or create contact (reuses shared dedupe logic from WhatsApp webhook)
-      const contact = await findOrCreateContact(db, config.account_id, config.user_id, phone, msg.pushName)
+      const contact = await findOrCreateContact(
+        db,
+        config.account_id,
+        config.user_id,
+        phone,
+        msg.pushName
+      );
       if (!contact) {
-        console.error('[uazapi-webhook] failed to resolve contact for phone:', phone)
-        continue
+        console.error(
+          '[uazapi-webhook] failed to resolve contact for phone:',
+          phone
+        );
+        continue;
       }
 
       // Find or create conversation
-      const convResult = await findOrCreateConversation(db, config.account_id, config.user_id, contact.id)
+      const convResult = await findOrCreateConversation(
+        db,
+        config.account_id,
+        config.user_id,
+        contact.id
+      );
       if (!convResult) {
-        console.error('[uazapi-webhook] failed to resolve conversation for contact:', contact.id)
-        continue
+        console.error(
+          '[uazapi-webhook] failed to resolve conversation for contact:',
+          contact.id
+        );
+        continue;
       }
-      const conversation = convResult.conversation
+      const conversation = convResult.conversation;
 
       // Determine content type and text
-      const { contentType, contentText, mediaUrl } = extractMessageContent(msg)
+      const { contentType, contentText, mediaUrl } = extractMessageContent(msg);
       if (!contentType) {
-        console.warn('[uazapi-webhook] dropped message — no text and unmapped type:', {
-          messageId: msg.id,
-          messageType: msg.messageType,
-          mediaType: msg.mediaType,
-        })
-        continue
+        console.warn(
+          '[uazapi-webhook] dropped message — no text and unmapped type:',
+          {
+            messageId: msg.id,
+            messageType: msg.messageType,
+            mediaType: msg.mediaType,
+          }
+        );
+        continue;
       }
 
       // Dedupe — Uazapi can redeliver webhooks (reconnect/retry); the
@@ -222,8 +326,8 @@ export async function handleWebhook(request: Request, accountId?: string) {
           .select('id')
           .eq('conversation_id', conversation.id)
           .eq('message_id', msg.id)
-          .maybeSingle()
-        if (existingMsg) continue
+          .maybeSingle();
+        if (existingMsg) continue;
       }
 
       // Determine whether this is the contact's very first inbound
@@ -233,12 +337,13 @@ export async function handleWebhook(request: Request, accountId?: string) {
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('conversation_id', conversation.id)
-        .eq('sender_type', 'customer')
-      const isFirstInboundMessage = !isOutbound && (priorCustomerMsgCount ?? 0) === 0
+        .eq('sender_type', 'customer');
+      const isFirstInboundMessage =
+        !isOutbound && (priorCustomerMsgCount ?? 0) === 0;
 
       // Resolve the quoted message id to an internal message id. A
       // missing parent is fine — the quote is simply not rendered.
-      let replyToInternalId: string | null = null
+      let replyToInternalId: string | null = null;
       if (msg.quotedId) {
         const { data: quotedParent } = await db
           .from('messages')
@@ -246,13 +351,13 @@ export async function handleWebhook(request: Request, accountId?: string) {
           .eq('conversation_id', conversation.id)
           .eq('message_id', msg.quotedId)
           .limit(1)
-          .maybeSingle()
-        replyToInternalId = quotedParent?.id ?? null
+          .maybeSingle();
+        replyToInternalId = quotedParent?.id ?? null;
         if (!quotedParent) {
           console.warn('[uazapi-webhook] quoted parent not found:', {
             messageId: msg.id,
             quotedId: msg.quotedId,
-          })
+          });
         }
       }
 
@@ -272,11 +377,14 @@ export async function handleWebhook(request: Request, accountId?: string) {
           created_at: msg.createdAt ?? new Date().toISOString(),
         })
         .select('id')
-        .single()
+        .single();
 
       if (insertError) {
-        console.error('[uazapi-webhook] error inserting message:', insertError.message)
-        continue
+        console.error(
+          '[uazapi-webhook] error inserting message:',
+          insertError.message
+        );
+        continue;
       }
 
       // Best-effort: resolve the real file URL for media messages
@@ -294,22 +402,25 @@ export async function handleWebhook(request: Request, accountId?: string) {
                 apiToken,
                 messageId: msg.id,
               },
-              3,
-            )
+              3
+            );
             if (file?.url) {
               await db
                 .from('messages')
                 .update({ media_url: file.url })
-                .eq('id', inserted.id)
+                .eq('id', inserted.id);
             } else {
-              console.warn('[uazapi-webhook] media URL could not be resolved (will retry via proxy):', {
-                messageId: msg.id,
-              })
+              console.warn(
+                '[uazapi-webhook] media URL could not be resolved (will retry via proxy):',
+                {
+                  messageId: msg.id,
+                }
+              );
             }
           } catch (err) {
-            console.error('[uazapi-webhook] media download failed:', err)
+            console.error('[uazapi-webhook] media download failed:', err);
           }
-        })
+        });
       }
 
       // Update conversation metadata + increment unread_count only for
@@ -320,20 +431,27 @@ export async function handleWebhook(request: Request, accountId?: string) {
         last_message_at: msg.createdAt ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'open',
-      }
+      };
       if (!isOutbound) {
-        convUpdate.unread_count = (conversation.unread_count || 0) + 1
+        convUpdate.unread_count = (conversation.unread_count || 0) + 1;
       }
-      if (!convResult.created && conversation.source && conversation.source !== 'uazapi') {
-        convUpdate.source = null
+      if (
+        !convResult.created &&
+        conversation.source &&
+        conversation.source !== 'uazapi'
+      ) {
+        convUpdate.source = null;
       }
-      await db.from('conversations').update(convUpdate).eq('id', conversation.id)
+      await db
+        .from('conversations')
+        .update(convUpdate)
+        .eq('id', conversation.id);
 
       // Dispatch to automations, flows, AI (async, best-effort). Only
       // for inbound messages — outbound phone messages are just mirrored.
       after(async () => {
         try {
-          if (isOutbound) return
+          if (isOutbound) return;
           // New lead → automatically into the pipeline's first stage.
           // Runs BEFORE the AI auto-reply below so the agent can find
           // and move the deal. Never throws (see ensureLeadDeal).
@@ -345,7 +463,7 @@ export async function handleWebhook(request: Request, accountId?: string) {
               contactId: contact.id,
               conversationId: conversation.id,
               contactName: contact.name || contact.phone,
-            })
+            });
           }
           // Enrich the contact with their WhatsApp profile picture
           // (only when none is set yet). Never throws. Prefers the
@@ -359,14 +477,17 @@ export async function handleWebhook(request: Request, accountId?: string) {
               serverUrl: config.server_url,
               apiToken,
               photoUrl: msg.chatImage,
-            })
+            });
           }
           await Promise.allSettled([
             runAutomationsForTrigger({
               accountId: config.account_id,
               triggerType: 'new_message_received',
               contactId: contact.id,
-              context: { conversation_id: conversation.id, message_text: contentText || '' },
+              context: {
+                conversation_id: conversation.id,
+                message_text: contentText || '',
+              },
             }),
             dispatchInboundToFlows({
               accountId: config.account_id,
@@ -386,24 +507,37 @@ export async function handleWebhook(request: Request, accountId?: string) {
               contactId: contact.id,
               configOwnerUserId: config.user_id,
             }),
-          ])
+          ]);
         } catch (err) {
-          console.error('[uazapi-webhook] async dispatch error:', err)
+          console.error('[uazapi-webhook] async dispatch error:', err);
         }
-      })
+      });
     }
 
     return NextResponse.json(
       debug
         ? {
             status: 'ok',
-            debug: { config: 'matched', accountId: accountId || null, extracted: messages.length },
+            debug: {
+              config: 'matched',
+              accountId: accountId || null,
+              extracted: messages.length,
+            },
           }
-        : { status: 'ok' },
-    )
+        : { status: 'ok' }
+    );
   } catch (error) {
-    console.error('Error in Uazapi webhook POST:', error)
-    return NextResponse.json({ status: 'ok' }) // Always return 200 to acknowledge receipt
+    if (error instanceof WebhookPayloadTooLargeError) {
+      return NextResponse.json({ error: error.message }, { status: 413 });
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    console.error('Error in Uazapi webhook POST:', error);
+    return NextResponse.json(
+      { error: 'Webhook processing failed' },
+      { status: 500 }
+    );
   }
 }
 
@@ -416,28 +550,34 @@ export async function handleWebhook(request: Request, accountId?: string) {
  */
 async function resolveRuntimeConfig(
   db: ReturnType<typeof supabaseAdmin>,
-  accountId?: string,
+  accountId?: string
 ): Promise<{
-  config: { account_id: string; user_id: string; server_url: string }
-  apiToken: string
+  config: { account_id: string; user_id: string; server_url: string };
+  apiToken: string;
 } | null> {
   if (!accountId) {
-    console.warn('[uazapi-webhook] accountId missing — per-account webhook URL required')
-    return null
+    console.warn(
+      '[uazapi-webhook] accountId missing — per-account webhook URL required'
+    );
+    return null;
   }
 
-  const env = uazapiEnvConfig()
-  if (!env.serverUrl) return null
+  const env = uazapiEnvConfig();
+  if (!env.serverUrl) return null;
 
-  const apiToken = await getCachedInstanceToken(db, accountId)
-  if (!apiToken) return null
+  const apiToken = await getCachedInstanceToken(db, accountId);
+  if (!apiToken) return null;
 
-  const userId = await resolveAuditUserId(db, accountId)
+  const userId = await resolveAuditUserId(db, accountId);
 
   return {
-    config: { account_id: accountId, user_id: userId, server_url: env.serverUrl },
+    config: {
+      account_id: accountId,
+      user_id: userId,
+      server_url: env.serverUrl,
+    },
     apiToken,
-  }
+  };
 }
 
 // ============================================================
@@ -445,73 +585,80 @@ async function resolveRuntimeConfig(
 // ============================================================
 
 interface ExtractedMessage {
-  id: string
-  from: string
-  fromMe: boolean
-  pushName?: string
-  contentType: string | null
-  contentText: string | null
-  mediaUrl: string | null
-  createdAt?: string
+  id: string;
+  from: string;
+  fromMe: boolean;
+  pushName?: string;
+  contentType: string | null;
+  contentText: string | null;
+  mediaUrl: string | null;
+  createdAt?: string;
   /**
    * Uazapi lifecycle status (delivered/read/failed...), used for
    * outbound (fromMe) messages. Inbound rows always use 'delivered'.
    */
-  status?: string
+  status?: string;
   /**
    * Uazapi message id of the message being replied to (quoted), when
    * present. Resolved to an internal message id before persisting.
    */
-  quotedId?: string
+  quotedId?: string;
   /** Raw Uazapi fields, kept for diagnostics/logging. */
-  messageType?: string
-  mediaType?: string
+  messageType?: string;
+  mediaType?: string;
   /**
    * Profile picture URL of the chat/contact, carried directly in the
    * v2 webhook payload (`chat.image` / `chat.imagePreview`) — no API
    * call needed.
    */
-  chatImage?: string
+  chatImage?: string;
 }
 
 function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
-  const result: ExtractedMessage[] = []
-  const seenIds = new Set<string>()
+  const result: ExtractedMessage[] = [];
+  const seenIds = new Set<string>();
   // v2 webhooks carry the chat's profile picture right on the payload.
-  const chatImage = payload.chat?.image || payload.chat?.imagePreview
+  const chatImage = payload.chat?.image || payload.chat?.imagePreview;
   const push = (msg: ExtractedMessage) => {
-    if (!msg.from) return
-    if (msg.id && seenIds.has(msg.id)) return
-    if (msg.id) seenIds.add(msg.id)
-    result.push({ ...msg, chatImage: msg.chatImage || chatImage })
-  }
+    if (!msg.from) return;
+    if (msg.id && seenIds.has(msg.id)) return;
+    if (msg.id) seenIds.add(msg.id);
+    result.push({ ...msg, chatImage: msg.chatImage || chatImage });
+  };
 
   // Shape 0: Uazapi v2 flat payload (primary).
   //   { EventType: 'messages', message: { messageid, chatid, sender, text,
   //     fromMe, wasSentByApi, senderName, messageType, mediaType, type,
   //     isGroup, messageTimestamp }, chat: {...}, owner, token }
   // Also accepted nested under payload.data.message.
-  const flatMessage = payload.message ?? payload.data?.message
+  const flatMessage = payload.message ?? payload.data?.message;
   if (flatMessage) {
     // Messages sent via the API (wasSentByApi) loop back through the
     // webhook but are already persisted by uazapi-send — skip them.
     // Messages sent from the phone (fromMe) are kept and imported as
     // agent messages so the inbox mirrors the device in real time.
     if (!flatMessage.wasSentByApi) {
-      const isGroup = flatMessage.isGroup === true ||
-        /@g\.us$/.test(flatMessage.chatid || '')
+      const isGroup =
+        flatMessage.isGroup === true ||
+        /@g\.us$/.test(flatMessage.chatid || '');
       if (!isGroup) {
-        const text = typeof flatMessage.text === 'string' ? flatMessage.text : ''
-        const content = flatMessage.content
+        const text =
+          typeof flatMessage.text === 'string' ? flatMessage.text : '';
+        const content = flatMessage.content;
         const contentString =
-          typeof content === 'string' ? content : (content as { text?: string })?.text
-        const body = text || contentString || ''
-        const contentType = mapUazapiContentType(flatMessage.messageType || '', flatMessage.mediaType || '')
+          typeof content === 'string'
+            ? content
+            : (content as { text?: string })?.text;
+        const body = text || contentString || '';
+        const contentType = mapUazapiContentType(
+          flatMessage.messageType || '',
+          flatMessage.mediaType || ''
+        );
         // Unknown message types still get persisted as text when a body
         // is present — better to keep the message than to drop it.
-        const resolvedType = contentType || (body ? 'text' : null)
+        const resolvedType = contentType || (body ? 'text' : null);
         if (resolvedType) {
-          const createdAt = uazapiTimestampToIso(flatMessage.messageTimestamp)
+          const createdAt = uazapiTimestampToIso(flatMessage.messageTimestamp);
           push({
             id: flatMessage.messageid || flatMessage.id || '',
             from: flatMessage.chatid || flatMessage.sender || '',
@@ -528,7 +675,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
             status: flatMessage.status,
             messageType: flatMessage.messageType || flatMessage.type || '',
             mediaType: flatMessage.mediaType || '',
-          })
+          });
         }
       }
     }
@@ -536,60 +683,67 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
 
   // Shape 1: payload.data.msg (Baileys-style)
   if (payload.data?.msg) {
-    const msg = payload.data.msg
-    const key = msg.key || {}
-    const isOutbound = !!key.fromMe
+    const msg = payload.data.msg;
+    const key = msg.key || {};
+    const isOutbound = !!key.fromMe;
 
-    const message = msg.message || {}
-    const conversation = message.conversation || ''
-    const extendedText = message.extendedTextMessage?.text || ''
+    const message = msg.message || {};
+    const conversation = message.conversation || '';
+    const extendedText = message.extendedTextMessage?.text || '';
 
     // Media protos carry an optional direct url (older Baileys builds)
     // — use it when present, otherwise leave null and let the inbox
     // proxy (/api/uazapi/media/:id) resolve it server-side.
-    const image = message.imageMessage
-    const video = message.videoMessage
-    const audio = message.audioMessage
-    const document = message.documentMessage
-    const documentWithCaption = message.documentWithCaptionMessage?.message?.documentMessage
+    const image = message.imageMessage;
+    const video = message.videoMessage;
+    const audio = message.audioMessage;
+    const document = message.documentMessage;
+    const documentWithCaption =
+      message.documentWithCaptionMessage?.message?.documentMessage;
 
-    let contentType: string | null = null
-    let contentText: string | null = null
-    let mediaUrl: string | null = null
-    let quotedId: string | undefined
+    let contentType: string | null = null;
+    let contentText: string | null = null;
+    let mediaUrl: string | null = null;
+    let quotedId: string | undefined;
     const quotedFromContext = (ctx?: BaileysContextInfo) =>
-      ctx?.stanzaId || ctx?.stanzaID
+      ctx?.stanzaId || ctx?.stanzaID;
 
     if (image) {
-      contentType = 'image'
-      contentText = image.caption || null
-      mediaUrl = image.url || null
-      quotedId = quotedFromContext(image.contextInfo)
+      contentType = 'image';
+      contentText = image.caption || null;
+      mediaUrl = image.url || null;
+      quotedId = quotedFromContext(image.contextInfo);
     } else if (video) {
-      contentType = 'video'
-      contentText = video.caption || null
-      mediaUrl = video.url || null
-      quotedId = quotedFromContext(video.contextInfo)
+      contentType = 'video';
+      contentText = video.caption || null;
+      mediaUrl = video.url || null;
+      quotedId = quotedFromContext(video.contextInfo);
     } else if (audio) {
-      contentType = 'audio'
-      contentText = null
-      mediaUrl = audio.url || null
-      quotedId = quotedFromContext(audio.contextInfo)
+      contentType = 'audio';
+      contentText = null;
+      mediaUrl = audio.url || null;
+      quotedId = quotedFromContext(audio.contextInfo);
     } else if (document || documentWithCaption) {
-      contentType = 'document'
-      contentText = document?.caption || documentWithCaption?.caption || document?.fileName || null
-      mediaUrl = document?.url || documentWithCaption?.url || null
-      quotedId = quotedFromContext(document?.contextInfo || documentWithCaption?.contextInfo)
+      contentType = 'document';
+      contentText =
+        document?.caption ||
+        documentWithCaption?.caption ||
+        document?.fileName ||
+        null;
+      mediaUrl = document?.url || documentWithCaption?.url || null;
+      quotedId = quotedFromContext(
+        document?.contextInfo || documentWithCaption?.contextInfo
+      );
     } else if (message.viewOnceMessage) {
       // Disappearing media — type unknown here, but it's still a
       // message worth keeping; the proxy resolves it by id.
-      contentType = 'image'
-      contentText = null
-      mediaUrl = null
+      contentType = 'image';
+      contentText = null;
+      mediaUrl = null;
     } else {
-      contentType = conversation || extendedText ? 'text' : null
-      contentText = conversation || extendedText || null
-      quotedId = quotedFromContext(message.extendedTextMessage?.contextInfo)
+      contentType = conversation || extendedText ? 'text' : null;
+      contentText = conversation || extendedText || null;
+      quotedId = quotedFromContext(message.extendedTextMessage?.contextInfo);
     }
 
     push({
@@ -601,7 +755,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
       contentText,
       mediaUrl,
       quotedId,
-    })
+    });
   }
 
   // Shape 2: uazapiGO v2 webhook (docs.uazapi.com) —
@@ -610,7 +764,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   // sender_pn, fromMe, messageType, messageTimestamp in ms, text,
   // quoted, fileURL, wasSentByApi, ...) — or the minimal
   // { id, from, to, text, timestamp } shape used by older builds.
-  const flat = payload.data
+  const flat = payload.data;
   if (
     flat &&
     typeof flat === 'object' &&
@@ -618,38 +772,47 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
     !('message' in flat) &&
     !('messages' in flat)
   ) {
-    const isApiSent = flat.wasSentByApi === true
+    const isApiSent = flat.wasSentByApi === true;
     const isGroup =
-      flat.isGroup === true || /@g\.us$/.test(String(flat.chatid ?? flat.to ?? ''))
+      flat.isGroup === true ||
+      /@g\.us$/.test(String(flat.chatid ?? flat.to ?? ''));
     if (!isApiSent && !isGroup) {
-      const text = typeof flat.text === 'string' ? flat.text : ''
-      const content = flat.content
+      const text = typeof flat.text === 'string' ? flat.text : '';
+      const content = flat.content;
       const contentString =
-        typeof content === 'string' ? content : (content as { text?: string })?.text
-      const body = text || contentString || ''
+        typeof content === 'string'
+          ? content
+          : (content as { text?: string })?.text;
+      const body = text || contentString || '';
       const contentType = mapUazapiContentType(
         String(flat.messageType ?? flat.type ?? ''),
-        String(flat.mediaType ?? ''),
-      )
-      const resolvedType = contentType || (body ? 'text' : null)
+        String(flat.mediaType ?? '')
+      );
+      const resolvedType = contentType || (body ? 'text' : null);
       if (resolvedType) {
-        const createdAt = uazapiTimestampToIso(flat.messageTimestamp)
+        const createdAt = uazapiTimestampToIso(flat.messageTimestamp);
         push({
           id: String(flat.messageid ?? flat.id ?? ''),
-          from: String(flat.sender_pn ?? flat.chatid ?? flat.sender ?? flat.from ?? ''),
+          from: String(
+            flat.sender_pn ?? flat.chatid ?? flat.sender ?? flat.from ?? ''
+          ),
           fromMe: flat.fromMe === true,
           pushName: String(flat.senderName ?? ''),
           contentType: resolvedType,
           contentText: body || null,
           mediaUrl:
-            typeof flat.fileURL === 'string' && flat.fileURL ? flat.fileURL : null,
+            typeof flat.fileURL === 'string' && flat.fileURL
+              ? flat.fileURL
+              : null,
           quotedId:
-            typeof flat.quoted === 'string' && flat.quoted ? flat.quoted : undefined,
+            typeof flat.quoted === 'string' && flat.quoted
+              ? flat.quoted
+              : undefined,
           createdAt,
           status: String(flat.status ?? ''),
           messageType: String(flat.messageType ?? flat.type ?? ''),
           mediaType: String(flat.mediaType ?? ''),
-        })
+        });
       }
     }
   }
@@ -657,16 +820,18 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
   // Shape 3: payload.messages array
   if (payload.messages) {
     for (const m of payload.messages) {
-      const type = (m.type || '').toLowerCase()
+      const type = (m.type || '').toLowerCase();
       const contentType = m.media
         ? type.includes('image') || type.includes('photo')
           ? 'image'
-          : type.includes('audio') || type.includes('ptt') || type.includes('voice')
+          : type.includes('audio') ||
+              type.includes('ptt') ||
+              type.includes('voice')
             ? 'audio'
             : type.includes('video')
               ? 'video'
               : 'document'
-        : 'text'
+        : 'text';
       push({
         id: m.id,
         from: m.from,
@@ -676,11 +841,11 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
         contentText: m.caption || m.text || null,
         mediaUrl: m.media || null,
         quotedId: m.quoted,
-      })
+      });
     }
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -689,8 +854,8 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
  * `quoted` field).
  */
 function extractQuotedFromContent(content: unknown): string | undefined {
-  if (!content || typeof content !== 'object') return undefined
-  const c = content as Record<string, unknown>
+  if (!content || typeof content !== 'object') return undefined;
+  const c = content as Record<string, unknown>;
 
   // Top-level contextInfo (some servers) or a nested proto like
   // extendedTextMessage/imageMessage carrying its own contextInfo.
@@ -702,26 +867,26 @@ function extractQuotedFromContent(content: unknown): string | undefined {
     (c.videoMessage as Record<string, unknown> | undefined)?.contextInfo,
     (c.audioMessage as Record<string, unknown> | undefined)?.contextInfo,
     (c.documentMessage as Record<string, unknown> | undefined)?.contextInfo,
-  ]
+  ];
   for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== 'object') continue
-    const ctx = candidate as Record<string, unknown>
-    const stanzaId = ctx.stanzaId ?? ctx.stanzaID ?? ctx.StanzaId
-    if (typeof stanzaId === 'string' && stanzaId) return stanzaId
+    if (!candidate || typeof candidate !== 'object') continue;
+    const ctx = candidate as Record<string, unknown>;
+    const stanzaId = ctx.stanzaId ?? ctx.stanzaID ?? ctx.StanzaId;
+    if (typeof stanzaId === 'string' && stanzaId) return stanzaId;
   }
-  return undefined
+  return undefined;
 }
 
 function extractMessageContent(msg: ExtractedMessage): {
-  contentType: string | null
-  contentText: string | null
-  mediaUrl: string | null
+  contentType: string | null;
+  contentText: string | null;
+  mediaUrl: string | null;
 } {
   return {
     contentType: msg.contentType,
     contentText: msg.contentText,
     mediaUrl: msg.mediaUrl,
-  }
+  };
 }
 
 async function findOrCreateContact(
@@ -729,22 +894,22 @@ async function findOrCreateContact(
   accountId: string,
   userId: string,
   phone: string,
-  pushName?: string,
+  pushName?: string
 ) {
   // Reuse shared dedupe logic (same as WhatsApp webhook)
-  const existing = await findExistingContact(db, accountId, phone)
+  const existing = await findExistingContact(db, accountId, phone);
   // WhatsApp pushnames made of emojis/symbols alone (e.g. "🩷🩷") are
   // not usable labels — resolveContactName falls back to the phone.
-  const resolvedName = resolveContactName(pushName, phone)
+  const resolvedName = resolveContactName(pushName, phone);
   if (existing) {
     // Update name if the resolved pushname differs
     if (resolvedName !== existing.name) {
       await db
         .from('contacts')
         .update({ name: resolvedName, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
+        .eq('id', existing.id);
     }
-    return existing
+    return existing;
   }
 
   // Create new contact — use the config owner as the audit user_id
@@ -757,32 +922,32 @@ async function findOrCreateContact(
       name: resolvedName,
     })
     .select()
-    .single()
+    .single();
 
   if (error) {
     if (isUniqueViolation(error)) {
       // Race: another webhook call created the contact between our
       // lookup and insert. Re-resolve and return the winning row.
-      const raced = await findExistingContact(db, accountId, phone)
-      if (raced) return raced
+      const raced = await findExistingContact(db, accountId, phone);
+      if (raced) return raced;
     }
-    console.error('[uazapi-webhook] error creating contact:', error.message)
-    return null
+    console.error('[uazapi-webhook] error creating contact:', error.message);
+    return null;
   }
 
-  return created
+  return created;
 }
 
 interface ConversationResult {
-  conversation: { id: string; unread_count?: number; source?: string | null }
-  created: boolean
+  conversation: { id: string; unread_count?: number; source?: string | null };
+  created: boolean;
 }
 
 async function findOrCreateConversation(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
   userId: string,
-  contactId: string,
+  contactId: string
 ): Promise<ConversationResult | null> {
   const { data: existing } = await db
     .from('conversations')
@@ -790,10 +955,10 @@ async function findOrCreateConversation(
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
     .order('created_at', { ascending: true })
-    .limit(1)
+    .limit(1);
 
   if (existing && existing.length > 0) {
-    return { conversation: existing[0], created: false }
+    return { conversation: existing[0], created: false };
   }
 
   const { data: created, error } = await db
@@ -805,7 +970,7 @@ async function findOrCreateConversation(
       source: 'uazapi',
     })
     .select()
-    .single()
+    .single();
 
   if (error) {
     if (isUniqueViolation(error)) {
@@ -815,14 +980,17 @@ async function findOrCreateConversation(
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
         .order('created_at', { ascending: true })
-        .limit(1)
+        .limit(1);
       if (raced && raced.length > 0) {
-        return { conversation: raced[0], created: false }
+        return { conversation: raced[0], created: false };
       }
     }
-    console.error('[uazapi-webhook] error creating conversation:', error.message)
-    return null
+    console.error(
+      '[uazapi-webhook] error creating conversation:',
+      error.message
+    );
+    return null;
   }
 
-  return { conversation: created, created: true }
+  return { conversation: created, created: true };
 }
