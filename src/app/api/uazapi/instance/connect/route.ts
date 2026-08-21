@@ -101,11 +101,7 @@ export async function POST(request: Request) {
         const origin =
           process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
           new URL(request.url).origin;
-        const webhookUrl = buildUazapiWebhookUrl(
-          origin,
-          accountId,
-          env.webhookSecret
-        );
+        const webhookUrl = buildUazapiWebhookUrl(origin, accountId);
         await setInstanceWebhook({
           serverUrl,
           apiToken: instanceToken,

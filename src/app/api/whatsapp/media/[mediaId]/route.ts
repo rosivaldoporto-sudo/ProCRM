@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
 
 export async function GET(
   request: Request,
@@ -49,7 +50,7 @@ export async function GET(
     }
 
     // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
+    const { data: config, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)

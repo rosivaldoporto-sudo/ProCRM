@@ -453,7 +453,8 @@ export async function sendTemplateMessage(
 // two-step Resumable Upload API, which is keyed on the Meta APP id (not
 // the phone number / WABA):
 //
-//   1. POST /{app_id}/uploads?file_name&file_length&file_type&access_token
+//   1. POST /{app_id}/uploads?file_name&file_length&file_type
+//        (Authorization: Bearer <token>)
 //        → { id: "upload:<session>" }
 //   2. POST /{id}  (Authorization: OAuth <token>, file_offset: 0, raw bytes)
 //        → { h: "<handle>" }
@@ -484,11 +485,13 @@ export async function uploadResumableMedia(
     file_name: fileName,
     file_length: String(bytes.byteLength),
     file_type: mimeType,
-    access_token: accessToken,
   })
   const startRes = await fetch(
     `${META_API_BASE}/${appId}/uploads?${startParams.toString()}`,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
   )
   if (!startRes.ok) {
     await throwMetaError(startRes, `Resumable upload start failed: ${startRes.status}`)

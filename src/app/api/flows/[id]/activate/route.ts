@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { validateFlowForActivation } from '@/lib/flows/validate';
+import type { AccountContext } from '@/lib/auth/account';
+import { logServerError } from '@/lib/observability/error-log';
 
 /**
  * POST /api/flows/[id]/activate
@@ -28,8 +30,9 @@ export async function POST(
   // flows_update policy requires `agent`, but the service-role client
   // below bypasses RLS, so enforce the role here (a viewer passes the
   // membership-only ownership check).
+  let accountContext: AccountContext;
   try {
-    await requireRole('agent');
+    accountContext = await requireRole('agent');
   } catch (err) {
     return toErrorResponse(err);
   }
@@ -72,6 +75,7 @@ export async function POST(
         .from('flows')
         .select('name, trigger_type, trigger_config, entry_node_id')
         .eq('id', id)
+        .eq('account_id', accountContext.accountId)
         .maybeSingle(),
       admin
         .from('flow_nodes')
@@ -110,11 +114,20 @@ export async function POST(
     .from('flows')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('account_id', accountContext.accountId)
     .select()
     .maybeSingle();
   if (error) {
+    const requestId = await logServerError(error, {
+      source: 'api.flows.activate',
+      requestId: request.headers.get('x-request-id') ?? undefined,
+      route: new URL(request.url).pathname,
+      method: request.method,
+      accountId: accountContext.accountId,
+      userId: accountContext.userId,
+    });
     return NextResponse.json(
-      { error: 'Failed to change flow status' },
+      { error: 'Failed to change flow status', request_id: requestId },
       { status: 500 }
     );
   }

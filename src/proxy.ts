@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function proxy(request: NextRequest) {
+  const requestId = crypto.randomUUID();
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isDev = process.env.NODE_ENV === 'development';
   const csp = [
@@ -23,6 +24,7 @@ export async function proxy(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('x-request-id', requestId);
   requestHeaders.set('Content-Security-Policy', csp);
 
   const nextResponse = () => {
@@ -30,6 +32,7 @@ export async function proxy(request: NextRequest) {
       request: { headers: requestHeaders },
     });
     response.headers.set('Content-Security-Policy', csp);
+    response.headers.set('X-Request-Id', requestId);
     return response;
   };
 
@@ -77,6 +80,7 @@ export async function proxy(request: NextRequest) {
         { status: 403 }
       );
       response.headers.set('Content-Security-Policy', csp);
+      response.headers.set('X-Request-Id', requestId);
       return response;
     }
 
@@ -87,6 +91,7 @@ export async function proxy(request: NextRequest) {
         { status: 413 }
       );
       response.headers.set('Content-Security-Policy', csp);
+      response.headers.set('X-Request-Id', requestId);
       return response;
     }
   }
@@ -130,6 +135,7 @@ export async function proxy(request: NextRequest) {
   // refreshed cookies onto whatever response we hand back to fix that.
   const withRefreshedCookies = <T extends NextResponse>(response: T): T => {
     response.headers.set('Content-Security-Policy', csp);
+    response.headers.set('X-Request-Id', requestId);
     supabaseResponse.cookies.getAll().forEach((cookie) => {
       response.cookies.set(cookie);
     });

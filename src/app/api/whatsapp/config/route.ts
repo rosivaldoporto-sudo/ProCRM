@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { logServerError } from '@/lib/observability/error-log'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
@@ -85,14 +86,23 @@ export async function GET() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
+    // Read credentials only with the server client. The response below never
+    // returns the token; RLS can therefore keep whatsapp_config admin-only
+    // without breaking the safe connection badge for agents/viewers.
+    const { data: config, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('phone_number_id, access_token, status')
       .eq('account_id', accountId)
       .maybeSingle()
 
     if (configError) {
-      console.error('Error fetching whatsapp_config:', configError)
+      await logServerError(configError, {
+        source: 'api.whatsapp.config.get',
+        route: '/api/whatsapp/config',
+        method: 'GET',
+        accountId,
+        userId: user.id,
+      })
       return NextResponse.json(
         { connected: false, reason: 'db_error', message: 'Failed to fetch configuration' },
         { status: 200 }

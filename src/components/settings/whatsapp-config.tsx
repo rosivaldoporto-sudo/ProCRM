@@ -35,6 +35,10 @@ const MASKED_TOKEN = '••••••••••••••••';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
 type ResetReason = 'token_corrupted' | 'meta_api_error' | null;
+type SafeWhatsAppConfig = Omit<
+  WhatsAppConfigType,
+  'access_token' | 'verify_token'
+>;
 
 export function WhatsAppConfig() {
   const t = useTranslations('Settings.whatsapp');
@@ -51,7 +55,7 @@ export function WhatsAppConfig() {
   const [testing, setTesting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showToken, setShowToken] = useState(false);
-  const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
+  const [config, setConfig] = useState<SafeWhatsAppConfig | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [resetReason, setResetReason] = useState<ResetReason>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
@@ -108,7 +112,9 @@ export function WhatsAppConfig() {
       // remains accurate.
       const { data, error } = await supabase
         .from('whatsapp_config')
-        .select('*')
+        .select(
+          'id, user_id, account_id, phone_number_id, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error, created_at, updated_at'
+        )
         .eq('account_id', acctId)
         .maybeSingle();
 

@@ -2,6 +2,28 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { logServerError } from '@/lib/observability/error-log';
+
+async function flowErrorResponse(
+  error: unknown,
+  request: Request,
+  accountId: string,
+  userId: string,
+  message: string
+) {
+  const requestId = await logServerError(error, {
+    source: 'api.flows.detail',
+    requestId: request.headers.get('x-request-id') ?? undefined,
+    route: new URL(request.url).pathname,
+    method: request.method,
+    accountId,
+    userId,
+  });
+  return NextResponse.json(
+    { error: message, request_id: requestId },
+    { status: 500 }
+  );
+}
 
 /**
  * GET   /api/flows/[id]  — fetch one flow with its nodes.
@@ -22,6 +44,7 @@ async function requireOwnership(flowId: string): Promise<
   | {
       ok: true;
       userId: string;
+      accountId: string;
       supabase: Awaited<ReturnType<typeof createClient>>;
     }
   | { ok: false; status: number; body: { error: string } }
@@ -37,13 +60,18 @@ async function requireOwnership(flowId: string): Promise<
   // returns null (404 below).
   const { data: flow } = await supabase
     .from('flows')
-    .select('id')
+    .select('id, account_id')
     .eq('id', flowId)
     .maybeSingle();
   if (!flow) {
     return { ok: false, status: 404, body: { error: 'Not found' } };
   }
-  return { ok: true, userId: user.id, supabase };
+  return {
+    ok: true,
+    userId: user.id,
+    accountId: flow.account_id as string,
+    supabase,
+  };
 }
 
 export async function GET(
@@ -136,9 +164,16 @@ export async function PUT(
   const { error: updErr } = await admin
     .from('flows')
     .update(flowPatch)
-    .eq('id', id);
+    .eq('id', id)
+    .eq('account_id', guard.accountId);
   if (updErr) {
-    return NextResponse.json({ error: updErr.message }, { status: 500 });
+    return flowErrorResponse(
+      updErr,
+      request,
+      guard.accountId,
+      guard.userId,
+      'Failed to update flow'
+    );
   }
 
   if (body.nodes !== undefined) {
@@ -149,7 +184,13 @@ export async function PUT(
       .delete()
       .eq('flow_id', id);
     if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 500 });
+      return flowErrorResponse(
+        delErr,
+        request,
+        guard.accountId,
+        guard.userId,
+        'Failed to replace flow nodes'
+      );
     }
     if (body.nodes.length > 0) {
       const { error: insErr } = await admin.from('flow_nodes').insert(
@@ -163,7 +204,13 @@ export async function PUT(
         }))
       );
       if (insErr) {
-        return NextResponse.json({ error: insErr.message }, { status: 500 });
+        return flowErrorResponse(
+          insErr,
+          request,
+          guard.accountId,
+          guard.userId,
+          'Failed to replace flow nodes'
+        );
       }
     }
   }
@@ -171,7 +218,12 @@ export async function PUT(
   // Re-fetch and return the new state — the editor uses the response
   // to reconcile its local form state.
   const [{ data: flow }, { data: nodes }] = await Promise.all([
-    admin.from('flows').select('*').eq('id', id).maybeSingle(),
+    admin
+      .from('flows')
+      .select('*')
+      .eq('id', id)
+      .eq('account_id', guard.accountId)
+      .maybeSingle(),
     admin
       .from('flow_nodes')
       .select('*')
@@ -182,7 +234,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
@@ -203,11 +255,18 @@ export async function DELETE(
   // mechanism in v1, but that's intentional: deleting a flow is a
   // deliberate destructive action and the partial unique index will
   // free up the contact for new triggers immediately.
-  const { error } = await supabaseAdmin().from('flows').delete().eq('id', id);
+  const { error } = await supabaseAdmin()
+    .from('flows')
+    .delete()
+    .eq('id', id)
+    .eq('account_id', guard.accountId);
   if (error) {
-    return NextResponse.json(
-      { error: 'Failed to update flow' },
-      { status: 500 }
+    return flowErrorResponse(
+      error,
+      request,
+      guard.accountId,
+      guard.userId,
+      'Failed to delete flow'
     );
   }
   return NextResponse.json({ ok: true });

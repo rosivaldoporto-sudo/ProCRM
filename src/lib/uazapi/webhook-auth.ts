@@ -18,9 +18,9 @@ function safeEqual(a: string | null | undefined, b: string | null | undefined) {
 
 /**
  * Uazapi v2 includes the instance token in each webhook payload. Older
- * builds may instead be configured with a shared secret in the webhook URL
- * or a custom header. Accept either credential, but never accept a request
- * merely because it knows the account UUID.
+ * builds may instead be configured with a shared secret in a custom header.
+ * Secrets in query strings are deliberately rejected because URLs are often
+ * retained by proxies, access logs, analytics and browser history.
  */
 export function verifyUazapiWebhookCredential(args: {
   request: Request;
@@ -32,14 +32,10 @@ export function verifyUazapiWebhookCredential(args: {
   if (safeEqual(payloadToken, instanceToken)) return true;
   if (!webhookSecret) return false;
 
-  const urlSecret = new URL(request.url).searchParams.get('uazapi_secret');
   const headerSecret =
     request.headers.get('x-uazapi-webhook-secret') ??
     request.headers.get('x-webhook-secret');
-  return (
-    safeEqual(headerSecret, webhookSecret) ||
-    safeEqual(urlSecret, webhookSecret)
-  );
+  return safeEqual(headerSecret, webhookSecret);
 }
 
 /** Read a request body without allowing an unauthenticated sender to buffer it indefinitely. */
@@ -73,13 +69,11 @@ export async function readWebhookBody(
 
 export function buildUazapiWebhookUrl(
   origin: string,
-  accountId: string,
-  webhookSecret?: string
+  accountId: string
 ): string {
   const url = new URL(
     `/api/uazapi/webhook/${encodeURIComponent(accountId)}`,
     origin
   );
-  if (webhookSecret) url.searchParams.set('uazapi_secret', webhookSecret);
   return url.toString();
 }

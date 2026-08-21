@@ -104,11 +104,14 @@ export async function sendCapiEvents(
     payload.test_event_code = testEventCode;
   }
 
-  const url = `${CAPI_BASE}/${pixelId}/events?access_token=${encodeURIComponent(accessToken)}`;
+  const url = `${CAPI_BASE}/${pixelId}/events`;
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify(payload),
   });
 

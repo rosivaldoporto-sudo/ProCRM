@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
   checkRateLimit,
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
     }
 
     // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
+    const { data: config, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('phone_number_id, access_token')
       .eq('account_id', accountId)

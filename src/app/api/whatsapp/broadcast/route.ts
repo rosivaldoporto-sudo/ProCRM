@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
+    const { data: config, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)

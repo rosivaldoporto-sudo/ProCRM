@@ -43,11 +43,13 @@ describe('uploadResumableMedia', () => {
     expect(handle).toBe('2:HANDLE');
     expect(calls).toHaveLength(2);
 
-    // Step 1: app-scoped session with file metadata + access_token query.
+    // Step 1: app-scoped session with metadata; the token stays in a header.
     expect(calls[0].url).toContain('/app-1/uploads?');
     expect(calls[0].url).toContain('file_length=4');
     expect(calls[0].url).toContain('file_type=image%2Fjpeg');
-    expect(calls[0].url).toContain('access_token=tok');
+    expect(calls[0].url).not.toContain('access_token');
+    const startHeaders = calls[0].init?.headers as Record<string, string>;
+    expect(startHeaders.Authorization).toBe('Bearer tok');
 
     // Step 2: posts to the returned session id with OAuth + file_offset.
     expect(calls[1].url).toContain('/upload:SESSION123');

@@ -19,12 +19,12 @@ describe('verifyUazapiWebhookCredential', () => {
   });
 
   it('accepts a configured shared secret and rejects invalid credentials', () => {
-    const valid = new Request(
-      'https://crm.example/api/webhook?uazapi_secret=shared-secret'
-    );
-    const invalid = new Request(
-      'https://crm.example/api/webhook?uazapi_secret=wrong'
-    );
+    const valid = new Request('https://crm.example/api/webhook', {
+      headers: { 'x-uazapi-webhook-secret': 'shared-secret' },
+    });
+    const invalid = new Request('https://crm.example/api/webhook', {
+      headers: { 'x-uazapi-webhook-secret': 'wrong' },
+    });
     const args = {
       instanceToken: 'instance-secret',
       webhookSecret: 'shared-secret',
@@ -35,6 +35,19 @@ describe('verifyUazapiWebhookCredential', () => {
     expect(verifyUazapiWebhookCredential({ ...args, request: invalid })).toBe(
       false
     );
+  });
+
+  it('rejects secrets placed in the URL query string', () => {
+    const request = new Request(
+      'https://crm.example/api/webhook?uazapi_secret=shared-secret'
+    );
+    expect(
+      verifyUazapiWebhookCredential({
+        request,
+        instanceToken: 'instance-secret',
+        webhookSecret: 'shared-secret',
+      })
+    ).toBe(false);
   });
 });
 
@@ -58,10 +71,8 @@ describe('readWebhookBody', () => {
   });
 });
 
-it('builds an encoded authenticated webhook URL', () => {
+it('builds an encoded webhook URL without putting secrets in its query', () => {
   expect(
-    buildUazapiWebhookUrl('https://crm.example', 'account/id', 'secret')
-  ).toBe(
-    'https://crm.example/api/uazapi/webhook/account%2Fid?uazapi_secret=secret'
-  );
+    buildUazapiWebhookUrl('https://crm.example', 'account/id')
+  ).toBe('https://crm.example/api/uazapi/webhook/account%2Fid');
 });

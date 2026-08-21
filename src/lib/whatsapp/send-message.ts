@@ -248,7 +248,8 @@ export async function sendMessageToConversation(
   }
 
   // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
+  const credentialDb = supabaseAdmin();
+  const { data: config, error: configError } = await credentialDb
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
@@ -266,7 +267,7 @@ export async function sendMessageToConversation(
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
   if (isLegacyFormat(config.access_token)) {
-    void db
+    void credentialDb
       .from('whatsapp_config')
       .update({ access_token: encrypt(accessToken) })
       .eq('id', config.id)

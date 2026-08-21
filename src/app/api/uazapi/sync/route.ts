@@ -119,8 +119,7 @@ export async function POST(request: Request) {
     // Repairs silently if it drifted (or was never set).
     const webhookUrl = buildUazapiWebhookUrl(
       process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin,
-      accountId,
-      env.webhookSecret
+      accountId
     );
     let webhook = 'unknown';
     try {

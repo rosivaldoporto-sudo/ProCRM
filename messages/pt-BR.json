@@ -1626,7 +1626,8 @@
       "fields": "Campos e tags",
       "deals": "Negócios e moeda",
       "members": "Membros da equipe",
-      "api": "Chaves de API"
+      "api": "Chaves de API",
+      "logs": "Logs de erros"
     },
     "groups": {
       "account": "Conta",
