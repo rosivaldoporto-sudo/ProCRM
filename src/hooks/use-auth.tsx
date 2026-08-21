@@ -108,8 +108,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
  * AuthProvider — wrap this around the dashboard layout.
- * Makes ONE getSession() call for the whole tree instead of one per
- * component, avoiding internal lock contention in the Supabase client.
+ * Verifies the signed-in user once for the whole tree instead of making one
+ * auth call per component, avoiding internal lock contention in the
+ * Supabase client.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -234,10 +235,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     let mounted = true;
+    let validationRunning = false;
+
+    const clearSessionState = () => {
+      lastFetchedUserIdRef.current = null;
+      setUser(null);
+      setProfile(null);
+      setAccount(null);
+      setProfileLoading(false);
+    };
 
     const safetyTimer = setTimeout(() => {
       if (mounted) {
-        console.warn('[AuthProvider] getSession() timed out after 3s');
+        console.warn('[AuthProvider] getUser() timed out after 3s');
         setLoading(false);
         setProfileLoading(false);
       }
@@ -245,16 +255,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
+        const { data: { user: verifiedUser }, error } =
+          await supabase.auth.getUser();
 
         if (error)
-          console.error('[AuthProvider] getSession error:', error.message);
+          console.error('[AuthProvider] getUser error:', error.message);
 
         if (!mounted) return;
-        const currentUser = session?.user ?? null;
+        const currentUser = verifiedUser ?? null;
         setUser(currentUser);
 
         if (currentUser) {
@@ -278,6 +286,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     init();
+
+    // Deleting browser cookies does not emit a SIGNED_OUT event in an
+    // already-open tab. Re-check cookie-backed storage when the tab becomes
+    // active and periodically while it remains open.
+    const revalidateSession = async () => {
+      if (!mounted || validationRunning) return;
+      validationRunning = true;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
+
+        if (!session) {
+          clearSessionState();
+          window.location.replace('/login');
+          return;
+        }
+
+        const { data: { user: verifiedUser }, error } =
+          await supabase.auth.getUser();
+        if (!mounted) return;
+
+        if (
+          !verifiedUser &&
+          (!error || [400, 401, 403].includes(error.status ?? 0))
+        ) {
+          clearSessionState();
+          window.location.replace('/login');
+        }
+      } catch (error) {
+        // A transient network failure must not masquerade as a logout.
+        console.warn('[AuthProvider] session revalidation failed:', error);
+      } finally {
+        validationRunning = false;
+      }
+    };
+
+    const handleFocus = () => void revalidateSession();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void revalidateSession();
+    };
+    const validationInterval = window.setInterval(
+      () => void revalidateSession(),
+      60_000
+    );
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     const {
       data: { subscription },
@@ -303,6 +358,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
       clearTimeout(safetyTimer);
+      window.clearInterval(validationInterval);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
       subscription.unsubscribe();
     };
   }, [fetchProfile]);

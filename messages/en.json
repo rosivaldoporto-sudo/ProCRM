@@ -12,7 +12,10 @@
     "signingIn": "Signing in...",
     "signIn": "Sign in",
     "noAccount": "Don't have an account?",
-    "createAccount": "Create account"
+    "createAccount": "Create account",
+    "invalidCredentials": "Invalid email or password.",
+    "rateLimitError": "Too many sign-in attempts. Wait a few minutes and try again.",
+    "unavailableError": "Unable to sign in right now. Check your connection and try again."
   },
   "Sidebar": {
     "title": "ProCRM",

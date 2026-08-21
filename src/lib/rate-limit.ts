@@ -171,6 +171,14 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
 
 /** Preconfigured budgets, tweak here not at call sites. */
 export const RATE_LIMITS = {
+  /** Password sign-in, per originating IP. This is deliberately much
+   * tighter than Supabase's generic /auth/v1/token budget and is backed by
+   * Postgres so restarting or scaling the app cannot reset the counter. */
+  loginIp: { limit: 20, windowMs: 15 * 60_000 },
+  /** Additional password sign-in budget for one email from one IP. Keeping
+   * the email paired with the IP prevents an attacker from remotely locking
+   * a known user's account while still stopping a local password spray. */
+  loginCredential: { limit: 8, windowMs: 15 * 60_000 },
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },

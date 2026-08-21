@@ -12,7 +12,10 @@
     "signingIn": "로그인 중...",
     "signIn": "로그인",
     "noAccount": "계정이 없으신가요?",
-    "createAccount": "계정 만들기"
+    "createAccount": "계정 만들기",
+    "invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "rateLimitError": "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "unavailableError": "지금 로그인할 수 없습니다. 연결을 확인하고 다시 시도하세요."
   },
   "Sidebar": {
     "title": "ProCRM",

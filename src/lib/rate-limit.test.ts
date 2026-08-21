@@ -102,6 +102,15 @@ describe("RATE_LIMITS presets", () => {
     expect(RATE_LIMITS.send.windowMs).toBe(60_000);
     expect(RATE_LIMITS.broadcast.windowMs).toBe(60_000);
   });
+
+  it("uses tight fifteen-minute budgets for password sign-in", async () => {
+    const { RATE_LIMITS } = await import("./rate-limit");
+    expect(RATE_LIMITS.loginCredential.limit).toBeLessThan(
+      RATE_LIMITS.loginIp.limit,
+    );
+    expect(RATE_LIMITS.loginIp.windowMs).toBe(15 * 60_000);
+    expect(RATE_LIMITS.loginCredential.windowMs).toBe(15 * 60_000);
+  });
 });
 
 afterEach(() => {
