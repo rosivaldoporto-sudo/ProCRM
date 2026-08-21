@@ -301,6 +301,47 @@ export async function POST() {
       }
     }
 
+    // ------------------------------------------------------------
+    // Cleanup: remove local templates that no longer exist on Meta.
+    // After upsert-ing Meta templates, delete any local rows whose
+    // (name, language) combo is not present in the just-fetched set.
+    // This handles:
+    //   • Templates created locally without Meta backing (no meta_template_id)
+    //   • Templates that were removed from Meta but still stored locally
+    // ------------------------------------------------------------
+    const metaTemplateKeys = new Set(
+      metaTemplates.map((t) => `${t.name}|${t.language}`)
+    )
+
+    const { data: localTemplates, error: lookupErr } = await supabase
+      .from('message_templates')
+      .select('id, name, language')
+      .eq('account_id', accountId)
+
+    let deleted = 0
+    if (!lookupErr && localTemplates) {
+      const localMap = new Map(
+        localTemplates.map((r) => [`${r.name}|${r.language}`, r.id])
+      )
+      const deleteIds = new Set<string>()
+      for (const key of localMap.keys()) {
+        if (!metaTemplateKeys.has(key)) {
+          deleteIds.add(localMap.get(key)!)
+        }
+      }
+      if (deleteIds.size > 0) {
+        const { error: delErr } = await supabase
+          .from('message_templates')
+          .delete()
+          .in('id', Array.from(deleteIds))
+        if (delErr) {
+          console.warn('[template-sync] cleanup delete error:', delErr)
+        } else {
+          deleted = deleteIds.size
+        }
+      }
+    }
+
     return NextResponse.json({
       success: errors.length === 0,
       total: metaTemplates.length,
@@ -308,6 +349,7 @@ export async function POST() {
       updated,
       errors,
       truncated: pageCount >= PAGE_CAP && nextUrl !== null,
+      deleted,
     })
   } catch (error) {
     console.error('Error syncing WhatsApp templates:', error)
