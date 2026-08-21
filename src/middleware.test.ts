@@ -105,3 +105,61 @@ describe('proxy — refreshed auth cookies survive redirects', () => {
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 });
+
+describe('proxy — API request hardening', () => {
+  it('rejects a cross-site browser mutation before it reaches a route', async () => {
+    const res = await proxy(
+      new NextRequest('https://app.test/api/contacts/123/tags', {
+        method: 'POST',
+        headers: {
+          origin: 'https://evil.example',
+          'sec-fetch-site': 'cross-site',
+        },
+      })
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: 'Forbidden request origin',
+    });
+  });
+
+  it('allows a same-origin browser mutation', async () => {
+    mockUser = { id: 'user-1' };
+    const res = await proxy(
+      new NextRequest('https://app.test/api/contacts/123/tags', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'sec-fetch-site': 'same-origin',
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an oversized declared API body', async () => {
+    const res = await proxy(
+      new NextRequest('https://app.test/api/contacts/123/tags', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-length': String(2 * 1024 * 1024 + 1),
+        },
+      })
+    );
+
+    expect(res.status).toBe(413);
+  });
+
+  it('does not apply browser-origin checks to signed external webhooks', async () => {
+    const res = await proxy(
+      new NextRequest('https://app.test/api/uazapi/webhook/account-id', {
+        method: 'POST',
+      })
+    );
+
+    expect(res.status).toBe(200);
+  });
+});

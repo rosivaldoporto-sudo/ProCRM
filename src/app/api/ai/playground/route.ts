@@ -11,6 +11,7 @@ import { generateReply } from '@/lib/ai/generate';
 import { buildSystemPrompt } from '@/lib/ai/defaults';
 import { latestUserMessage } from '@/lib/ai/query';
 import { AiError, type ChatMessage } from '@/lib/ai/types';
+import { supabaseAdmin } from '@/lib/ai/admin-client';
 
 // Keep the tested transcript bounded, mirroring the live context window.
 const MAX_TURNS = 20;
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const config = await loadAiConfig(supabase, accountId, {
+    const config = await loadAiConfig(supabaseAdmin(), accountId, {
       requireActive: false,
     }).catch((err) => {
       console.error('[ai/playground] loadAiConfig error:', err);

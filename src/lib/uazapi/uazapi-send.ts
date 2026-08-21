@@ -90,7 +90,12 @@ export function validateUazapiSendParams(params: {
     );
   }
 
-  if (isMediaKind && messageType !== 'audio' && typeof contentText === 'string' && contentText.length > 1024) {
+  if (
+    isMediaKind &&
+    messageType !== 'audio' &&
+    typeof contentText === 'string' &&
+    contentText.length > 1024
+  ) {
     throw new UazapiSendError(
       'bad_request',
       'Caption exceeds the 1024-character limit',
@@ -117,7 +122,11 @@ export async function sendMessageToConversation(
   } = params;
 
   if (!conversationId) {
-    throw new UazapiSendError('bad_request', 'conversation_id is required', 400);
+    throw new UazapiSendError(
+      'bad_request',
+      'conversation_id is required',
+      400
+    );
   }
 
   validateUazapiSendParams({ messageType, contentText, mediaUrl, menuRows });
@@ -138,12 +147,20 @@ export async function sendMessageToConversation(
 
   const contact = conversation.contact;
   if (!contact?.phone) {
-    throw new UazapiSendError('bad_request', 'Contact phone number not found', 400);
+    throw new UazapiSendError(
+      'bad_request',
+      'Contact phone number not found',
+      400
+    );
   }
 
   const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
   if (!isValidE164(sanitizedPhone)) {
-    throw new UazapiSendError('bad_request', 'Invalid phone number format', 400);
+    throw new UazapiSendError(
+      'bad_request',
+      'Invalid phone number format',
+      400
+    );
   }
 
   // Uazapi credentials come from the environment; the config row only
@@ -157,7 +174,8 @@ export async function sendMessageToConversation(
     );
   }
 
-  const apiToken = await getCachedInstanceToken(db, accountId);
+  const admin = supabaseAdmin();
+  const apiToken = await getCachedInstanceToken(admin, accountId);
   if (!apiToken) {
     throw new UazapiSendError(
       'uazapi_not_configured',
@@ -172,7 +190,7 @@ export async function sendMessageToConversation(
   // denied the INSERT on a brand-new row), and sending must keep
   // working even then. When the live instance IS connected, repair
   // the cache via the admin client so the inbox UI stays consistent.
-  const { data: stateRow } = await db
+  const { data: stateRow } = await admin
     .from('uazapi_config')
     .select('status')
     .eq('account_id', accountId)
@@ -247,7 +265,9 @@ export async function sendMessageToConversation(
       );
     }
     if (!parent.message_id) {
-      console.warn('[uazapi-send] reply parent has no Uazapi message id — sending without quote');
+      console.warn(
+        '[uazapi-send] reply parent has no Uazapi message id — sending without quote'
+      );
     } else {
       quotedMessageId = parent.message_id;
     }
@@ -346,7 +366,10 @@ export async function sendMessageToConversation(
       .eq('contact_id', contact.id)
       .eq('status', 'active');
     if (pauseErr) {
-      console.error('[uazapi-send][flows] pause-on-send failed:', pauseErr.message);
+      console.error(
+        '[uazapi-send][flows] pause-on-send failed:',
+        pauseErr.message
+      );
     }
   } catch (err) {
     console.error('[uazapi-send][flows] pause-on-send threw:', err);

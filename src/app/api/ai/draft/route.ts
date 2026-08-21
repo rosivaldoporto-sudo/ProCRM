@@ -73,14 +73,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const config = await loadAiConfig(supabase, accountId).catch((err) => {
-      // Decrypt failure — surface distinctly from "not configured".
-      console.error('[ai/draft] loadAiConfig error:', err);
-      throw new AiError('Stored API key could not be decrypted.', {
-        code: 'key_decrypt_failed',
-        status: 400,
-      });
-    });
+    const config = await loadAiConfig(supabaseAdmin(), accountId).catch(
+      (err) => {
+        // Decrypt failure — surface distinctly from "not configured".
+        console.error('[ai/draft] loadAiConfig error:', err);
+        throw new AiError('Stored API key could not be decrypted.', {
+          code: 'key_decrypt_failed',
+          status: 400,
+        });
+      }
+    );
     if (!config) {
       return NextResponse.json(
         {

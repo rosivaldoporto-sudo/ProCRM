@@ -32,6 +32,65 @@ export async function proxy(request: NextRequest) {
     response.headers.set('Content-Security-Policy', csp);
     return response;
   };
+
+  // Browsers send Origin on JavaScript mutations. Enforce it before session
+  // handling so another website cannot make authenticated writes with the
+  // user's cookies (CSRF). Authorization/RLS remains the same-origin boundary.
+  const pathname = request.nextUrl.pathname;
+  const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
+    request.method
+  );
+  const isExternalIntegration =
+    pathname.startsWith('/api/whatsapp/webhook') ||
+    pathname.startsWith('/api/uazapi/webhook') ||
+    pathname === '/api/automations/cron' ||
+    pathname === '/api/flows/cron' ||
+    pathname.startsWith('/api/v1/');
+
+  if (pathname.startsWith('/api/') && isMutation && !isExternalIntegration) {
+    const origin = request.headers.get('origin');
+    const fetchSite = request.headers.get('sec-fetch-site');
+    const allowedOrigins = new Set([request.nextUrl.origin]);
+    const configuredSite = process.env.NEXT_PUBLIC_SITE_URL;
+    if (configuredSite) {
+      try {
+        allowedOrigins.add(new URL(configuredSite).origin);
+      } catch {
+        // Invalid deployment configuration must not weaken same-origin checks.
+      }
+    }
+
+    let normalizedOrigin: string | null = null;
+    try {
+      normalizedOrigin = origin ? new URL(origin).origin : null;
+    } catch {
+      normalizedOrigin = null;
+    }
+
+    if (
+      fetchSite === 'cross-site' ||
+      !normalizedOrigin ||
+      !allowedOrigins.has(normalizedOrigin)
+    ) {
+      const response = NextResponse.json(
+        { error: 'Forbidden request origin' },
+        { status: 403 }
+      );
+      response.headers.set('Content-Security-Policy', csp);
+      return response;
+    }
+
+    const declaredLength = Number(request.headers.get('content-length') || 0);
+    if (Number.isFinite(declaredLength) && declaredLength > 2 * 1024 * 1024) {
+      const response = NextResponse.json(
+        { error: 'Payload too large' },
+        { status: 413 }
+      );
+      response.headers.set('Content-Security-Policy', csp);
+      return response;
+    }
+  }
+
   let supabaseResponse = nextResponse();
 
   const supabase = createServerClient(
@@ -113,6 +172,9 @@ export async function proxy(request: NextRequest) {
     '/pipelines',
     '/broadcasts',
     '/automations',
+    '/flows',
+    '/notifications',
+    '/agents',
     '/settings',
   ];
   if (

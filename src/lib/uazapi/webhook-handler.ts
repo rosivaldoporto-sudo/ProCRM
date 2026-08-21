@@ -192,7 +192,6 @@ export async function handleWebhook(request: Request, accountId?: string) {
     return new NextResponse(challenge, { status: 200 });
   }
 
-  const debug = searchParams.get('debug') === '1';
   try {
     const rawBody = await readWebhookBody(request);
     const payload = JSON.parse(rawBody) as UazapiWebhookPayload;
@@ -203,15 +202,9 @@ export async function handleWebhook(request: Request, accountId?: string) {
       console.error('[uazapi-webhook] no matching Uazapi config found', {
         accountId,
       });
-      return NextResponse.json(
-        debug
-          ? {
-              status: 'ok',
-              debug: { config: 'none', accountId: accountId || null },
-            }
-          : { error: 'No matching Uazapi config found' },
-        debug ? { status: 200 } : { status: 404 }
-      );
+      // Keep this indistinguishable from a bad credential. Returning 404 or
+      // debug metadata lets an unauthenticated caller enumerate account ids.
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { config, apiToken } = runtime;
@@ -241,23 +234,7 @@ export async function handleWebhook(request: Request, accountId?: string) {
     });
 
     if (messages.length === 0) {
-      return NextResponse.json(
-        debug
-          ? {
-              status: 'ok',
-              debug: {
-                config: 'matched',
-                accountId: accountId || null,
-                extracted: 0,
-                // Payload keys help identify the shape your Uazapi sends.
-                payloadKeys: Object.keys(payload),
-                messageKeys: payload.message
-                  ? Object.keys(payload.message)
-                  : undefined,
-              },
-            }
-          : { status: 'ok' }
-      );
+      return NextResponse.json({ status: 'ok' });
     }
 
     for (const msg of messages) {
@@ -514,18 +491,7 @@ export async function handleWebhook(request: Request, accountId?: string) {
       });
     }
 
-    return NextResponse.json(
-      debug
-        ? {
-            status: 'ok',
-            debug: {
-              config: 'matched',
-              accountId: accountId || null,
-              extracted: messages.length,
-            },
-          }
-        : { status: 'ok' }
-    );
+    return NextResponse.json({ status: 'ok' });
   } catch (error) {
     if (error instanceof WebhookPayloadTooLargeError) {
       return NextResponse.json({ error: error.message }, { status: 413 });

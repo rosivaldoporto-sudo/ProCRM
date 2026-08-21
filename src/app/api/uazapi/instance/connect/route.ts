@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   instanceConnect,
   setInstanceWebhook,
@@ -33,34 +33,13 @@ import { buildUazapiWebhookUrl } from '@/lib/uazapi/webhook-auth';
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    const accountId = profile?.account_id as string | undefined;
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Profile not linked to an account.' },
-        { status: 403 }
-      );
-    }
+    const { accountId, userId } = await requireRole('admin');
 
     const env = uazapiEnvConfig();
     const { serverUrl, instanceToken } = await resolveUazapiInstance(
-      supabase,
+      supabaseAdmin(),
       accountId,
-      user.id
+      userId
     );
 
     let result = await instanceConnect({
@@ -93,7 +72,7 @@ export async function POST(request: Request) {
       .upsert(
         {
           account_id: accountId,
-          user_id: user.id,
+          user_id: userId,
           instance_name: env.instanceName,
           server_url: serverUrl,
           status:
@@ -152,8 +131,11 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('[uazapi-connect] Error:', error);
-    const message =
-      error instanceof Error ? error.message : 'Failed to connect';
-    return NextResponse.json({ error: message }, { status: 502 });
+    const authResponse = toErrorResponse(error);
+    if (authResponse.status !== 500) return authResponse;
+    return NextResponse.json(
+      { error: 'Failed to connect the WhatsApp instance.' },
+      { status: 502 }
+    );
   }
 }

@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { downloadMessageFile } from '@/lib/uazapi/uazapi-client'
-import { uazapiEnvConfig, getCachedInstanceToken } from '@/lib/uazapi/runtime-config'
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { downloadMessageFile } from '@/lib/uazapi/uazapi-client';
+import {
+  uazapiEnvConfig,
+  getCachedInstanceToken,
+} from '@/lib/uazapi/runtime-config';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 
 /**
  * GET /api/uazapi/media/[messageId]
@@ -17,24 +21,24 @@ export async function GET(
   { params }: { params: Promise<{ messageId: string }> }
 ) {
   try {
-    const { messageId } = await params
+    const { messageId } = await params;
 
     if (!messageId) {
       return NextResponse.json(
         { error: 'Message ID is required' },
         { status: 400 }
-      )
+      );
     }
 
-    const supabase = await createClient()
+    const supabase = await createClient();
 
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser()
+    } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Resolve the caller's account — teammates share the account's
@@ -44,13 +48,13 @@ export async function GET(
       .from('profiles')
       .select('account_id')
       .eq('user_id', user.id)
-      .maybeSingle()
-    const accountId = profile?.account_id as string | undefined
+      .maybeSingle();
+    const accountId = profile?.account_id as string | undefined;
     if (!accountId) {
       return NextResponse.json(
         { error: 'Your profile is not linked to an account.' },
-        { status: 403 },
-      )
+        { status: 403 }
+      );
     }
 
     // The message must belong to this account's inbox — never proxy
@@ -62,42 +66,44 @@ export async function GET(
       .eq('message_id', messageId)
       .eq('conversations.account_id', accountId)
       .limit(1)
-      .maybeSingle()
+      .maybeSingle();
 
     if (!messageRow) {
       return NextResponse.json(
         { error: 'Message not found in your inbox' },
-        { status: 404 },
-      )
+        { status: 404 }
+      );
     }
 
-    const env = uazapiEnvConfig()
+    const env = uazapiEnvConfig();
     if (!env.serverUrl) {
       return NextResponse.json(
         { error: 'UAZAPI_SERVER_URL is not set in the environment' },
-        { status: 400 },
-      )
+        { status: 400 }
+      );
     }
 
-    const apiToken = await getCachedInstanceToken(supabase, accountId)
+    // Credential rows are intentionally not readable by non-admin browser
+    // sessions. Resolve the encrypted token only in the trusted server.
+    const apiToken = await getCachedInstanceToken(supabaseAdmin(), accountId);
     if (!apiToken) {
       return NextResponse.json(
         { error: 'Uazapi instance token unavailable' },
-        { status: 400 },
-      )
+        { status: 400 }
+      );
     }
 
     const file = await downloadMessageFile({
       serverUrl: env.serverUrl,
       apiToken,
       messageId,
-    })
+    });
 
     if (!file) {
       return NextResponse.json(
         { error: 'Failed to fetch media from Uazapi' },
-        { status: 502 },
-      )
+        { status: 502 }
+      );
     }
 
     return new Response(new Uint8Array(file.buffer), {
@@ -106,12 +112,12 @@ export async function GET(
         'Content-Type': file.contentType,
         'Cache-Control': 'public, max-age=86400',
       },
-    })
+    });
   } catch (error) {
-    console.error('Error in Uazapi media GET:', error)
+    console.error('Error in Uazapi media GET:', error);
     return NextResponse.json(
       { error: 'Failed to fetch media' },
       { status: 500 }
-    )
+    );
   }
 }

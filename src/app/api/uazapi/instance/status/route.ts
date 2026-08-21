@@ -1,31 +1,18 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { supabaseAdmin } from '@/lib/flows/admin-client'
-import { instanceStatus } from '@/lib/uazapi/uazapi-client'
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
+import { canEditSettings } from '@/lib/auth/roles';
+import { instanceStatus } from '@/lib/uazapi/uazapi-client';
 import {
   uazapiEnvConfigured,
   uazapiEnvConfig,
   getCachedInstanceToken,
-} from '@/lib/uazapi/runtime-config'
+} from '@/lib/uazapi/runtime-config';
 
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    const accountId = profile?.account_id as string | undefined
-    if (!accountId) {
-      return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
-    }
+    const { accountId, userId, role } = await getCurrentAccount();
+    const mayPairDevice = canEditSettings(role);
 
     if (!uazapiEnvConfigured()) {
       return NextResponse.json({
@@ -34,10 +21,13 @@ export async function GET() {
         status: 'disconnected',
         reason: 'env_missing',
         message: 'UAZAPI_SERVER_URL is not set in the environment.',
-      })
+      });
     }
 
-    const instanceToken = await getCachedInstanceToken(supabase, accountId)
+    const instanceToken = await getCachedInstanceToken(
+      supabaseAdmin(),
+      accountId
+    );
     if (!instanceToken) {
       return NextResponse.json({
         connected: false,
@@ -45,14 +35,14 @@ export async function GET() {
         status: 'disconnected',
         reason: 'no_instance',
         message: 'Instance not created yet — click Conectar WhatsApp.',
-      })
+      });
     }
 
-    const env = uazapiEnvConfig()
+    const env = uazapiEnvConfig();
     const result = await instanceStatus({
       serverUrl: env.serverUrl,
       apiToken: instanceToken,
-    })
+    });
 
     // Sync status to DB. The table's CHECK constraint only allows
     // disconnected/connected/qrcode — collapse `connecting` into
@@ -62,37 +52,52 @@ export async function GET() {
         ? 'connected'
         : result.status === 'connecting' || result.qrCode
           ? 'qrcode'
-          : 'disconnected'
+          : 'disconnected';
 
     const { error: upsertError } = await supabaseAdmin()
       .from('uazapi_config')
       .upsert(
         {
           account_id: accountId,
-          user_id: user.id,
+          user_id: userId,
           status: dbStatus,
           qr_code: result.qrCode || null,
-          connected_at: result.status === 'connected' ? new Date().toISOString() : null,
+          connected_at:
+            result.status === 'connected' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'account_id' },
-      )
+        { onConflict: 'account_id' }
+      );
     if (upsertError) {
-      console.error('[uazapi-status] state upsert failed (send will report not-connected):', upsertError.message)
+      console.error(
+        '[uazapi-status] state upsert failed (send will report not-connected):',
+        upsertError.message
+      );
     }
 
     return NextResponse.json({
       connected: result.status === 'connected',
       configured: true,
       status: result.status,
-      qr_code: result.qrCode || null,
-      pairing_code: result.pairingCode || null,
+      // QR/pairing codes grant control of the WhatsApp account. Never
+      // expose them to agents/viewers who call this route from DevTools.
+      qr_code: mayPairDevice ? result.qrCode || null : null,
+      pairing_code: mayPairDevice ? result.pairingCode || null : null,
       profile_name: result.profileName || null,
       instance_name: env.instanceName,
-    })
+    });
   } catch (error) {
-    console.error('Error in Uazapi status:', error)
-    const message = error instanceof Error ? error.message : 'Failed to get status'
-    return NextResponse.json({ connected: false, configured: true, reason: 'uazapi_error', message })
+    console.error('Error in Uazapi status:', error);
+    const authResponse = toErrorResponse(error);
+    if (authResponse.status !== 500) return authResponse;
+    return NextResponse.json(
+      {
+        connected: false,
+        configured: true,
+        reason: 'uazapi_error',
+        message: 'Uazapi status is temporarily unavailable.',
+      },
+      { status: 502 }
+    );
   }
 }

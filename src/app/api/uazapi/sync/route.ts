@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   fetchChats,
   fetchMessages,
@@ -47,27 +48,7 @@ export const maxDuration = 120;
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    const accountId = profile?.account_id as string | undefined;
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Profile not linked to an account.' },
-        { status: 403 }
-      );
-    }
+    const { supabase, accountId, userId } = await requireRole('admin');
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(
@@ -90,7 +71,7 @@ export async function POST(request: Request) {
       .eq('account_id', accountId)
       .maybeSingle();
 
-    const apiToken = await getCachedInstanceToken(supabase, accountId);
+    const apiToken = await getCachedInstanceToken(supabaseAdmin(), accountId);
     if (!apiToken) {
       return NextResponse.json(
         { error: 'Uazapi instance token unavailable.' },
@@ -120,7 +101,7 @@ export async function POST(request: Request) {
         await supabaseAdmin().from('uazapi_config').upsert(
           {
             account_id: accountId,
-            user_id: user.id,
+            user_id: userId,
             status: 'connected',
             qr_code: null,
             connected_at: new Date().toISOString(),
@@ -345,6 +326,8 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('[uazapi-sync] error:', error);
+    const authResponse = toErrorResponse(error);
+    if (authResponse.status !== 500) return authResponse;
     return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
   }
 }
@@ -360,7 +343,7 @@ export async function POST(request: Request) {
  * media permanently.
  */
 async function syncChatMessages(
-  db: Awaited<ReturnType<typeof createClient>>,
+  db: SupabaseClient,
   conversationId: string,
   chatid: string,
   serverUrl: string,
