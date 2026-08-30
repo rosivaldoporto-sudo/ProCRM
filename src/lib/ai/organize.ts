@@ -17,8 +17,6 @@ interface StageInfo {
 }
 
 interface AiRecommendation {
-  deal_id: string
-  title: string
   stage_name: string
   reason: string
 }
@@ -38,6 +36,174 @@ interface OrganizePipelineArgs {
   pipelineId: string
   config: AiConfig
 }
+
+async function analyzeDeal(
+  db: SupabaseClient,
+  accountId: string,
+  config: AiConfig,
+  deal: DealWithContext,
+  stageListStr: string,
+  stageIdByName: Map<string, string>,
+): Promise<OrganizeResult> {
+  if (!deal.conversationId) {
+    return {
+      deal_id: deal.dealId,
+      title: deal.title,
+      from_stage: deal.currentStageName,
+      to_stage: deal.currentStageName,
+      reason: 'Sem conversa associada',
+      moved: false,
+    }
+  }
+
+  const { data: msgs, error: msgErr } = await db
+    .from('messages')
+    .select('sender_type, content_text')
+    .eq('conversation_id', deal.conversationId)
+    .eq('content_type', 'text')
+    .order('created_at', { ascending: false })
+    .limit(30)
+
+  if (msgErr) {
+    console.error('[ai-organize] message fetch error for deal', deal.dealId, msgErr)
+    return {
+      deal_id: deal.dealId,
+      title: deal.title,
+      from_stage: deal.currentStageName,
+      to_stage: deal.currentStageName,
+      reason: 'Erro ao buscar mensagens',
+      moved: false,
+    }
+  }
+
+  const messages: ChatMessage[] = ((msgs ?? []) as Array<{ sender_type: string; content_text: string | null }>)
+    .reverse()
+    .filter((m) => m.content_text?.trim())
+    .map((m) => ({
+      role: m.sender_type === 'customer' ? ('user' as const) : ('assistant' as const),
+      content: m.content_text!.trim(),
+    }))
+
+  if (messages.length === 0) {
+    return {
+      deal_id: deal.dealId,
+      title: deal.title,
+      from_stage: deal.currentStageName,
+      to_stage: deal.currentStageName,
+      reason: 'Sem mensagens de texto na conversa',
+      moved: false,
+    }
+  }
+
+  const conversationText = messages
+    .map((m) => `${m.role === 'user' ? 'Cliente' : 'Atendente'}: ${m.content}`)
+    .join('\n')
+
+  const systemPrompt = [
+    'Você é um analista de vendas inteligente. Analise a conversa de atendimento ao cliente e determine em qual etapa do pipeline de vendas o card deveria estar.',
+    'Considere o conteúdo da conversa, o nível de interesse do cliente, se houve proposta, negociação, fechamento, etc.',
+    'Responda APENAS com um JSON válido (sem markdown, sem ```), no formato:',
+    '{ "stage_name": "<nome exato da etapa>", "reason": "<breve justificativa em português>" }',
+    '',
+    'Etapas disponíveis:',
+    stageListStr,
+    '',
+    'IMPORTANTE: O stage_name deve ser exatamente um dos nomes listados acima. Não invente nomes.',
+  ].join('\n')
+
+  const userPrompt = `Conversa com o cliente sobre "${deal.title}":\n\n${conversationText}\n\nEtapa atual: "${deal.currentStageName}"\nQual é a etapa correta para este card?`
+
+  try {
+    const { text, usage } = await generateReply({
+      config,
+      systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+
+    void logAiUsage(db, {
+      accountId,
+      conversationId: deal.conversationId,
+      mode: 'auto_reply',
+      provider: config.provider,
+      model: config.model,
+      usage,
+    }).catch(() => {})
+
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+
+    let parsed: AiRecommendation
+    try {
+      parsed = JSON.parse(cleaned) as AiRecommendation
+    } catch {
+      console.error('[ai-organize] JSON parse failed for deal', deal.dealId, 'raw:', cleaned)
+      return {
+        deal_id: deal.dealId,
+        title: deal.title,
+        from_stage: deal.currentStageName,
+        to_stage: deal.currentStageName,
+        reason: 'Resposta da IA em formato inválido',
+        moved: false,
+      }
+    }
+
+    const targetName = parsed.stage_name?.trim()
+    if (!targetName) {
+      return {
+        deal_id: deal.dealId,
+        title: deal.title,
+        from_stage: deal.currentStageName,
+        to_stage: deal.currentStageName,
+        reason: 'IA não retornou etapa',
+        moved: false,
+      }
+    }
+
+    const targetId = stageIdByName.get(targetName.toLowerCase())
+    if (!targetId) {
+      console.error('[ai-organize] stage not found:', targetName, 'for deal', deal.dealId)
+      return {
+        deal_id: deal.dealId,
+        title: deal.title,
+        from_stage: deal.currentStageName,
+        to_stage: deal.currentStageName,
+        reason: `Etapa "${targetName}" não encontrada no pipeline`,
+        moved: false,
+      }
+    }
+
+    if (targetId === deal.currentStageId) {
+      return {
+        deal_id: deal.dealId,
+        title: deal.title,
+        from_stage: deal.currentStageName,
+        to_stage: deal.currentStageName,
+        reason: parsed.reason ?? 'Já está na etapa correta',
+        moved: false,
+      }
+    }
+
+    return {
+      deal_id: deal.dealId,
+      title: deal.title,
+      from_stage: deal.currentStageName,
+      to_stage: targetName,
+      reason: parsed.reason ?? '',
+      moved: false,
+    }
+  } catch (err) {
+    console.error('[ai-organize] LLM call failed for deal', deal.dealId, err)
+    return {
+      deal_id: deal.dealId,
+      title: deal.title,
+      from_stage: deal.currentStageName,
+      to_stage: deal.currentStageName,
+      reason: 'Erro ao analisar conversa',
+      moved: false,
+    }
+  }
+}
+
+const PARALLEL_BATCH = 3
 
 export async function organizePipeline(
   args: OrganizePipelineArgs,
@@ -74,116 +240,14 @@ export async function organizePipeline(
   const stageListStr = stageList.map((s) => `  - "${s.name}"`).join('\n')
   const results: OrganizeResult[] = []
 
-  for (const deal of dealsWithContext) {
-    if (!deal.conversationId) {
-      results.push({
-        deal_id: deal.dealId,
-        title: deal.title,
-        from_stage: deal.currentStageName,
-        to_stage: deal.currentStageName,
-        reason: 'Sem conversa associada',
-        moved: false,
-      })
-      continue
-    }
-
-    const { data: msgs } = await db
-      .from('messages')
-      .select('sender_type, content_text')
-      .eq('conversation_id', deal.conversationId)
-      .eq('content_type', 'text')
-      .order('created_at', { ascending: false })
-      .limit(30)
-
-    const messages: ChatMessage[] = ((msgs ?? []) as Array<{ sender_type: string; content_text: string | null }>)
-      .reverse()
-      .filter((m) => m.content_text?.trim())
-      .map((m) => ({
-        role: m.sender_type === 'customer' ? ('user' as const) : ('assistant' as const),
-        content: m.content_text!.trim(),
-      }))
-
-    if (messages.length === 0) {
-      results.push({
-        deal_id: deal.dealId,
-        title: deal.title,
-        from_stage: deal.currentStageName,
-        to_stage: deal.currentStageName,
-        reason: 'Sem mensagens de texto na conversa',
-        moved: false,
-      })
-      continue
-    }
-
-    const conversationText = messages
-      .map((m) => `${m.role === 'user' ? 'Cliente' : 'Atendente'}: ${m.content}`)
-      .join('\n')
-
-    const systemPrompt = [
-      'Você é um analista de vendas inteligente. Analise a conversa de atendimento ao cliente e determine em qual etapa do pipeline de vendas o card deveria estar.',
-      'Considere o conteúdo da conversa, o nível de interesse do cliente, se houve proposta, negociação, fechamento, etc.',
-      'Responda APENAS com um JSON válido (sem markdown, sem ```), no formato:',
-      '{ "stage_name": "<nome exato da etapa>", "reason": "<breve justificativa em português>" }',
-      '',
-      'Etapas disponíveis:',
-      stageListStr,
-      '',
-      'IMPORTANTE: O stage_name deve ser exatamente um dos nomes listados acima. Não invente nomes.',
-    ].join('\n')
-
-    const userPrompt = `Conversa com o cliente sobre "${deal.title}":\n\n${conversationText}\n\nEtapa atual: "${deal.currentStageName}"\nQual é a etapa correta para este card?`
-
-    try {
-      const { text, usage } = await generateReply({
-        config,
-        systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      })
-
-      void logAiUsage(db, {
-        accountId,
-        conversationId: deal.conversationId,
-        mode: 'auto_reply',
-        provider: config.provider,
-        model: config.model,
-        usage,
-      })
-
-      const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      const parsed = JSON.parse(cleaned) as AiRecommendation
-      const targetName = parsed.stage_name?.trim()
-      const targetId = targetName ? stageIdByName.get(targetName.toLowerCase()) : null
-
-      if (targetId && targetId !== deal.currentStageId) {
-        results.push({
-          deal_id: deal.dealId,
-          title: deal.title,
-          from_stage: deal.currentStageName,
-          to_stage: targetName!,
-          reason: parsed.reason ?? '',
-          moved: false,
-        })
-      } else {
-        results.push({
-          deal_id: deal.dealId,
-          title: deal.title,
-          from_stage: deal.currentStageName,
-          to_stage: deal.currentStageName,
-          reason: targetId ? 'Já está na etapa correta' : (parsed.reason ?? 'Sem recomendação'),
-          moved: false,
-        })
-      }
-    } catch (err) {
-      console.error('[ai-organize] failed for deal', deal.dealId, err)
-      results.push({
-        deal_id: deal.dealId,
-        title: deal.title,
-        from_stage: deal.currentStageName,
-        to_stage: deal.currentStageName,
-        reason: 'Erro ao analisar conversa',
-        moved: false,
-      })
-    }
+  for (let i = 0; i < dealsWithContext.length; i += PARALLEL_BATCH) {
+    const batch = dealsWithContext.slice(i, i + PARALLEL_BATCH)
+    const batchResults = await Promise.all(
+      batch.map((deal) =>
+        analyzeDeal(db, accountId, config, deal, stageListStr, stageIdByName)
+      ),
+    )
+    results.push(...batchResults)
   }
 
   return results
@@ -207,7 +271,9 @@ export async function applyOrganizeResults(
       .eq('id', r.deal_id)
       .eq('account_id', accountId)
 
-    if (!error) {
+    if (error) {
+      console.error('[ai-organize] move failed for deal', r.deal_id, error)
+    } else {
       r.moved = true
       movedCount++
     }

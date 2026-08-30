@@ -10,7 +10,7 @@ import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { organizePipeline, applyOrganizeResults } from '@/lib/ai/organize'
 import { AiError } from '@/lib/ai/types'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(request: Request) {
   try {
@@ -93,6 +93,10 @@ export async function POST(request: Request) {
       )
     }
 
+    console.log(
+      `[ai/organize-pipeline] starting organize for pipeline ${pipelineId}, account ${accountId}`
+    )
+
     const results = await organizePipeline({
       db: supabaseAdmin(),
       accountId,
@@ -122,6 +126,10 @@ export async function POST(request: Request) {
       stageIdByName
     )
 
+    console.log(
+      `[ai/organize-pipeline] completed: ${results.length} analyzed, ${movedCount} moved`
+    )
+
     return NextResponse.json({ recommendations: results, moved: movedCount })
   } catch (err) {
     if (err instanceof AiError) {
@@ -130,6 +138,7 @@ export async function POST(request: Request) {
         { status: err.status }
       )
     }
+    console.error('[ai/organize-pipeline] unhandled error:', err)
     return toErrorResponse(err)
   }
 }
