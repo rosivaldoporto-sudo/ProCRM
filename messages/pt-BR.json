@@ -558,7 +558,8 @@
     "card": {
       "noContact": "Sem contato",
       "won": "Ganho",
-      "lost": "Perdido"
+      "lost": "Perdido",
+      "openChat": "Abrir conversa"
     },
     "form": {
       "editDeal": "Editar Negócio",

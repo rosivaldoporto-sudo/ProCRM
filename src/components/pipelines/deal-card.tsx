@@ -1,9 +1,10 @@
 "use client";
 
 import type { Deal, PipelineStage } from "@/types";
-import { Calendar, Check, X } from "lucide-react";
+import { Calendar, Check, X, MessageSquare } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 
 interface DealCardProps {
   deal: Deal;
@@ -58,18 +59,30 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
         <h4 className="flex-1 text-sm font-semibold leading-snug text-foreground break-words">
           {deal.title}
         </h4>
-        {deal.status === "won" && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-            <Check className="h-3 w-3" />
-            {t("won")}
-          </span>
-        )}
-        {deal.status === "lost" && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-400">
-            <X className="h-3 w-3" />
-            {t("lost")}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {deal.status === "won" && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              <Check className="h-3 w-3" />
+              {t("won")}
+            </span>
+          )}
+          {deal.status === "lost" && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-400">
+              <X className="h-3 w-3" />
+              {t("lost")}
+            </span>
+          )}
+          {deal.conversation_id && (
+            <Link
+              href={`/inbox?c=${deal.conversation_id}`}
+              onClick={(e) => e.stopPropagation()}
+              title={t("openChat")}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-primary/10 hover:text-primary group-hover:opacity-100"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Contact row */}
