@@ -7,6 +7,7 @@ import { PipelineBoard } from '@/components/pipelines/pipeline-board';
 import { PipelineSettings } from '@/components/pipelines/pipeline-settings';
 import { DealForm } from '@/components/pipelines/deal-form';
 import { PipelineAnalytics } from '@/components/pipelines/pipeline-analytics';
+import { AiOrganizeButton } from '@/components/pipelines/ai-organize-button';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -420,6 +421,12 @@ export default function PipelinesPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {selectedPipelineId && (
+            <AiOrganizeButton
+              pipelineId={selectedPipelineId}
+              onOrganized={refreshDeals}
+            />
+          )}
           <GatedButton
             variant="outline"
             canAct={canEditSettings}

@@ -232,6 +232,13 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** AI pipeline organizer, per user. 5/min — the operation is
+   *  expensive (multiple LLM calls, one per deal) and the user only
+   *  clicks it occasionally to tidy up the board. */
+  aiOrganize: { limit: 5, windowMs: 60_000 },
+  /** AI pipeline organizer, per account. 10/min — bounds the team's
+   *  aggregate spend on the BYO key for batch pipeline organization. */
+  aiOrganizeAccount: { limit: 10, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't
