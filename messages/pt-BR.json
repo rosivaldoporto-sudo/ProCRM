@@ -798,7 +798,12 @@
         "audienceSummary": "Resumo do Público",
         "calculating": "Calculando…",
         "estimatedRecipients": "destinatários estimados",
-        "selectAudienceToEstimate": "Selecione um tipo de público para ver a estimativa."
+        "selectAudienceToEstimate": "Selecione um tipo de público para ver a estimativa.",
+        "existingContactsTitle": "{count} contato(s) já existe(m) no sistema",
+        "existingContactsDesc": "Estes contatos já estão cadastrados. Revise e descarte os que não devem receber a transmissão.",
+        "discardAllExisting": "Descartar todos",
+        "discardExisting": "Descartar",
+        "checkingDuplicates": "Verificando contatos existentes…"
       },
       "personalize": {
         "title": "Personalizar Variáveis",

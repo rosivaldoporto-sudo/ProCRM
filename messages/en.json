@@ -798,7 +798,12 @@
         "audienceSummary": "Audience Summary",
         "calculating": "Calculating…",
         "estimatedRecipients": "estimated recipients",
-        "selectAudienceToEstimate": "Select an audience type to see the estimate."
+        "selectAudienceToEstimate": "Select an audience type to see the estimate.",
+        "existingContactsTitle": "{count} contact(s) already exist in the system",
+        "existingContactsDesc": "These contacts are already registered. Review and discard those that should not receive the broadcast.",
+        "discardAllExisting": "Discard all",
+        "discardExisting": "Discard",
+        "checkingDuplicates": "Checking for existing contacts…"
       },
       "personalize": {
         "title": "Personalize Variables",

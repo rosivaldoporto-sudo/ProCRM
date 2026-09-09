@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
 import { CustomField, Tag } from '@/types';
+import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { Button } from '@/components/ui/button';
 import {
   Users,
@@ -17,6 +19,8 @@ import {
   Plus,
   Trash2,
   FileText,
+  AlertTriangle,
+  CheckCircle,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
@@ -119,6 +123,11 @@ export function Step2SelectAudience({
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [existingContacts, setExistingContacts] = useState<
+    { phone: string; name?: string; normalized: string }[]
+  >([]);
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const { accountId } = useAuth();
 
   // Tags are used both by the primary "Filter by Tags" audience type
   // AND by the exclude-list below — so always load once on mount.
@@ -154,6 +163,98 @@ export function Step2SelectAudience({
     }
     fetchFields();
   }, [audience.type]);
+
+  // Check for existing contacts when csvContacts change (CSV upload or paste)
+  useEffect(() => {
+    const csvContacts = audience.csvContacts;
+    if (
+      (audience.type !== 'csv' && audience.type !== 'manual_list') ||
+      !csvContacts ||
+      csvContacts.length === 0
+    ) {
+      setExistingContacts([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkDuplicates() {
+      if (!accountId || !csvContacts) return;
+      setIsCheckingDuplicates(true);
+      try {
+        const supabase = createClient();
+        const phones = csvContacts.map((c) => c.phone);
+        const LOOKUP_CHUNK = 200;
+        const found: { phone: string; name?: string; normalized: string }[] = [];
+
+        for (let i = 0; i < phones.length; i += LOOKUP_CHUNK) {
+          const chunk = phones.slice(i, i + LOOKUP_CHUNK);
+          const normalizedChunk = chunk.map((p) => normalizePhone(p));
+
+          const { data } = await supabase
+            .from('contacts')
+            .select('phone, name, phone_normalized')
+            .eq('account_id', accountId)
+            .in('phone_normalized', normalizedChunk);
+
+          if (cancelled) return;
+
+          for (const row of data ?? []) {
+            const normalized = (row as { phone_normalized: string | null }).phone_normalized;
+            if (normalized) {
+              const csvRow = csvContacts.find(
+                (c) => normalizePhone(c.phone) === normalized
+              );
+              if (csvRow) {
+                found.push({
+                  phone: csvRow.phone,
+                  name: csvRow.name ?? (row as { name?: string }).name ?? undefined,
+                  normalized,
+                });
+              }
+            }
+          }
+        }
+
+        if (!cancelled) {
+          // Deduplicate by normalized phone
+          const seen = new Set<string>();
+          const unique = found.filter((c) => {
+            if (seen.has(c.normalized)) return false;
+            seen.add(c.normalized);
+            return true;
+          });
+          setExistingContacts(unique);
+        }
+      } finally {
+        if (!cancelled) setIsCheckingDuplicates(false);
+      }
+    }
+
+    checkDuplicates();
+    return () => {
+      cancelled = true;
+    };
+  }, [audience.csvContacts, audience.type, accountId]);
+
+  function discardExistingContacts() {
+    if (!audience.csvContacts) return;
+    const existingNormalized = new Set(existingContacts.map((c) => c.normalized));
+    const filtered = audience.csvContacts.filter(
+      (c) => !existingNormalized.has(normalizePhone(c.phone))
+    );
+    onUpdate({ ...audience, csvContacts: filtered });
+    setExistingContacts([]);
+  }
+
+  function discardSingleExisting(normalized: string) {
+    if (!audience.csvContacts) return;
+    const filtered = audience.csvContacts.filter(
+      (c) => normalizePhone(c.phone) !== normalized
+    );
+    onUpdate({ ...audience, csvContacts: filtered });
+    setExistingContacts((prev) => prev.filter((c) => c.normalized !== normalized));
+  }
 
   const fetchEstimatedCount = useCallback(async () => {
     setLoadingCount(true);
@@ -782,6 +883,67 @@ export function Step2SelectAudience({
           )}
         </div>
       )}
+
+      {/* Existing contacts warning — CSV & Manual List */}
+      {(audience.type === 'csv' || audience.type === 'manual_list') &&
+        existingContacts.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <p className="text-sm font-medium text-foreground">
+                  {t('selectAudience.existingContactsTitle', {
+                    count: existingContacts.length,
+                  })}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={discardExistingContacts}
+                className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+              >
+                {t('selectAudience.discardAllExisting')}
+              </Button>
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('selectAudience.existingContactsDesc')}
+            </p>
+            <div className="max-h-40 space-y-1 overflow-y-auto">
+              {existingContacts.map((contact) => (
+                <div
+                  key={contact.normalized}
+                  className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-foreground">
+                      {contact.name || '(sem nome)'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{contact.phone}</p>
+                  </div>
+                  <button
+                    onClick={() => discardSingleExisting(contact.normalized)}
+                    className="ml-2 shrink-0 rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                    title={t('selectAudience.discardExisting')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      {/* Checking duplicates indicator */}
+      {(audience.type === 'csv' || audience.type === 'manual_list') &&
+        isCheckingDuplicates && (
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card/50 p-4">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-xs text-muted-foreground">
+              {t('selectAudience.checkingDuplicates')}
+            </span>
+          </div>
+        )}
 
       {/* Exclude list — applies regardless of audience type */}
       <div className="rounded-xl border border-border bg-card/50 p-4">
