@@ -911,6 +911,7 @@
       "subtitle": "Crie fluxos de trabalho que reagem a eventos do WhatsApp® automaticamente.",
       "create": "Criar Automação",
       "retry": "Tentar novamente",
+      "errorLoad": "Falha ao carregar automações",
       "templatesTitle": "Modelos de início rápido",
       "emptyTitle": "Nenhuma automação ainda",
       "emptyDesc": "Escolha um modelo acima ou crie um do zero.",
@@ -926,6 +927,24 @@
       "cancel": "Cancelar",
       "deleteTitle": "Excluir automação",
       "deleteDesc": "Isso remove permanentemente {name} e seu histórico de execução. Esta ação não pode ser desfeita.",
+      "openMenu": "Abrir menu",
+      "relativeNever": "nunca",
+      "relativeJustNow": "agora",
+      "relativeMinutesAgo": "{count}min atrás",
+      "relativeHoursAgo": "{count}h atrás",
+      "relativeDaysAgo": "{count}d atrás",
+      "templateNames": {
+        "welcome_message": "Mensagem de Boas-vindas",
+        "out_of_office": "Fora do Escritório",
+        "lead_qualifier": "Qualificação de Leads",
+        "follow_up_reminder": "Lembrete de Follow-up"
+      },
+      "templateDescs": {
+        "welcome_message": "Resposta automática para contatos primeiros com uma saudação.",
+        "out_of_office": "Resposta automática fora do horário para ninguém ficar esperando.",
+        "lead_qualifier": "Faça perguntas de qualificação para filtrar leads.",
+        "follow_up_reminder": "Envie um lembrete se um contato não respondeu em 24 horas."
+      },
       "toasts": {
         "activated": "Automação ativada",
         "paused": "Automação pausada",
@@ -1023,6 +1042,17 @@
       "saveDraft": "Salvar Rascunho",
       "untitled": "Automação sem título",
       "backToAutomations": "Voltar para automações",
+      "deleteStep": "Excluir",
+      "moveUp": "Mover para cima",
+      "moveDown": "Mover para baixo",
+      "stepTypeCondition": "Condição",
+      "stepTypeWait": "Aguardar",
+      "stepTypeAction": "Ação",
+      "previewNoText": "sem texto",
+      "previewNoBody": "sem conteúdo",
+      "previewPickTemplate": "escolha um modelo",
+      "previewWhen": "quando",
+      "previewNoUrl": "sem url",
       "toasts": {
         "saved": "Automação salva",
         "created": "Automação criada",
@@ -1109,7 +1139,8 @@
         "matchType": "Tipo de correspondência",
         "matchContains": "Contém",
         "matchExact": "Exato",
-        "closeConversationHint": "Define o status da conversa como \"fechada\". Nenhuma configuração necessária."
+        "closeConversationHint": "Define o status da conversa como \"fechada\". Nenhuma configuração necessária.",
+        "placeholderCron": "Expressão Cron ou HH:mm"
       }
     }
   },

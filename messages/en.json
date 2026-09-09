@@ -908,12 +908,13 @@
   "Automations": {
     "list": {
       "title": "Automations",
-      "subtitle": "Build workflows that react to WhatsApp® events automatically.",
+      "subtitle": "Create workflows that react to WhatsApp® events automatically.",
       "create": "Create Automation",
-      "retry": "Retry",
+      "retry": "Try again",
+      "errorLoad": "Failed to load automations",
       "templatesTitle": "Quick-start templates",
       "emptyTitle": "No automations yet",
-      "emptyDesc": "Pick a template above or create one from scratch.",
+      "emptyDesc": "Choose a template above or create one from scratch.",
       "runs": "{count} run",
       "runsPlural": "{count} runs",
       "lastRun": "last {time}",
@@ -925,7 +926,25 @@
       "delete": "Delete",
       "cancel": "Cancel",
       "deleteTitle": "Delete automation",
-      "deleteDesc": "This permanently removes {name} and its execution history. This cannot be undone.",
+      "deleteDesc": "This permanently deletes {name} and its run history. This cannot be undone.",
+      "openMenu": "Open menu",
+      "relativeNever": "never",
+      "relativeJustNow": "just now",
+      "relativeMinutesAgo": "{count}m ago",
+      "relativeHoursAgo": "{count}h ago",
+      "relativeDaysAgo": "{count}d ago",
+      "templateNames": {
+        "welcome_message": "Welcome Message",
+        "out_of_office": "Out of Office",
+        "lead_qualifier": "Lead Qualifier",
+        "follow_up_reminder": "Follow-up Reminder"
+      },
+      "templateDescs": {
+        "welcome_message": "Auto-reply to first-time contacts with a greeting.",
+        "out_of_office": "Auto-reply during off-hours so nobody is left waiting.",
+        "lead_qualifier": "Ask qualification questions to filter inbound leads.",
+        "follow_up_reminder": "Send a nudge if a contact has not replied within 24 hours."
+      },
       "toasts": {
         "activated": "Automation activated",
         "paused": "Automation paused",
@@ -1023,6 +1042,17 @@
       "saveDraft": "Save Draft",
       "untitled": "Untitled automation",
       "backToAutomations": "Back to automations",
+      "deleteStep": "Delete",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "stepTypeCondition": "Condition",
+      "stepTypeWait": "Wait",
+      "stepTypeAction": "Action",
+      "previewNoText": "no text yet",
+      "previewNoBody": "no body yet",
+      "previewPickTemplate": "pick a template",
+      "previewWhen": "when",
+      "previewNoUrl": "no url",
       "toasts": {
         "saved": "Automation saved",
         "created": "Automation created",
@@ -1109,7 +1139,8 @@
         "matchType": "Match type",
         "matchContains": "Contains",
         "matchExact": "Exact",
-        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed."
+        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed.",
+        "placeholderCron": "Cron expression or HH:mm"
       }
     }
   },

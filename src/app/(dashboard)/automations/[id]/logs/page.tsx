@@ -137,7 +137,7 @@ export default function AutomationLogsPage({
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {formatRelative(log.created_at)}
+                    {formatRelative(log.created_at, t)}
                   </div>
                 </button>
                 {isOpen && (
