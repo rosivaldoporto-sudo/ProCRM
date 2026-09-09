@@ -49,10 +49,12 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  List,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
+import { BulkAddContactsModal } from '@/components/contacts/bulk-add-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
@@ -85,6 +87,7 @@ export default function ContactsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailContactId, setDetailContactId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null);
@@ -369,6 +372,16 @@ export default function ContactsPage() {
           >
             <Upload className="size-4" />
             {t('importBtn')}
+          </GatedButton>
+          <GatedButton
+            variant="outline"
+            canAct={canEdit}
+            gateReason="add or import contacts"
+            onClick={() => setBulkAddOpen(true)}
+            className="border-border text-muted-foreground hover:bg-muted"
+          >
+            <List className="size-4" />
+            {t('bulkAddBtn')}
           </GatedButton>
           <GatedButton
             canAct={canEdit}
@@ -757,6 +770,13 @@ export default function ContactsPage() {
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
+        onImported={fetchContacts}
+      />
+
+      {/* Bulk Add Modal */}
+      <BulkAddContactsModal
+        open={bulkAddOpen}
+        onOpenChange={setBulkAddOpen}
         onImported={fetchContacts}
       />
 
