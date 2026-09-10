@@ -718,7 +718,11 @@
       "resumeHover": "아직 대기 중인 수신자에게 전송합니다 (예: Meta 일일 한도가 풀린 후)",
       "toastResumeDone": "재개 완료: {sent}개 전송, {failed}개 실패",
       "toastResumeNothing": "대기 중인 수신자가 없습니다",
-      "toastResumeFailed": "전송 재개에 실패했습니다"
+      "toastResumeFailed": "전송 재개에 실패했습니다",
+      "pageInfo": "{total}개 중 {from}-{to}개 표시",
+      "pageOf": "페이지 {current} / {total}",
+      "previous": "이전",
+      "next": "다음"
     },
     "new": {
       "title": "새 브로드캐스트",

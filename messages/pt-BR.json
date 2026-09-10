@@ -754,7 +754,11 @@
       "resumeHover": "Envia os destinatários que ainda estão pendentes (ex.: após o limite diário da Meta liberar)",
       "toastResumeDone": "Envio retomado: {sent} enviadas, {failed} falhas",
       "toastResumeNothing": "Não há destinatários pendentes",
-      "toastResumeFailed": "Falha ao retomar o envio"
+      "toastResumeFailed": "Falha ao retomar o envio",
+      "pageInfo": "Exibindo {from}-{to} de {total}",
+      "pageOf": "Página {current} de {total}",
+      "previous": "Anterior",
+      "next": "Próxima"
     },
     "new": {
       "title": "Nova Transmissão",

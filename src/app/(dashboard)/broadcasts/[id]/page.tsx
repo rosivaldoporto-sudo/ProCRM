@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
@@ -33,6 +33,8 @@ import {
   Filter,
   Download,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -42,6 +44,8 @@ import {
 } from '@/lib/broadcast-status';
 import { sendPendingRecipients } from '@/lib/broadcast-send';
 import { useTranslations } from 'next-intl';
+
+const PAGE_SIZE = 50;
 
 interface StatCardProps {
   label: string;
@@ -73,11 +77,6 @@ interface FunnelStep {
   color: string;
 }
 
-/**
- * Pure-CSS funnel chart: decreasing-width rounded bars.
- * Width is relative to the largest step (typically Sent) so we
- * always render a full bar at the top and proportional tails.
- */
 function FunnelChart({ steps }: { steps: FunnelStep[] }) {
   const max = Math.max(...steps.map((s) => s.value), 1);
   return (
@@ -124,10 +123,6 @@ const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
   'failed',
 ];
 
-/**
- * CSV export helper — RFC 4180 quoting. Quote every field so
- * commas/newlines/quotes round-trip cleanly.
- */
 function toCsv(rows: string[][]): string {
   const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
   return rows.map((r) => r.map(escape).join(',')).join('\n');
@@ -155,6 +150,7 @@ export default function BroadcastDetailPage() {
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
   const [recipients, setRecipients] = useState<BroadcastRecipient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RecipientStatus | 'all'>(
     'all',
@@ -164,10 +160,15 @@ export default function BroadcastDetailPage() {
   const [resuming, setResuming] = useState(false);
   const [resumeProgress, setResumeProgress] = useState(0);
 
-  const fetchData = useCallback(async () => {
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  const fetchBroadcast = useCallback(async () => {
     try {
       const supabase = createClient();
-
       const { data: bc, error: bcError } = await supabase
         .from('broadcasts')
         .select('*')
@@ -176,15 +177,6 @@ export default function BroadcastDetailPage() {
 
       if (bcError) throw bcError;
       setBroadcast(bc);
-
-      const { data: recs, error: recsError } = await supabase
-        .from('broadcast_recipients')
-        .select('*, contact:contacts(*)')
-        .eq('broadcast_id', broadcastId)
-        .order('created_at', { ascending: false });
-
-      if (recsError) throw recsError;
-      setRecipients(recs ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notFound'));
     } finally {
@@ -192,13 +184,52 @@ export default function BroadcastDetailPage() {
     }
   }, [broadcastId, t]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const fetchRecipients = useCallback(async () => {
+    try {
+      setLoadingRecipients(true);
+      const supabase = createClient();
 
-  // Finish the recipients the original run never reached (tab closed /
-  // background throttling / upstream limit). Uses the same shared
-  // dispatch loop as the wizard — safe to re-run for whatever is left.
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = supabase
+        .from('broadcast_recipients')
+        .select('*, contact:contacts(*)', { count: 'exact' })
+        .eq('broadcast_id', broadcastId)
+        .order('created_at', { ascending: false });
+
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+
+      query = query.range(from, to);
+
+      const { data: recs, error: recsError, count } = await query;
+
+      if (recsError) throw recsError;
+      setRecipients(recs ?? []);
+      setTotalCount(count ?? 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notFound'));
+    } finally {
+      setLoadingRecipients(false);
+    }
+  }, [broadcastId, page, statusFilter, t]);
+
+  useEffect(() => {
+    fetchBroadcast();
+  }, [fetchBroadcast]);
+
+  useEffect(() => {
+    fetchRecipients();
+  }, [fetchRecipients]);
+
+  // Reset to page 1 when filter changes
+  const handleFilterChange = useCallback((newFilter: RecipientStatus | 'all') => {
+    setStatusFilter(newFilter);
+    setPage(0);
+  }, []);
+
   const handleResume = useCallback(async () => {
     if (resuming) return;
     setResuming(true);
@@ -219,28 +250,47 @@ export default function BroadcastDetailPage() {
           }),
         );
       }
-      await fetchData();
+      await fetchBroadcast();
+      await fetchRecipients();
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t('toastResumeFailed'),
       );
-      await fetchData();
+      await fetchBroadcast();
+      await fetchRecipients();
     } finally {
       setResuming(false);
       setResumeProgress(0);
     }
-  }, [resuming, broadcastId, fetchData, t]);
+  }, [resuming, broadcastId, fetchBroadcast, fetchRecipients, t]);
 
-  const filteredRecipients = useMemo(
-    () =>
-      statusFilter === 'all'
-        ? recipients
-        : recipients.filter((r) => r.status === statusFilter),
-    [recipients, statusFilter],
-  );
-
-  function handleExport() {
+  // Export all recipients (fetches all pages)
+  const handleExport = useCallback(async () => {
     if (!broadcast) return;
+    const supabase = createClient();
+
+    let allRecipients: BroadcastRecipient[] = [];
+    let from = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('broadcast_recipients')
+        .select('*, contact:contacts(*)')
+        .eq('broadcast_id', broadcastId)
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) break;
+      if (data && data.length > 0) {
+        allRecipients = [...allRecipients, ...data];
+        from += PAGE_SIZE;
+        hasMore = data.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
+    }
+
     const header = [
       t('table.contact'),
       t('table.phone'),
@@ -250,7 +300,7 @@ export default function BroadcastDetailPage() {
       t('table.read'),
       t('table.error'),
     ];
-    const rows = recipients.map((r) => [
+    const rows = allRecipients.map((r) => [
       r.contact?.name ?? '',
       r.contact?.phone ?? '',
       r.status,
@@ -262,15 +312,11 @@ export default function BroadcastDetailPage() {
     const csv = toCsv([header, ...rows]);
     const safeName = broadcast.name.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
     downloadBlob(`broadcast-${safeName}-${broadcastId.slice(0, 8)}.csv`, csv);
-  }
+  }, [broadcast, broadcastId, t]);
 
   async function handleDelete() {
     setDeleting(true);
     const supabase = createClient();
-    // broadcast_recipients cascades on broadcasts.id (migration 001), so a
-    // single delete is sufficient — the aggregate trigger in migration 003
-    // is defined on broadcast_recipients but fires only on its own row
-    // changes, not on a cascaded drop of the parent row.
     const { error: delErr } = await supabase
       .from('broadcasts')
       .delete()
@@ -305,8 +351,6 @@ export default function BroadcastDetailPage() {
 
   const status = getBroadcastStatus(broadcast.status);
 
-  // delivered/read/replied are stages past 'sent' — the pending rows
-  // are whatever was never dispatched nor failed.
   const pendingCount = Math.max(
     0,
     broadcast.total_recipients - broadcast.sent_count - broadcast.failed_count,
@@ -351,10 +395,6 @@ export default function BroadcastDetailPage() {
           </div>
         </div>
 
-        {/* Delete — inline-confirm pattern matches the pipeline-settings
-            "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
-            because orphaning in-flight Meta messages would leave the
-            funnel inconsistent. */}
         {pendingCount > 0 && (
           <Button
             size="sm"
@@ -413,7 +453,7 @@ export default function BroadcastDetailPage() {
         )}
       </div>
 
-      {/* Stats — 7 cards: Total / Sent / Delivered / Read / Replied / Failed / Pending */}
+      {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <StatCard
           label={t('stats.totalRecipients')}
@@ -473,8 +513,8 @@ export default function BroadcastDetailPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium text-foreground">
             {statusFilter !== 'all'
-              ? t('recipientsHeader', { filtered: filteredRecipients.length, total: recipients.length })
-              : t('recipientsHeaderAll', { total: recipients.length })}
+              ? t('recipientsHeader', { filtered: totalCount, total: broadcast.total_recipients })
+              : t('recipientsHeaderAll', { total: broadcast.total_recipients })}
           </h2>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -495,7 +535,7 @@ export default function BroadcastDetailPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="border-border bg-popover">
                 <DropdownMenuItem
-                  onClick={() => setStatusFilter('all')}
+                  onClick={() => handleFilterChange('all')}
                   className={
                     statusFilter === 'all' ? 'text-primary' : 'text-popover-foreground'
                   }
@@ -505,7 +545,7 @@ export default function BroadcastDetailPage() {
                 {RECIPIENT_STATUSES.map((s) => (
                   <DropdownMenuItem
                     key={s}
-                    onClick={() => setStatusFilter(s)}
+                    onClick={() => handleFilterChange(s)}
                     className={
                       statusFilter === s
                         ? 'text-primary'
@@ -522,7 +562,7 @@ export default function BroadcastDetailPage() {
               variant="outline"
               size="sm"
               onClick={handleExport}
-              disabled={recipients.length === 0}
+              disabled={totalCount === 0}
               className="border-border text-muted-foreground hover:bg-muted"
             >
               <Download className="h-3.5 w-3.5" />
@@ -531,70 +571,114 @@ export default function BroadcastDetailPage() {
           </div>
         </div>
 
-        {filteredRecipients.length === 0 ? (
+        {loadingRecipients ? (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+        ) : recipients.length === 0 ? (
           <div className="flex h-32 items-center justify-center">
             <p className="text-sm text-muted-foreground">
-              {recipients.length === 0
+              {totalCount === 0
                 ? t('noRecipients')
                 : t('noRecipientsFilter')}
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground">{t('table.contact')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.phone')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.status')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.sent')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.delivered')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.read')}</TableHead>
-                  <TableHead className="text-muted-foreground">{t('table.error')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRecipients.map((recipient) => {
-                  const rStatus = getRecipientStatus(recipient.status);
-                  return (
-                    <TableRow key={recipient.id} className="border-border">
-                      <TableCell className="font-medium text-foreground">
-                        {recipient.contact?.name ?? 'Unknown'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.contact?.phone ?? '-'}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${rStatus.classes}`}
-                        >
-                          {tStatus(rStatus.label)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.sent_at
-                          ? new Date(recipient.sent_at).toLocaleString()
-                          : '-'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.delivered_at
-                          ? new Date(recipient.delivered_at).toLocaleString()
-                          : '-'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {recipient.read_at
-                          ? new Date(recipient.read_at).toLocaleString()
-                          : '-'}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate text-xs text-red-400">
-                        {recipient.error_message ?? '-'}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border hover:bg-transparent">
+                    <TableHead className="text-muted-foreground">{t('table.contact')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.phone')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.status')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.sent')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.delivered')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.read')}</TableHead>
+                    <TableHead className="text-muted-foreground">{t('table.error')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recipients.map((recipient) => {
+                    const rStatus = getRecipientStatus(recipient.status);
+                    return (
+                      <TableRow key={recipient.id} className="border-border">
+                        <TableCell className="font-medium text-foreground">
+                          {recipient.contact?.name ?? 'Unknown'}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {recipient.contact?.phone ?? '-'}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${rStatus.classes}`}
+                          >
+                            {tStatus(rStatus.label)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {recipient.sent_at
+                            ? new Date(recipient.sent_at).toLocaleString()
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {recipient.delivered_at
+                            ? new Date(recipient.delivered_at).toLocaleString()
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {recipient.read_at
+                            ? new Date(recipient.read_at).toLocaleString()
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate text-xs text-red-400">
+                          {recipient.error_message ?? '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                <p className="text-xs text-muted-foreground">
+                  {t('pageInfo', {
+                    from: page * PAGE_SIZE + 1,
+                    to: Math.min((page + 1) * PAGE_SIZE, totalCount),
+                    total: totalCount,
+                  })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    className="h-8 border-border"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    {t('previous')}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {t('pageOf', { current: page + 1, total: totalPages })}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1}
+                    className="h-8 border-border"
+                  >
+                    {t('next')}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

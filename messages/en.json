@@ -754,7 +754,11 @@
       "resumeHover": "Send the recipients that are still pending (e.g. after Meta's daily limit frees up)",
       "toastResumeDone": "Resumed: {sent} sent, {failed} failed",
       "toastResumeNothing": "No pending recipients",
-      "toastResumeFailed": "Failed to resume sending"
+      "toastResumeFailed": "Failed to resume sending",
+      "pageInfo": "Showing {from}-{to} of {total}",
+      "pageOf": "Page {current} of {total}",
+      "previous": "Previous",
+      "next": "Next"
     },
     "new": {
       "title": "New Broadcast",
