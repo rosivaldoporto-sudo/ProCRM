@@ -24,6 +24,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { NewConversationDialog } from "@/components/inbox/new-conversation-dialog";
 
+/** Minimum search length before we query the messages table. */
+const MIN_SEARCH_LENGTH = 2;
+/** Debounce delay (ms) before firing the message search query. */
+const SEARCH_DEBOUNCE_MS = 350;
+
 interface ConversationListProps {
   activeConversationId: string | null;
   onSelect: (conversation: Conversation) => void;
@@ -79,6 +84,12 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Conversation IDs whose messages contain the search term (server-side
+  // full-text search across the messages table, not just last_message_text).
+  const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -224,6 +235,61 @@ export function ConversationList({
     };
   }, []);
 
+  // Server-side search across the messages table. When the user types a
+  // search term (≥ MIN_SEARCH_LENGTH chars), we query for conversation IDs
+  // whose messages contain the term (case-insensitive). Results are
+  // debounced to avoid hammering the DB on every keystroke.
+  useEffect(() => {
+    // Clear any pending debounce timer.
+    if (searchTimerRef.current !== null) {
+      clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
+
+    const q = search.trim();
+    if (q.length < MIN_SEARCH_LENGTH) {
+      // Defer the setState to avoid cascading renders when the effect
+      // fires synchronously during render.
+      const timer = setTimeout(() => setMessageMatchIds(new Set()), 0);
+      return () => clearTimeout(timer);
+    }
+
+    let cancelled = false;
+
+    searchTimerRef.current = setTimeout(async () => {
+      const supabase = createClient();
+      // ilike for case-insensitive substring match. We only need the
+      // conversation_id to merge into the client-side filter — select just
+      // that column and deduplicate via a Set.
+      const { data, error } = await supabase
+        .from("messages")
+        .select("conversation_id")
+        .ilike("content_text", `%${q}%`)
+        .limit(500);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Message search failed:", error.message);
+        setMessageMatchIds(new Set());
+      } else {
+        const ids = new Set<string>();
+        for (const row of data ?? []) {
+          ids.add(row.conversation_id);
+        }
+        setMessageMatchIds(ids);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      if (searchTimerRef.current !== null) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+    };
+  }, [search]);
+
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
   // are worth offering as an inbox filter.
@@ -271,12 +337,19 @@ export function ConversationList({
         const name = c.contact?.name?.toLowerCase() ?? "";
         const phone = c.contact?.phone?.toLowerCase() ?? "";
         const lastMsg = c.last_message_text?.toLowerCase() ?? "";
-        return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
+        // Match on contact name, phone, last message, OR any earlier
+        // message in the conversation (server-side search via messageMatchIds).
+        return (
+          name.includes(q) ||
+          phone.includes(q) ||
+          lastMsg.includes(q) ||
+          messageMatchIds.has(c.id)
+        );
       });
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, filter, search, selectedTagIds, selectedCompany, messageMatchIds]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
