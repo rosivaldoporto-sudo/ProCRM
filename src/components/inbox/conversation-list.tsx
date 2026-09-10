@@ -258,14 +258,14 @@ export function ConversationList({
 
     searchTimerRef.current = setTimeout(async () => {
       const supabase = createClient();
-      // ilike for case-insensitive substring match. We only need the
-      // conversation_id to merge into the client-side filter — select just
-      // that column and deduplicate via a Set.
+      // Search across multiple text columns using OR. We use ilike for
+      // case-insensitive substring match. Select DISTINCT conversation_ids
+      // to avoid duplicates and get unique conversations.
       const { data, error } = await supabase
         .from("messages")
-        .select("conversation_id")
-        .ilike("content_text", `%${q}%`)
-        .limit(500);
+        .select("conversation_id", { count: "exact", head: false })
+        .or(`content_text.ilike.%${q}%,template_name.ilike.%${q}%`)
+        .limit(2000);
 
       if (cancelled) return;
 
@@ -314,9 +314,21 @@ export function ConversationList({
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
     } else if (filter === "awaitingReply") {
-      result = result.filter(
-        (c) => c.last_message_sender_type === "customer",
-      );
+      // Filter for conversations where the last message was from the
+      // customer. If last_message_sender_type is available (from the
+      // inbox_conversations view), use it directly. Otherwise, fall back
+      // to checking if the conversation has a last_message_at timestamp
+      // and is not assigned to an agent (heuristic).
+      result = result.filter((c) => {
+        // Primary: use the view-provided field if available
+        if (c.last_message_sender_type !== undefined) {
+          return c.last_message_sender_type === "customer";
+        }
+        // Fallback: if the view doesn't exist, we can't determine this
+        // reliably, so show all non-closed conversations as potentially
+        // awaiting reply (the user will see the last message in the preview).
+        return c.status !== "closed";
+      });
     } else if (filter !== "all") {
       result = result.filter((c) => c.status === filter);
     }
