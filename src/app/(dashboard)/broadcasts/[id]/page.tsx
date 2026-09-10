@@ -36,6 +36,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Rows3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -45,7 +46,7 @@ import {
 import { sendPendingRecipients } from '@/lib/broadcast-send';
 import { useTranslations } from 'next-intl';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [100, 500, 1000, 2000, 3000] as const;
 
 interface StatCardProps {
   label: string;
@@ -162,9 +163,10 @@ export default function BroadcastDetailPage() {
 
   // Pagination state
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalPages = Math.ceil(totalCount / pageSize);
 
   const fetchBroadcast = useCallback(async () => {
     try {
@@ -189,8 +191,8 @@ export default function BroadcastDetailPage() {
       setLoadingRecipients(true);
       const supabase = createClient();
 
-      const from = page * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
 
       let query = supabase
         .from('broadcast_recipients')
@@ -214,7 +216,7 @@ export default function BroadcastDetailPage() {
     } finally {
       setLoadingRecipients(false);
     }
-  }, [broadcastId, page, statusFilter, t]);
+  }, [broadcastId, page, pageSize, statusFilter, t]);
 
   useEffect(() => {
     fetchBroadcast();
@@ -227,6 +229,12 @@ export default function BroadcastDetailPage() {
   // Reset to page 1 when filter changes
   const handleFilterChange = useCallback((newFilter: RecipientStatus | 'all') => {
     setStatusFilter(newFilter);
+    setPage(0);
+  }, []);
+
+  // Reset to page 1 when page size changes
+  const handlePageSizeChange = useCallback((newSize: number) => {
+    setPageSize(newSize);
     setPage(0);
   }, []);
 
@@ -279,13 +287,13 @@ export default function BroadcastDetailPage() {
         .select('*, contact:contacts(*)')
         .eq('broadcast_id', broadcastId)
         .order('created_at', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
+        .range(from, from + pageSize - 1);
 
       if (error) break;
       if (data && data.length > 0) {
         allRecipients = [...allRecipients, ...data];
-        from += PAGE_SIZE;
-        hasMore = data.length === PAGE_SIZE;
+        from += pageSize;
+        hasMore = data.length === pageSize;
       } else {
         hasMore = false;
       }
@@ -312,7 +320,7 @@ export default function BroadcastDetailPage() {
     const csv = toCsv([header, ...rows]);
     const safeName = broadcast.name.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
     downloadBlob(`broadcast-${safeName}-${broadcastId.slice(0, 8)}.csv`, csv);
-  }, [broadcast, broadcastId, t]);
+  }, [broadcast, broadcastId, pageSize, t]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -558,6 +566,37 @@ export default function BroadcastDetailPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-border text-muted-foreground hover:bg-muted"
+                  />
+                }
+              >
+                <Rows3 className="h-3.5 w-3.5" />
+                {pageSize}
+                <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="border-border bg-popover">
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <DropdownMenuItem
+                    key={size}
+                    onClick={() => handlePageSizeChange(size)}
+                    className={
+                      pageSize === size
+                        ? 'text-primary'
+                        : 'text-popover-foreground'
+                    }
+                  >
+                    {size}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               variant="outline"
               size="sm"
@@ -646,8 +685,8 @@ export default function BroadcastDetailPage() {
               <div className="flex items-center justify-between border-t border-border px-4 py-3">
                 <p className="text-xs text-muted-foreground">
                   {t('pageInfo', {
-                    from: page * PAGE_SIZE + 1,
-                    to: Math.min((page + 1) * PAGE_SIZE, totalCount),
+                    from: page * pageSize + 1,
+                    to: Math.min((page + 1) * pageSize, totalCount),
                     total: totalCount,
                   })}
                 </p>
