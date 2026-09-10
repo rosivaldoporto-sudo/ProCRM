@@ -15,6 +15,7 @@ import {
   Video,
   FileText,
   Mic,
+  Music,
   Square,
   X,
   Loader2,
@@ -93,11 +94,12 @@ interface ReplyDraft {
 // the file picker so unsupported files are rejected before upload rather
 // than failing with a confusing Storage error. Audio has no picker — it's
 // captured via the recorder.
-const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
+const PICKER_ACCEPT: Record<"image" | "video" | "document" | "audio", string> = {
   image: "image/png,image/jpeg,image/webp",
   video: "video/mp4,video/3gpp",
   document:
     "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+  audio: "audio/mpeg,audio/ogg,audio/wav,audio/mp4,audio/aac,audio/x-m4a",
 };
 
 interface MediaDraft {
@@ -162,6 +164,7 @@ export function MessageComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   // Mirror of `draft` for the unmount cleanup, which can't read render
   // state. Kept in sync below so navigating away with a staged-but-unsent
   // attachment GCs the orphaned object.
@@ -412,7 +415,7 @@ export function MessageComposer({
   );
 
   const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
+    (kind: "image" | "video" | "document" | "audio", file: File | undefined) => {
       if (file) void stageUpload(kind, file);
     },
     [stageUpload],
@@ -594,6 +597,16 @@ export function MessageComposer({
           e.target.value = "";
         }}
       />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept={PICKER_ACCEPT.audio}
+        className="hidden"
+        onChange={(e) => {
+          handlePicked("audio", e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
 
       {draft ? (
         <MediaDraftPreview
@@ -665,6 +678,10 @@ export function MessageComposer({
               <DropdownMenuItem onClick={() => void startRecording()}>
                 <Mic className="mr-2 h-4 w-4" />
                 {t("voiceNote")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => audioInputRef.current?.click()}>
+                <Music className="mr-2 h-4 w-4" />
+                {t("audio")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

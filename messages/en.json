@@ -216,6 +216,7 @@
       "video": "Video",
       "document": "Document",
       "voiceNote": "Voice note",
+      "audio": "Audio",
       "sendTemplate": "Send template",
       "draftWithAI": "Draft a reply with AI",
       "addCaption": "Add a caption…",

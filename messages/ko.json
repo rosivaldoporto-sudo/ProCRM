@@ -215,6 +215,7 @@
       "video": "동영상",
       "document": "문서",
       "voiceNote": "음성 메모",
+      "audio": "오디오",
       "sendTemplate": "템플릿 보내기",
       "draftWithAI": "AI로 답장 초안 작성",
       "addCaption": "캡션 추가…",
