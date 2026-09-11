@@ -84,6 +84,8 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // All companies for the current account (for the company filter dropdown).
+  const [companies, setCompanies] = useState<string[]>([]);
   // Conversation IDs whose messages contain the search term (server-side
   // full-text search across the messages table, not just last_message_text).
   const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(
@@ -235,10 +237,53 @@ export function ConversationList({
     };
   }, []);
 
-  // Server-side search across the messages table. When the user types a
-  // search term (≥ MIN_SEARCH_LENGTH chars), we query for conversation IDs
-  // whose messages contain the term (case-insensitive). Results are
-  // debounced to avoid hammering the DB on every keystroke.
+  // Fetch all unique companies for the current account (for the company filter dropdown).
+  // This runs once on mount and is independent of the source filter so users can
+  // filter by company across all conversation sources.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      // Get the current user's account_id from their profile
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("account_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const accountId = profile?.account_id;
+      if (!accountId) return;
+
+      // Fetch distinct companies from contacts for this account
+      const { data: contactsData } = await supabase
+        .from("contacts")
+        .select("company")
+        .eq("account_id", accountId)
+        .not("company", "is", null);
+
+      if (cancelled) return;
+
+      const companySet = new Set<string>();
+      for (const c of contactsData ?? []) {
+        const co = c.company?.trim();
+        if (co) companySet.add(co);
+      }
+      setCompanies(Array.from(companySet).sort((a, b) => a.localeCompare(b)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Server-side search across the messages table AND contacts table.
+  // When the user types a search term (≥ MIN_SEARCH_LENGTH chars), we query for
+  // conversation IDs whose messages contain the term (case-insensitive) OR whose
+  // contact's phone/name matches. Results are debounced to avoid hammering the DB.
   useEffect(() => {
     // Clear any pending debounce timer.
     if (searchTimerRef.current !== null) {
@@ -258,24 +303,54 @@ export function ConversationList({
 
     searchTimerRef.current = setTimeout(async () => {
       const supabase = createClient();
-      // Search across multiple text columns using OR. We use ilike for
-      // case-insensitive substring match. Select DISTINCT conversation_ids
-      // to avoid duplicates and get unique conversations.
-      const { data, error } = await supabase
+      const searchTerm = `%${q}%`;
+
+      // Search 1: messages table (content_text, template_name)
+      const { data: messageData, error: messageError } = await supabase
         .from("messages")
-        .select("conversation_id", { count: "exact", head: false })
-        .or(`content_text.ilike.%${q}%,template_name.ilike.%${q}%`)
+        .select("conversation_id")
+        .or(`content_text.ilike.${searchTerm},template_name.ilike.${searchTerm}`)
         .limit(2000);
+
+      // Search 2: contacts table (phone, phone_normalized, name) -> conversations
+      // We need to find contacts matching the search term, then get their conversation_ids
+      const { data: contactData, error: contactError } = await supabase
+        .from("contacts")
+        .select("id")
+        .or(`phone.ilike.${searchTerm},phone_normalized.ilike.${searchTerm},name.ilike.${searchTerm}`)
+        .limit(2000);
+
+      const contactConversationIds = new Set<string>();
+      if (!contactError && contactData) {
+        const contactIds = contactData.map((c) => c.id);
+        if (contactIds.length > 0) {
+          const { data: convData } = await supabase
+            .from("conversations")
+            .select("id")
+            .in("contact_id", contactIds)
+            .limit(2000);
+          for (const row of convData ?? []) {
+            contactConversationIds.add(row.id);
+          }
+        }
+      }
 
       if (cancelled) return;
 
-      if (error) {
-        console.error("Message search failed:", error.message);
+      if (messageError || contactError) {
+        console.error("Message search failed:", {
+          messageError: messageError?.message,
+          contactError: contactError?.message,
+        });
         setMessageMatchIds(new Set());
       } else {
         const ids = new Set<string>();
-        for (const row of data ?? []) {
+        for (const row of messageData ?? []) {
           ids.add(row.conversation_id);
+        }
+        // Merge contact-based conversation IDs
+        for (const id of contactConversationIds) {
+          ids.add(id);
         }
         setMessageMatchIds(ids);
       }
@@ -289,18 +364,6 @@ export function ConversationList({
       }
     };
   }, [search]);
-
-  // Company options are derived from the loaded conversations — there's no
-  // separate companies table, and only companies with a live conversation
-  // are worth offering as an inbox filter.
-  const companies = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of conversations) {
-      const co = c.contact?.company?.trim();
-      if (co) set.add(co);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [conversations]);
 
   const tagsById = useMemo(() => {
     const m = new Map<string, Tag>();
