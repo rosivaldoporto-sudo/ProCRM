@@ -149,7 +149,13 @@
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
       "unknown": "Unknown",
-      "filterAwaitingReply": "Customer replied last"
+      "filterAwaitingReply": "Customer replied last",
+      "loadMore": "Load more conversations",
+      "loadingMore": "Loading...",
+      "retry": "Try again",
+      "loadFailed": "Unable to load conversations. Please try again.",
+      "accessDenied": "The server denied access (403). Check your session or contact your administrator.",
+      "noCompanies": "No companies available"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",

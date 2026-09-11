@@ -2,11 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import {
-  CONVERSATION_SELECT,
-  matchesContactFilters,
-  normalizeConversations,
-} from '@/lib/inbox/conversations';
+import { matchesContactFilters } from '@/lib/inbox/conversations';
+import { fetchInboxPage, INBOX_PAGE_SIZE } from '@/lib/inbox/query';
 import { fetchAllInboxPages } from '@/lib/inbox/pagination';
 import { cn } from '@/lib/utils';
 import type { Conversation, ConversationStatus, Tag } from '@/types';
@@ -32,8 +29,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { NewConversationDialog } from '@/components/inbox/new-conversation-dialog';
 
-/** Minimum search length before we query the messages table. */
-const MIN_SEARCH_LENGTH = 2;
 /** Debounce delay (ms) before firing the message search query. */
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -41,7 +36,10 @@ interface ConversationListProps {
   activeConversationId: string | null;
   onSelect: (conversation: Conversation) => void;
   conversations: Conversation[];
-  onConversationsLoaded: (conversations: Conversation[]) => void;
+  onConversationsLoaded: (
+    conversations: Conversation[],
+    append?: boolean
+  ) => void;
   /**
    * Increment to force the fetch effect below to refire. The parent
    * bumps this on realtime reconnect / tab visibility → visible so the
@@ -95,12 +93,31 @@ export function ConversationList({
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   // All companies for the current account (for the company filter dropdown).
   const [companies, setCompanies] = useState<string[]>([]);
-  // Conversation IDs whose messages contain the search term (server-side
-  // full-text search across the messages table, not just last_message_text).
-  const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(
-    () => new Set()
-  );
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [pageRequest, setPageRequest] = useState({ key: '', offset: 0 });
+  const [loadedKey, setLoadedKey] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState<number | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
+  const [resultIds, setResultIds] = useState<Set<string>>(new Set());
+  const [loadCompanies, setLoadCompanies] = useState(false);
+  const queryKey = JSON.stringify([
+    debouncedSearch,
+    filter,
+    sourceFilter,
+    selectedTagIds,
+    selectedCompany,
+  ]);
+  const requestKey = queryKey + ':' + resyncToken;
+  const offset = pageRequest.key === requestKey ? pageRequest.offset : 0;
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      SEARCH_DEBOUNCE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -120,153 +137,56 @@ export function ConversationList({
   });
 
   useEffect(() => {
-    const supabase = createClient();
-    let cancelled = false;
-
-    (async () => {
-      let data: Conversation[] = [];
-
-      if (sourceFilter === 'all') {
-        // Prefer the inbox_conversations view (adds last_message_sender_type,
-        // migration 048). If it's not deployed yet, fall back to the base
-        // table so a missing migration never blanks the whole inbox.
-        let res = await fetchAllInboxPages(
-          (from, to) =>
-            supabase
-              .from('inbox_conversations')
-              .select(CONVERSATION_SELECT)
-              .order('last_message_at', { ascending: false })
-              .order('id')
-              .range(from, to),
-          () => cancelled
+    const controller = new AbortController();
+    const filters = JSON.parse(queryKey) as [
+      string,
+      InboxFilter,
+      SourceFilter,
+      string[],
+      string | null,
+    ];
+    const reset = offset === 0;
+    // Defer state changes while still starting only one bounded request.
+    void (async () => {
+      await Promise.resolve();
+      if (controller.signal.aborted) return;
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const rows = await fetchInboxPage(
+          createClient(),
+          {
+            search: filters[0],
+            status: filters[1],
+            source: filters[2],
+            tagIds: filters[3],
+            company: filters[4],
+          },
+          offset,
+          controller.signal
         );
-        if (res.error) {
-          res = await fetchAllInboxPages(
-            (from, to) =>
-              supabase
-                .from('conversations')
-                .select(CONVERSATION_SELECT)
-                .order('last_message_at', { ascending: false })
-                .order('id')
-                .range(from, to),
-            () => cancelled
-          );
-        }
-        const { data: all, error } = res;
-
-        if (cancelled) return;
-
-        if (error) {
-          // Supabase errors have non-enumerable properties — log fields explicitly
-          console.error('Failed to fetch conversations:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-          });
-          setLoading(false);
-          return;
-        }
-        data = all ?? [];
-      } else {
-        // Two lookups merged into one list:
-        // 1) conversations whose own `source` column matches — covers
-        //    rows created by the Uazapi sync route, which can exist
-        //    without message rows yet;
-        // 2) conversations that contain at least one message from the
-        //    channel. Mixed conversations (Meta + Uazapi) get
-        //    `source = null` (see the Uazapi webhook), so a column
-        //    match alone would miss them.
-        let [bySource, byMessage] = await Promise.all([
-          fetchAllInboxPages(
-            (from, to) =>
-              supabase
-                .from('inbox_conversations')
-                .select(CONVERSATION_SELECT)
-                .eq('source', sourceFilter)
-                .order('id')
-                .range(from, to),
-            () => cancelled
-          ),
-          fetchAllInboxPages(
-            (from, to) =>
-              supabase
-                .from('inbox_conversations')
-                .select(`${CONVERSATION_SELECT}, messages!inner()`)
-                .eq('messages.source', sourceFilter)
-                .order('id')
-                .range(from, to),
-            () => cancelled
-          ),
-        ]);
-
-        // Fall back to the base table if the view (migration 048) isn't
-        // deployed yet — same reason as the "all" branch above.
-        if (bySource.error || byMessage.error) {
-          [bySource, byMessage] = await Promise.all([
-            fetchAllInboxPages(
-              (from, to) =>
-                supabase
-                  .from('conversations')
-                  .select(CONVERSATION_SELECT)
-                  .eq('source', sourceFilter)
-                  .order('id')
-                  .range(from, to),
-              () => cancelled
-            ),
-            fetchAllInboxPages(
-              (from, to) =>
-                supabase
-                  .from('conversations')
-                  .select(`${CONVERSATION_SELECT}, messages!inner()`)
-                  .eq('messages.source', sourceFilter)
-                  .order('id')
-                  .range(from, to),
-              () => cancelled
-            ),
-          ]);
-        }
-
-        if (cancelled) return;
-
-        if (bySource.error || byMessage.error) {
-          const error = bySource.error ?? byMessage.error;
-          console.error('Failed to fetch conversations:', {
-            message: error!.message,
-            details: error!.details,
-            hint: error!.hint,
-            code: error!.code,
-          });
-          setLoading(false);
-          return;
-        }
-
-        const seen = new Map<string, Conversation>();
-        for (const row of [
-          ...(bySource.data ?? []),
-          ...(byMessage.data ?? []),
-        ]) {
-          if (!seen.has(row.id)) seen.set(row.id, row);
-        }
-        data = Array.from(seen.values()).sort(
-          (a, b) =>
-            new Date(b.last_message_at ?? 0).getTime() -
-            new Date(a.last_message_at ?? 0).getTime()
+        if (controller.signal.aborted) return;
+        setResultIds(
+          (prev) =>
+            new Set([...(reset ? [] : prev), ...rows.map((row) => row.id)])
         );
+        onConversationsLoadedRef.current(rows, !reset);
+        setHasMore(rows.length === INBOX_PAGE_SIZE);
+        setLoadedKey(queryKey);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const failure = error as { status?: number; code?: string };
+        console.error('Inbox load failed', {
+          status: failure.status,
+          code: failure.code,
+        });
+        setLoadError(failure.status || 0);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-
-      onConversationsLoadedRef.current(normalizeConversations(data));
-      setLoading(false);
     })();
-
-    return () => {
-      cancelled = true;
-    };
-    // `resyncToken` is included so the parent can force a refetch when
-    // the realtime channel reconnects or the tab regains focus —
-    // realtime is best-effort and any message events sent while the WS
-    // was disconnected or throttled are otherwise lost.
-  }, [resyncToken, sourceFilter]);
+    return () => controller.abort();
+  }, [queryKey, offset, retryToken, resyncToken]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
@@ -308,9 +228,10 @@ export function ConversationList({
   }, []);
 
   // Fetch all unique companies for the current account (for the company filter dropdown).
-  // This runs once on mount and is independent of the source filter so users can
+  // This runs when the picker is first opened and is independent of source so users can
   // filter by company across all conversation sources.
   useEffect(() => {
+    if (!loadCompanies) return;
     const supabase = createClient();
     let cancelled = false;
     (async () => {
@@ -354,112 +275,7 @@ export function ConversationList({
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // Server-side search across the messages table AND contacts table.
-  // When the user types a search term (≥ MIN_SEARCH_LENGTH chars), we query for
-  // conversation IDs whose messages contain the term (case-insensitive) OR whose
-  // contact's phone/name matches. Results are debounced to avoid hammering the DB.
-  useEffect(() => {
-    // Clear any pending debounce timer.
-    if (searchTimerRef.current !== null) {
-      clearTimeout(searchTimerRef.current);
-      searchTimerRef.current = null;
-    }
-
-    const q = search.trim();
-    if (q.length < MIN_SEARCH_LENGTH) {
-      // Defer the setState to avoid cascading renders when the effect
-      // fires synchronously during render.
-      const timer = setTimeout(() => setMessageMatchIds(new Set()), 0);
-      return () => clearTimeout(timer);
-    }
-
-    let cancelled = false;
-
-    searchTimerRef.current = setTimeout(async () => {
-      const supabase = createClient();
-      const searchTerm = `%${q}%`;
-
-      // Get the current user's account_id for scoping searches
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('account_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      const accountId = profile?.account_id;
-      if (!accountId) return;
-
-      // Match conversations directly so repeated messages cannot consume a
-      // row limit and hide other matching conversations.
-      const [messageResult, contactResult] = await Promise.all([
-        fetchAllInboxPages(
-          (from, to) =>
-            supabase
-              .from('conversations')
-              .select('id, messages!inner()')
-              .eq('account_id', accountId)
-              .or(
-                `content_text.ilike.${searchTerm},template_name.ilike.${searchTerm}`,
-                { referencedTable: 'messages' }
-              )
-              .order('id')
-              .range(from, to),
-          () => cancelled
-        ),
-        fetchAllInboxPages(
-          (from, to) =>
-            supabase
-              .from('conversations')
-              .select('id, contacts!inner()')
-              .eq('account_id', accountId)
-              .or(
-                `phone.ilike.${searchTerm},phone_normalized.ilike.${searchTerm},name.ilike.${searchTerm}`,
-                { referencedTable: 'contacts' }
-              )
-              .order('id')
-              .range(from, to),
-          () => cancelled
-        ),
-      ]);
-      const { data: messageData, error: messageError } = messageResult;
-      const { data: contactData, error: contactError } = contactResult;
-
-      if (cancelled) return;
-
-      if (messageError || contactError) {
-        console.error('Message search failed:', {
-          messageError: messageError?.message,
-          contactError: contactError?.message,
-        });
-        setMessageMatchIds(new Set());
-      } else {
-        const ids = new Set<string>();
-        for (const row of messageData ?? []) {
-          ids.add(row.id);
-        }
-        // Merge contact-based conversation IDs
-        for (const row of contactData ?? []) {
-          ids.add(row.id);
-        }
-        setMessageMatchIds(ids);
-      }
-    }, SEARCH_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      if (searchTimerRef.current !== null) {
-        clearTimeout(searchTimerRef.current);
-        searchTimerRef.current = null;
-      }
-    };
-  }, [search]);
+  }, [loadCompanies]);
 
   const tagsById = useMemo(() => {
     const m = new Map<string, Tag>();
@@ -468,7 +284,7 @@ export function ConversationList({
   }, [tags]);
 
   const filtered = useMemo(() => {
-    let result = conversations;
+    let result = loadedKey === queryKey ? conversations : [];
 
     if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
@@ -502,31 +318,23 @@ export function ConversationList({
       );
     }
 
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      result = result.filter((c) => {
-        const name = c.contact?.name?.toLowerCase() ?? '';
-        const phone = c.contact?.phone?.toLowerCase() ?? '';
-        const lastMsg = c.last_message_text?.toLowerCase() ?? '';
-        // Match on contact name, phone, last message, OR any earlier
-        // message in the conversation (server-side search via messageMatchIds).
-        return (
-          name.includes(q) ||
-          phone.includes(q) ||
-          lastMsg.includes(q) ||
-          messageMatchIds.has(c.id)
-        );
-      });
+    // Server-side search and channel matching determine membership across
+    // the whole account; do not re-filter message matches using local text.
+    if (debouncedSearch || sourceFilter !== 'all') {
+      result = result.filter((c) => resultIds.has(c.id));
     }
 
     return result;
   }, [
     conversations,
+    loadedKey,
+    queryKey,
     filter,
-    search,
+    debouncedSearch,
+    sourceFilter,
     selectedTagIds,
     selectedCompany,
-    messageMatchIds,
+    resultIds,
   ]);
 
   const toggleTag = useCallback((id: string) => {
@@ -705,53 +513,58 @@ export function ConversationList({
             </DropdownMenu>
           )}
 
-          {companies.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
+          <DropdownMenu
+            onOpenChange={(open) => {
+              if (open) setLoadCompanies(true);
+            }}
+          >
+            <DropdownMenuTrigger
+              className={cn(
+                'hover:bg-muted inline-flex h-7 max-w-40 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                selectedCompany
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <span className="truncate">
+                {selectedCompany ?? t('company')}
+              </span>
+              <ChevronDown className="h-3 w-3 shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="border-border bg-popover max-h-64 w-56"
+            >
+              <DropdownMenuItem
+                onClick={() => setSelectedCompany(null)}
                 className={cn(
-                  'hover:bg-muted inline-flex h-7 max-w-40 items-center justify-center gap-1 rounded-md px-2 text-xs',
-                  selectedCompany
+                  'text-sm',
+                  selectedCompany === null
                     ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
+                    : 'text-popover-foreground'
                 )}
               >
-                <span className="truncate">
-                  {selectedCompany ?? t('company')}
-                </span>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="border-border bg-popover max-h-64 w-56"
-              >
+                {t('allCompanies')}
+              </DropdownMenuItem>
+              {loadCompanies && companies.length === 0 && (
+                <DropdownMenuItem disabled>{t('noCompanies')}</DropdownMenuItem>
+              )}
+              {companies.map((co) => (
                 <DropdownMenuItem
-                  onClick={() => setSelectedCompany(null)}
+                  key={co}
+                  onClick={() => setSelectedCompany(co)}
                   className={cn(
                     'text-sm',
-                    selectedCompany === null
+                    selectedCompany === co
                       ? 'text-primary'
                       : 'text-popover-foreground'
                   )}
                 >
-                  {t('allCompanies')}
+                  <span className="truncate">{co}</span>
                 </DropdownMenuItem>
-                {companies.map((co) => (
-                  <DropdownMenuItem
-                    key={co}
-                    onClick={() => setSelectedCompany(co)}
-                    className={cn(
-                      'text-sm',
-                      selectedCompany === co
-                        ? 'text-primary'
-                        : 'text-popover-foreground'
-                    )}
-                  >
-                    <span className="truncate">{co}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {hasContactFilters && (
@@ -803,11 +616,11 @@ export function ConversationList({
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
       <ScrollArea className="min-h-0 flex-1">
-        {loading ? (
+        {loading && offset === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && loadError === null ? (
           <div className="px-4 py-12 text-center">
             <p className="text-muted-foreground text-sm">
               {t('noConversations')}
@@ -825,6 +638,34 @@ export function ConversationList({
               />
             ))}
           </div>
+        )}
+        {loadError !== null && (
+          <div role="alert" className="text-destructive px-4 py-3 text-sm">
+            <p>{loadError === 403 ? t('accessDenied') : t('loadFailed')}</p>
+            <Button
+              variant="outline"
+              className="mt-2"
+              disabled={loading}
+              onClick={() => setRetryToken((value) => value + 1)}
+            >
+              {t('retry')}
+            </Button>
+          </div>
+        )}
+        {hasMore && loadError === null && (
+          <Button
+            variant="ghost"
+            className="w-full"
+            disabled={loading}
+            onClick={() =>
+              setPageRequest({
+                key: requestKey,
+                offset: offset + INBOX_PAGE_SIZE,
+              })
+            }
+          >
+            {loading ? t('loadingMore') : t('loadMore')}
+          </Button>
         )}
       </ScrollArea>
     </div>
@@ -872,6 +713,7 @@ function ConversationItem({
           <img
             src={contact.avatar_url}
             alt={displayName}
+            loading="lazy"
             className="h-10 w-10 rounded-full object-cover"
           />
         ) : (

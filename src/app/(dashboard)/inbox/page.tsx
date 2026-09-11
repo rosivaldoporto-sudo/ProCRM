@@ -13,6 +13,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
+import { appendInboxPage } from "@/lib/inbox/query";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { UazapiSyncBar } from "@/components/inbox/uazapi-sync-bar";
@@ -426,8 +427,8 @@ function InboxPageInner() {
   }, []);
 
   const handleConversationsLoaded = useCallback(
-    (loaded: Conversation[]) => {
-      setConversations(loaded);
+    (loaded: Conversation[], append = false) => {
+      setConversations(prev => append ? appendInboxPage(prev, loaded) : loaded);
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
@@ -435,8 +436,7 @@ function InboxPageInner() {
       // user back to the deep-linked thread after they've navigated.
       if (
         deepLinkConvId &&
-        autoSelectedForDeepLinkRef.current !== deepLinkConvId &&
-        loaded.length > 0
+        autoSelectedForDeepLinkRef.current !== deepLinkConvId
       ) {
         autoSelectedForDeepLinkRef.current = deepLinkConvId;
         // If the deep-linked conversation is already the active one
@@ -450,6 +450,26 @@ function InboxPageInner() {
         // full page reload rehydrated state from scratch.
         if (activeConversation?.id === deepLinkConvId) return;
         const match = loaded.find((c) => c.id === deepLinkConvId);
+        if (!match) {
+          // A deep link may point beyond the first page. Fetch that one row,
+          // without downloading the rest of the inbox or changing its filters.
+          void (async () => {
+            const { data, error } = await createClient()
+              .from("conversations")
+              .select(CONVERSATION_SELECT)
+              .eq("id", deepLinkConvId)
+              .maybeSingle();
+            if (autoSelectedForDeepLinkRef.current !== deepLinkConvId) return;
+            if (error || !data) {
+              console.error("Failed to open linked conversation", { code: error?.code });
+              return;
+            }
+            const linked = normalizeConversation(data);
+            setActiveConversation(linked);
+            setActiveContact(linked.contact ?? null);
+            setMessages([]);
+          })();
+        }
         if (match) {
           setActiveConversation(match);
           setActiveContact(match.contact ?? null);

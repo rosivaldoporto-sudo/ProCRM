@@ -149,7 +149,13 @@
       "noConversations": "Nenhuma conversa encontrada",
       "noMessagesYet": "Nenhuma mensagem ainda",
       "unknown": "Desconhecido",
-      "filterAwaitingReply": "Cliente enviou por último"
+      "filterAwaitingReply": "Cliente enviou por último",
+      "loadMore": "Carregar mais conversas",
+      "loadingMore": "Carregando...",
+      "retry": "Tentar novamente",
+      "loadFailed": "Não foi possível carregar as conversas. Tente novamente.",
+      "accessDenied": "Acesso negado pelo servidor (403). Verifique sua sessão ou contate o administrador.",
+      "noCompanies": "Nenhuma empresa disponível"
     },
     "messageThread": {
       "backToConversations": "Voltar para conversas",
