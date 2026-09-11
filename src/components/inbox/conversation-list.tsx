@@ -120,6 +120,7 @@ export function ConversationList({
 
     (async () => {
       let data: Conversation[] = [];
+      console.log("[Inbox] Fetching conversations with sourceFilter:", sourceFilter, "FETCH_LIMIT:", FETCH_LIMIT);
 
       if (sourceFilter === "all") {
         // Prefer the inbox_conversations view (adds last_message_sender_type,
@@ -153,6 +154,7 @@ export function ConversationList({
           return;
         }
         data = all ?? [];
+        console.log("[Inbox] Fetched conversations count (all):", data.length);
       } else {
         // Two lookups merged into one list:
         // 1) conversations whose own `source` column matches — covers
@@ -218,9 +220,11 @@ export function ConversationList({
             new Date(b.last_message_at ?? 0).getTime() -
             new Date(a.last_message_at ?? 0).getTime()
         );
+        console.log("[Inbox] Fetched conversations count (filtered):", data.length);
       }
 
       onConversationsLoadedRef.current(normalizeConversations(data));
+      console.log("[Inbox] Normalized conversations count:", normalizeConversations(data).length);
       setLoading(false);
     })();
 
@@ -398,6 +402,7 @@ export function ConversationList({
         for (const id of contactConversationIds) {
           ids.add(id);
         }
+        console.log("[Inbox] Search results - message matches:", messageData?.length ?? 0, "contact matches:", contactConversationIds.size, "total:", ids.size);
         setMessageMatchIds(ids);
       }
     }, SEARCH_DEBOUNCE_MS);
