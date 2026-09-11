@@ -114,6 +114,10 @@ export function ConversationList({
     const supabase = createClient();
     let cancelled = false;
 
+    // Maximum conversations to fetch per request. Supabase defaults to 1000,
+    // so we explicitly request more to handle accounts with 3000+ conversations.
+    const FETCH_LIMIT = 5000;
+
     (async () => {
       let data: Conversation[] = [];
 
@@ -124,12 +128,14 @@ export function ConversationList({
         let res = await supabase
           .from("inbox_conversations")
           .select(CONVERSATION_SELECT)
-          .order("last_message_at", { ascending: false });
+          .order("last_message_at", { ascending: false })
+          .limit(FETCH_LIMIT);
         if (res.error) {
           res = await supabase
             .from("conversations")
             .select(CONVERSATION_SELECT)
-            .order("last_message_at", { ascending: false });
+            .order("last_message_at", { ascending: false })
+            .limit(FETCH_LIMIT);
         }
         const { data: all, error } = res;
 
@@ -160,11 +166,13 @@ export function ConversationList({
           supabase
             .from("inbox_conversations")
             .select(CONVERSATION_SELECT)
-            .eq("source", sourceFilter),
+            .eq("source", sourceFilter)
+            .limit(FETCH_LIMIT),
           supabase
             .from("inbox_conversations")
             .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
-            .eq("messages.source", sourceFilter),
+            .eq("messages.source", sourceFilter)
+            .limit(FETCH_LIMIT),
         ]);
 
         // Fall back to the base table if the view (migration 048) isn't
@@ -174,11 +182,13 @@ export function ConversationList({
             supabase
               .from("conversations")
               .select(CONVERSATION_SELECT)
-              .eq("source", sourceFilter),
+              .eq("source", sourceFilter)
+              .limit(FETCH_LIMIT),
             supabase
               .from("conversations")
               .select(`${CONVERSATION_SELECT}, messages!inner(source)`)
-              .eq("messages.source", sourceFilter),
+              .eq("messages.source", sourceFilter)
+              .limit(FETCH_LIMIT),
           ]);
         }
 
