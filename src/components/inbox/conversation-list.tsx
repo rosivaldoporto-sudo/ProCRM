@@ -229,7 +229,26 @@ export function ConversationList({
     const supabase = createClient();
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("tags").select("*").order("name");
+      // Get the current user's account_id to filter tags
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("account_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const accountId = profile?.account_id;
+      if (!accountId) return;
+
+      const { data } = await supabase
+        .from("tags")
+        .select("*")
+        .eq("account_id", accountId)
+        .order("name");
       if (!cancelled && data) setTags(data as Tag[]);
     })();
     return () => {
@@ -305,18 +324,34 @@ export function ConversationList({
       const supabase = createClient();
       const searchTerm = `%${q}%`;
 
-      // Search 1: messages table (content_text, template_name)
+      // Get the current user's account_id for scoping searches
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("account_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const accountId = profile?.account_id;
+      if (!accountId) return;
+
+      // Search 1: messages table (content_text, template_name) via conversations in this account
       const { data: messageData, error: messageError } = await supabase
         .from("messages")
-        .select("conversation_id")
+        .select("conversation_id, conversations!inner(account_id)")
+        .eq("conversations.account_id", accountId)
         .or(`content_text.ilike.${searchTerm},template_name.ilike.${searchTerm}`)
         .limit(2000);
 
-      // Search 2: contacts table (phone, phone_normalized, name) -> conversations
-      // We need to find contacts matching the search term, then get their conversation_ids
+      // Search 2: contacts table (phone, phone_normalized, name) -> conversations in this account
       const { data: contactData, error: contactError } = await supabase
         .from("contacts")
         .select("id")
+        .eq("account_id", accountId)
         .or(`phone.ilike.${searchTerm},phone_normalized.ilike.${searchTerm},name.ilike.${searchTerm}`)
         .limit(2000);
 
@@ -327,6 +362,7 @@ export function ConversationList({
           const { data: convData } = await supabase
             .from("conversations")
             .select("id")
+            .eq("account_id", accountId)
             .in("contact_id", contactIds)
             .limit(2000);
           for (const row of convData ?? []) {
