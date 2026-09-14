@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag } from '@/types';
+import type { Contact, Tag as TagType, ContactTag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -50,6 +50,8 @@ import {
   Filter,
   X,
   List,
+  Tag,
+  Tags,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -60,10 +62,10 @@ import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [250, 500, 1000, 2000, 3000];
 
 interface ContactWithTags extends Contact {
-  tags?: Tag[];
+  tags?: TagType[];
 }
 
 export default function ContactsPage() {
@@ -76,6 +78,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(250);
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -98,7 +101,7 @@ export default function ContactsPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // All tags for display
-  const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
+  const [tagsMap, setTagsMap] = useState<Record<string, TagType>>({});
 
   // Guards against out-of-order fetch responses: each fetchContacts run
   // claims a sequence number and only the latest is allowed to commit its
@@ -109,7 +112,7 @@ export default function ContactsPage() {
   const fetchTags = useCallback(async () => {
     const { data } = await supabase.from('tags').select('*');
     if (data) {
-      const map: Record<string, Tag> = {};
+      const map: Record<string, TagType> = {};
       data.forEach((t) => (map[t.id] = t));
       setTagsMap(map);
       // Drop any filter selections whose tag no longer exists (e.g. a tag
@@ -129,8 +132,8 @@ export default function ContactsPage() {
     // act on rows the user can no longer see.
     setSelected(new Set());
 
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
     const term = search.trim();
 
     let contactRows: Contact[];
@@ -144,7 +147,7 @@ export default function ContactsPage() {
       const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
         p_tag_ids: selectedTagIds,
         p_search: term || null,
-        p_limit: PAGE_SIZE,
+        p_limit: pageSize,
         p_offset: from,
       });
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
@@ -210,7 +213,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, pageSize, search, selectedTagIds, tagsMap, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -317,7 +320,7 @@ export default function ContactsPage() {
     setBulkDeleteOpen(false);
   }
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalPages = Math.ceil(totalCount / pageSize);
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
@@ -526,6 +529,92 @@ export default function ContactsPage() {
             >
               {t('clearSelection')}
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <Button variant="outline" size="sm" className="border-border text-muted-foreground hover:bg-muted">
+                  <Tag className="size-3.5 mr-1.5" />
+                  {t('tags')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 bg-popover border-border">
+                <DropdownMenuItem className="text-popover-foreground focus:bg-muted focus:text-foreground px-3 py-2">
+                  <div className="flex items-center gap-2 px-1 py-1">
+                    <Tags className="size-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('addTag')}</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-border" />
+                {allTags.map((tag) => (
+                  <DropdownMenuItem
+                    key={tag.id}
+                    onClick={async () => {
+                      setSelected(new Set());
+                      const ids = [...selected];
+                      try {
+                        const res = await fetch('/api/contacts/bulk-tags', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ contact_ids: ids, tag_id: tag.id, action: 'add' }),
+                        });
+                        if (!res.ok) throw new Error('Failed');
+                        const data = await res.json();
+                        toast.success(t('toastBulkTagAdded', { count: data.added }));
+                        fetchContacts();
+                      } catch {
+                        toast.error(t('toastBulkTagFailed'));
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-popover-foreground focus:bg-muted focus:text-foreground"
+                  >
+                    <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                    <span className="text-sm truncate">{tag.name}</span>
+                  </DropdownMenuItem>
+                ))}
+                {allTags.length === 0 && (
+                  <DropdownMenuItem className="text-muted-foreground px-3 py-2 text-sm" disabled>
+                    {t('noTagsYet')}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator className="bg-border" />
+                <DropdownMenuItem className="text-popover-foreground focus:bg-muted focus:text-foreground px-3 py-2">
+                  <div className="flex items-center gap-2 px-1 py-1">
+                    <Tag className="size-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('removeTag')}</span>
+                  </div>
+                </DropdownMenuItem>
+                {allTags.map((tag) => (
+                  <DropdownMenuItem
+                    key={`remove-${tag.id}`}
+                    onClick={async () => {
+                      setSelected(new Set());
+                      const ids = [...selected];
+                      try {
+                        const res = await fetch('/api/contacts/bulk-tags', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ contact_ids: ids, tag_id: tag.id, action: 'remove' }),
+                        });
+                        if (!res.ok) throw new Error('Failed');
+                        const data = await res.json();
+                        toast.success(t('toastBulkTagRemoved', { count: data.removed }));
+                        fetchContacts();
+                      } catch {
+                        toast.error(t('toastBulkTagFailed'));
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-popover-foreground focus:bg-muted focus:text-foreground"
+                  >
+                    <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                    <span className="text-sm truncate">{tag.name}</span>
+                  </DropdownMenuItem>
+                ))}
+                {allTags.length === 0 && (
+                  <DropdownMenuItem className="text-muted-foreground px-3 py-2 text-sm" disabled>
+                    {t('noTagsYet')}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <GatedButton
               variant="destructive"
               size="sm"
@@ -708,36 +797,59 @@ export default function ContactsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-muted-foreground">
             {t('showingPagination', {
-              start: page * PAGE_SIZE + 1,
-              end: Math.min((page + 1) * PAGE_SIZE, totalCount),
+              start: page * pageSize + 1,
+              end: Math.min((page + 1) * pageSize, totalCount),
               total: totalCount
             })}
           </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasPrev}
-              onClick={() => setPage((p) => p - 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-2">
-              {t('pageCount', { page: page + 1, total: totalPages })}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="page-size" className="text-xs text-muted-foreground">
+                {t('perPage')}
+              </label>
+              <select
+                id="page-size"
+                value={pageSize}
+                onChange={(e) => {
+                  const newSize = Number(e.target.value);
+                  setPageSize(newSize);
+                  setPage(0);
+                }}
+                className="bg-background border-border text-foreground text-xs rounded-md px-2 py-1 w-[110px]"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                disabled={!hasPrev}
+                onClick={() => setPage((p) => p - 1)}
+                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground px-2">
+                {t('pageCount', { page: page + 1, total: totalPages })}
+              </span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                disabled={!hasNext}
+                onClick={() => setPage((p) => p + 1)}
+                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
       )}
