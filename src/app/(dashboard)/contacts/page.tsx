@@ -293,7 +293,23 @@ export default function ContactsPage() {
     });
   }
 
-  function toggleSelect(id: string, index?: number, event?: React.MouseEvent) {
+  function toggleSelect(id: string, index?: number, eventOrChecked?: React.MouseEvent | boolean) {
+    // onCheckedChange from checkbox passes boolean (new checked state)
+    const isChecked = typeof eventOrChecked === 'boolean' ? eventOrChecked : undefined;
+    const event = typeof eventOrChecked === 'object' ? eventOrChecked : undefined;
+
+    // If called from checkbox with checked value, use that directly
+    if (isChecked !== undefined) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (isChecked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+      if (index !== undefined) setLastSelectedIndex(index);
+      return;
+    }
+
     // Handle shift+click for range selection (Windows-style)
     if (event?.shiftKey && lastSelectedIndex !== null && index !== undefined) {
       const start = Math.min(lastSelectedIndex, index);
@@ -308,7 +324,7 @@ export default function ContactsPage() {
       return;
     }
 
-    // Handle ctrl/cmd+click for individual toggle (already default behavior, but explicit)
+    // Handle ctrl/cmd+click for individual toggle
     if (event?.ctrlKey || event?.metaKey) {
       setSelected((prev) => {
         const next = new Set(prev);
@@ -738,7 +754,7 @@ export default function ContactsPage() {
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id, index)}
+                      onCheckedChange={(checked) => toggleSelect(contact.id, index, checked)}
                       aria-label={`Select ${contact.name || contact.phone}`}
                     />
                   </TableCell>
