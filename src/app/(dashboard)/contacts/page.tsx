@@ -98,6 +98,7 @@ export default function ContactsPage() {
 
   // Bulk selection (page-scoped — only the loaded rows are selectable)
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // All tags for display
@@ -292,13 +293,41 @@ export default function ContactsPage() {
     });
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(id: string, index?: number, event?: React.MouseEvent) {
+    // Handle shift+click for range selection (Windows-style)
+    if (event?.shiftKey && lastSelectedIndex !== null && index !== undefined) {
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          if (contacts[i]) next.add(contacts[i].id);
+        }
+        return next;
+      });
+      return;
+    }
+
+    // Handle ctrl/cmd+click for individual toggle (already default behavior, but explicit)
+    if (event?.ctrlKey || event?.metaKey) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      if (index !== undefined) setLastSelectedIndex(index);
+      return;
+    }
+
+    // Default click behavior (single select, replace selection)
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    if (index !== undefined) setLastSelectedIndex(index);
   }
 
   async function handleBulkDelete() {
@@ -689,16 +718,27 @@ export default function ContactsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              contacts.map((contact) => (
+              contacts.map((contact, index) => (
                 <TableRow
                   key={contact.id}
                   className="border-border hover:bg-muted/50 cursor-pointer"
-                  onClick={() => openDetail(contact.id)}
+                  onClick={(e) => {
+                    // Shift+click on row for range selection
+                    if (e.shiftKey) {
+                      toggleSelect(contact.id, index, e);
+                    } else if (e.ctrlKey || e.metaKey) {
+                      // Ctrl/Cmd+click on row to toggle individual
+                      toggleSelect(contact.id, index, e);
+                    } else {
+                      // Normal click opens detail
+                      openDetail(contact.id);
+                    }
+                  }}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
+                      onCheckedChange={() => toggleSelect(contact.id, index)}
                       aria-label={`Select ${contact.name || contact.phone}`}
                     />
                   </TableCell>
