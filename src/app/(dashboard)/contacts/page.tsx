@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Contact, Tag as TagType, ContactTag } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -293,23 +294,7 @@ export default function ContactsPage() {
     });
   }
 
-  function toggleSelect(id: string, index?: number, eventOrChecked?: React.MouseEvent | boolean) {
-    // onCheckedChange from checkbox passes boolean (new checked state)
-    const isChecked = typeof eventOrChecked === 'boolean' ? eventOrChecked : undefined;
-    const event = typeof eventOrChecked === 'object' ? eventOrChecked : undefined;
-
-    // If called from checkbox with checked value, use that directly
-    if (isChecked !== undefined) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (isChecked) next.add(id);
-        else next.delete(id);
-        return next;
-      });
-      if (index !== undefined) setLastSelectedIndex(index);
-      return;
-    }
-
+  function toggleSelect(id: string, index?: number, event?: React.MouseEvent) {
     // Handle shift+click for range selection (Windows-style)
     if (event?.shiftKey && lastSelectedIndex !== null && index !== undefined) {
       const start = Math.min(lastSelectedIndex, index);
@@ -336,11 +321,14 @@ export default function ContactsPage() {
       return;
     }
 
-    // Default click behavior (single select, replace selection)
+    // Default click behavior — if already selected, deselect; otherwise replace selection
     setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const next = new Set<string>();
+      if (prev.has(id) && prev.size === 1) {
+        // clicking the only selected item deselects it
+      } else {
+        next.add(id);
+      }
       return next;
     });
     if (index !== undefined) setLastSelectedIndex(index);
@@ -593,8 +581,8 @@ export default function ContactsPage() {
                   <DropdownMenuItem
                     key={tag.id}
                     onClick={async () => {
-                      setSelected(new Set());
                       const ids = [...selected];
+                      setSelected(new Set());
                       try {
                         const res = await fetch('/api/contacts/bulk-tags', {
                           method: 'POST',
@@ -631,8 +619,8 @@ export default function ContactsPage() {
                   <DropdownMenuItem
                     key={`remove-${tag.id}`}
                     onClick={async () => {
-                      setSelected(new Set());
                       const ids = [...selected];
+                      setSelected(new Set());
                       try {
                         const res = await fetch('/api/contacts/bulk-tags', {
                           method: 'POST',
@@ -737,31 +725,39 @@ export default function ContactsPage() {
               contacts.map((contact, index) => (
                 <TableRow
                   key={contact.id}
-                  className="border-border hover:bg-muted/50 cursor-pointer"
+                  className={cn(
+                    "border-border hover:bg-muted/50 cursor-pointer",
+                    selected.has(contact.id) && "bg-muted/30"
+                  )}
                   onClick={(e) => {
-                    // Shift+click on row for range selection
-                    if (e.shiftKey) {
-                      toggleSelect(contact.id, index, e);
-                    } else if (e.ctrlKey || e.metaKey) {
-                      // Ctrl/Cmd+click on row to toggle individual
-                      toggleSelect(contact.id, index, e);
-                    } else {
-                      // Normal click opens detail
-                      openDetail(contact.id);
-                    }
+                    toggleSelect(contact.id, index, e);
                   }}
                 >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
+                  <TableCell>
                     <Checkbox
                       checked={selected.has(contact.id)}
-                      onCheckedChange={(checked) => toggleSelect(contact.id, index, checked)}
+                      onCheckedChange={() => toggleSelect(contact.id, index)}
                       aria-label={`Select ${contact.name || contact.phone}`}
                     />
                   </TableCell>
-                  <TableCell className="text-foreground font-medium">
+                  <TableCell
+                    className="text-foreground font-medium cursor-pointer"
+                    onClick={(e) => {
+                      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                        openDetail(contact.id);
+                      }
+                    }}
+                  >
                     {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
+                  <TableCell
+                    className="text-muted-foreground font-mono text-xs cursor-pointer"
+                    onClick={(e) => {
+                      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                        openDetail(contact.id);
+                      }
+                    }}
+                  >
                     {contact.phone}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
