@@ -265,8 +265,8 @@ function InboxPageInner() {
         // knownConvIdsRef for why a closure flag inside the updater would
         // always read false here.
         if (knownConvIdsRef.current.has(newMsg.conversation_id)) {
-          setConversations((prev) =>
-            prev.map((c) =>
+          setConversations((prev) => {
+            const updated = prev.map((c) =>
               c.id === newMsg.conversation_id
                 ? {
                     ...c,
@@ -279,8 +279,15 @@ function InboxPageInner() {
                         : c.unread_count + 1,
                   }
                 : c,
-            ),
-          );
+            );
+            // Move the conversation with the new message to the top
+            const idx = updated.findIndex((c) => c.id === newMsg.conversation_id);
+            if (idx > 0) {
+              const [conv] = updated.splice(idx, 1);
+              updated.unshift(conv);
+            }
+            return updated;
+          });
         } else {
           // First time we're seeing this conv: the conv-INSERT event
           // hasn't landed yet, or was missed. Hydrate from the DB so
