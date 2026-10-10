@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { Inter } from "next/font/google";
@@ -84,6 +85,12 @@ export default async function RootLayout({
 }>) {
   const locale = await getLocale();
   const messages = await getMessages();
+  // Nonce gerado por request em proxy.ts. Sem ele, este inline script
+  // é bloqueado pelo CSP (`script-src ... 'strict-dynamic'`) — era a
+  // causa dos erros "Executing inline script violates ..." no console.
+  // Ver node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md
+  // ("Any <Script> components using the `nonce` prop").
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html
@@ -104,6 +111,7 @@ export default async function RootLayout({
         <Script
           id="theme-boot"
           strategy="beforeInteractive"
+          nonce={nonce}
           dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
         />
       </head>

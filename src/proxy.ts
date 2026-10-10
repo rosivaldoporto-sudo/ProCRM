@@ -5,6 +5,20 @@ export async function proxy(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isDev = process.env.NODE_ENV === 'development';
+  // Formulários públicos (/f/*) precisam de duas exceções em relação ao
+  // CSP estrito do app:
+  //   1. Meta Pixel: o fbq envia beacons para connect.facebook.net /
+  //      www.facebook.com — precisa estar no connect-src. O próprio
+  //      fbevents.js é carregado por um inline <Script nonce> (ver
+  //      MetaPixelSnippet em public-form.tsx) e herda a confiança via
+  //      'strict-dynamic', então nenhum host extra no script-src.
+  //   2. Embed via iframe: a aba "Compartilhar" do editor gera um
+  //      <iframe> para sites de clientes. `frame-ancestors 'none'`
+  //      (e o X-Frame-Options: DENY do next.config) proibiriam isso —
+  //      quando frame-ancestors está presente, os browsers ignoram o
+  //      X-Frame-Options (spec), então `frame-ancestors *` libera o
+  //      embed só nesta rota pública (sem dados sensíveis).
+  const isPublicForm = request.nextUrl.pathname.startsWith('/f/');
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
@@ -12,11 +26,11 @@ export async function proxy(request: NextRequest) {
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https://*.supabase.co",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+    `connect-src 'self' https://*.supabase.co wss://*.supabase.co${isPublicForm ? ' https://connect.facebook.net https://www.facebook.com' : ''}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "frame-src 'none'",
-    "frame-ancestors 'none'",
+    isPublicForm ? 'frame-ancestors *' : "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     ...(isDev ? [] : ['upgrade-insecure-requests']),

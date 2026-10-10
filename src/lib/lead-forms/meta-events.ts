@@ -7,7 +7,7 @@
  *  - CompleteRegistration → qualificado
  *  - Schedule     → reunião agendada
  *
- * Browser: `trackFormPixel()` injeta fbq() no /f/[slug].
+ * Browser: snippet via <Script nonce> em public-form.tsx + `trackFormPixel()`.
  * Server: `fireFormCapiEvent()` reaproveita meta_ads_config da conta
  * (pixel_id + access_token) via Conversions API.
  */
@@ -17,9 +17,7 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 
 export type FormFunnelEvent = 'ViewContent' | 'Lead' | 'CompleteRegistration' | 'Schedule' | 'QualifiedLead';
 
-export function pixelSnippet(pixelId: string): string {
-  return `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixelId}');fbq('track','PageView');`;
-}
+export const FB_EVENTS_URL = 'https://connect.facebook.net/en_US/fbevents.js';
 
 export function trackFormPixel(pixelId: string, event: FormFunnelEvent, params: Record<string, unknown> = {}): void {
   if (typeof window === 'undefined') return;

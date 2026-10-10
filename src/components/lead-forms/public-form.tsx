@@ -1,8 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Script from "next/script";
 import { Loader2, Send, Star, Check, CalendarDays } from "lucide-react";
-import { pixelSnippet, trackFormPixel } from "@/lib/lead-forms/meta-events";
+import { trackFormPixel } from "@/lib/lead-forms/meta-events";
+
+/**
+ * Meta Pixel via <Script nonce> — o padrão do guia oficial de CSP
+ * (third-party scripts). O snippet inline carrega o fbevents.js por
+ * inserção dinâmica de <script>, que herda a confiança via
+ * 'strict-dynamic' a partir deste script com nonce. A injeção manual
+ * via `document.createElement('script')` + innerHTML NÃO tem nonce e
+ * era bloqueada ("Loading the script violates ... script-src").
+ */
+function MetaPixelSnippet({ pixelId, nonce }: { pixelId: string; nonce?: string }) {
+  // pixel_id vem do banco (admin) — restringe a dígitos para não virar
+  // vetor de injeção de JS no snippet inline.
+  if (!/^\d{5,30}$/.test(pixelId)) return null;
+  const init = `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixelId}');fbq('track','PageView');`;
+  return (
+    <Script
+      id="meta-pixel-leadform"
+      strategy="afterInteractive"
+      nonce={nonce}
+      dangerouslySetInnerHTML={{ __html: init }}
+    />
+  );
+}
 
 interface PublicBlock {
   key: string;
@@ -46,7 +70,7 @@ function getTracking() {
   };
 }
 
-export function PublicForm({ slug }: { slug: string }) {
+export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const [data, setData] = useState<PublicFormData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -85,18 +109,10 @@ export function PublicForm({ slug }: { slug: string }) {
     })();
   }, [slug]);
 
-  // Meta Pixel: injeta fbq + ViewContent
+  // ViewContent no funil assim que o formulário carrega (o PageView
+  // já é disparado pelo próprio snippet do pixel acima).
   useEffect(() => {
     if (!pixelId) return;
-    if (document.getElementById("meta-pixel-leadform")) return;
-    const s = document.createElement("script");
-    s.id = "meta-pixel-leadform";
-    s.innerHTML = pixelSnippet(pixelId);
-    document.head.appendChild(s);
-    const img = document.createElement("img");
-    img.height = 1; img.width = 1; img.style.display = "none";
-    img.src = `https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1`;
-    document.body.appendChild(img);
     const t = setTimeout(() => trackFormPixel(pixelId, "ViewContent", { content_name: slug }), 800);
     return () => clearTimeout(t);
   }, [pixelId, slug]);
@@ -235,6 +251,7 @@ export function PublicForm({ slug }: { slug: string }) {
 
   return (
     <div className="flex min-h-screen flex-col items-center px-4 py-8" style={{ background: theme.background, fontFamily: theme.font }}>
+      {pixelId && <MetaPixelSnippet pixelId={pixelId} nonce={nonce} />}
       <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 shadow-2xl" style={{ background: "rgba(255,255,255,0.03)" }}>
         {/* header */}
         <div className="flex items-center gap-3 border-b border-white/10 p-4">
