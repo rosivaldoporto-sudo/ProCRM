@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { evaluateQualification, extractContactFields } from '@/lib/lead-forms/types';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
+import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 function getIp(req: Request): string {
@@ -24,6 +25,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const body = (await req.json().catch(() => null)) as {
     answers?: Record<string, unknown>;
     tracking?: { utm_source?: string; utm_campaign?: string; utm_medium?: string; utm_term?: string; utm_content?: string; fbp?: string; fbc?: string; fbclid?: string; source_url?: string };
+    /** event_id gerado no browser p/ deduplicar pixel ↔ CAPI. */
+    event_id?: string;
   } | null;
   if (!body?.answers || typeof body.answers !== 'object') {
     return NextResponse.json({ error: 'answers é obrigatório' }, { status: 400 });
@@ -96,9 +99,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
   const responseId = (response as { id: string }).id;
 
-  // Contadores
-  void db.rpc('increment_lead_form_counter', { p_form_id: form.id, p_field: 'response' });
-  if (isQualified) void db.rpc('increment_lead_form_counter', { p_form_id: form.id, p_field: 'qualified' });
+  // Contadores (com log em caso de falha — ver counters.ts)
+  void bumpFormCounter(db, form.id, 'response');
+  if (isQualified) void bumpFormCounter(db, form.id, 'qualified');
 
   // Cria/atualiza contato + deal (fire-and-forget com await tolerante)
   let contactId: string | null = null;
@@ -181,33 +184,43 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     console.error('[lead-forms] contact/deal:', err instanceof Error ? err.message : err);
   }
 
-  // Meta CAPI: Lead sempre; CompleteRegistration/QualifiedLead se qualificado
+  // Meta CAPI: Lead sempre; CompleteRegistration/QualifiedLead se qualificado.
+  // user_data segue a doc oficial: PII hasheada (feita no client CAPI),
+  // fbp/fbc em user_data, ip+ua obrigatórios p/ website, event_source_url
+  // obrigatório p/ website, e event_id compartilhado com o browser.
   const metaCfg = form.meta_config as { fire_lead?: boolean; fire_complete_registration?: boolean; fire_qualified?: boolean };
   const metaIds: Record<string, string> = {};
-  const sourceUrl = (tracking as { source_url?: string }).source_url;
+  const trk = tracking as Record<string, string | undefined>;
+  const sharedEventId = typeof body.event_id === 'string' && body.event_id.length <= 100
+    ? body.event_id
+    : `form_${form.id}_${responseId}`;
+  const baseUser = {
+    email: contact.email, phone: contact.phone, fullName: contact.name,
+    eventSourceUrl: trk.source_url,
+    fbp: trk.fbp, fbc: trk.fbc, fbclid: trk.fbclid,
+    clientIp: getIp(req), clientUa: req.headers.get('user-agent') ?? undefined,
+  };
   if (metaCfg.fire_lead !== false) {
     const eid = await fireFormCapiEvent({
       accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
-      email: contact.email, phone: contact.phone, firstName: contact.name,
-      eventSourceUrl: sourceUrl,
-      fbp: (tracking as Record<string, string>).fbp, fbc: (tracking as Record<string, string>).fbc,
-      custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: (tracking as Record<string, string>).utm_campaign },
+      ...baseUser, eventId: sharedEventId,
+      custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: trk.utm_campaign },
     });
     if (eid) metaIds.lead = eid;
   }
   if (isQualified && metaCfg.fire_complete_registration !== false) {
     const eid = await fireFormCapiEvent({
       accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
-      email: contact.email, phone: contact.phone, firstName: contact.name,
-      eventSourceUrl: sourceUrl, custom: { form_name: form.name, score },
+      ...baseUser, eventId: `${sharedEventId}_complete`,
+      custom: { form_name: form.name, score },
     });
     if (eid) metaIds.complete_registration = eid;
   }
   if (isQualified && metaCfg.fire_qualified !== false) {
     const eid = await fireFormCapiEvent({
       accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
-      email: contact.email, phone: contact.phone, firstName: contact.name,
-      eventSourceUrl: sourceUrl, custom: { form_name: form.name, score },
+      ...baseUser, eventId: `${sharedEventId}_qualified`,
+      custom: { form_name: form.name, score },
     });
     if (eid) metaIds.qualified = eid;
   }

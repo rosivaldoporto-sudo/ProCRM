@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, Copy } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, Copy, RefreshCw, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,33 +31,47 @@ export function LeadFormEditor({ formId }: Props) {
   const [responses, setResponses] = useState<Array<Record<string, unknown>>>([]);
   const [bookings, setBookings] = useState<Array<Record<string, unknown>>>([]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/lead-forms/${formId}`);
-        if (!res.ok) throw new Error();
-        const json = await res.json() as { form: LeadForm; blocks: Array<{ block_key: string; block_type: LeadFormBlockType; config: LeadFormBlock["config"]; position: number; is_qualifier: boolean; score_weight: number }> };
-        if (!cancelled) {
-          setForm(json.form);
-          setBlocks(json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight })));
-        }
-        const r2 = await fetch(`/api/lead-forms/${formId}/responses`);
-        if (r2.ok) {
-          const j2 = await r2.json() as { responses: Array<Record<string, unknown>>; bookings: Array<Record<string, unknown>> };
-          if (!cancelled) {
-            setResponses(j2.responses ?? []);
-            setBookings(j2.bookings ?? []);
-          }
-        }
-      } catch {
-        if (!cancelled) toast.error("Falha ao carregar formulário");
-      } finally {
-        if (!cancelled) setLoading(false);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
+    try {
+      const res = await fetch(`/api/lead-forms/${formId}`, { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      const json = await res.json() as { form: LeadForm; blocks: Array<{ block_key: string; block_type: LeadFormBlockType; config: LeadFormBlock["config"]; position: number; is_qualifier: boolean; score_weight: number }> };
+      setForm(json.form);
+      setBlocks(json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight })));
+      const r2 = await fetch(`/api/lead-forms/${formId}/responses`, { cache: "no-store" });
+      if (r2.ok) {
+        const j2 = await r2.json() as { responses: Array<Record<string, unknown>>; bookings: Array<Record<string, unknown>> };
+        setResponses(j2.responses ?? []);
+        setBookings(j2.bookings ?? []);
       }
-    })();
-    return () => { cancelled = true; };
+    } catch {
+      toast.error("Falha ao carregar formulário");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formId]);
+
+  async function handleRecount() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/lead-forms/${formId}/recount`, { method: "POST" });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; form?: LeadForm; counts?: Record<string, number> };
+      if (!res.ok) throw new Error(j.error ?? "recount failed");
+      if (j.form) setForm(j.form);
+      else await load(true);
+      toast.success(`Resumo recalculado: ${j.counts?.response_count ?? "?"} respostas`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao recalcular");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save(patch: Partial<LeadForm> & { blocks?: LeadFormBlock[] } = {}) {
     setSaving(true);
@@ -131,25 +145,36 @@ export function LeadFormEditor({ formId }: Props) {
               <ExternalLink className="h-3.5 w-3.5" /> Abrir
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading} title="Recarregar métricas e respostas">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
+          </Button>
           <Button onClick={() => save()} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}<Save className="h-4 w-4" /> Salvar
           </Button>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        {[
-          ["Views", form.view_count],
-          ["Respostas", form.response_count],
-          ["Conversão", `${convRate}%`],
-          ["Qualificados", form.qualified_count],
-          ["Agendados", form.booked_count],
-        ].map(([label, v]) => (
-          <Card key={label}><CardContent className="p-3 text-center">
-            <p className="text-2xl font-bold text-foreground">{v}</p>
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-          </CardContent></Card>
-        ))}
+      <div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {[
+            ["Views", form.view_count],
+            ["Respostas", form.response_count],
+            ["Conversão", `${convRate}%`],
+            ["Qualificados", form.qualified_count],
+            ["Agendados", form.booked_count],
+          ].map(([label, v]) => (
+            <Card key={label}><CardContent className="p-3 text-center">
+              <p className="text-2xl font-bold text-foreground">{v}</p>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+        <div className="mt-2 flex items-center justify-end gap-2">
+          <span className="text-[11px] text-muted-foreground">Resumo zerado mas há respostas na aba abaixo?</span>
+          <Button variant="ghost" size="sm" onClick={handleRecount} disabled={saving} title="Recalcula os cards a partir das respostas reais">
+            <Calculator className="h-3.5 w-3.5" /> Recalcular resumo
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="build">
@@ -309,9 +334,10 @@ export function LeadFormEditor({ formId }: Props) {
         </TabsContent>
 
         {/* ---------- META ---------- */}
-        <TabsContent value="meta">
-          <Card><CardHeader><CardTitle>Meta Ads — Pixel + CAPI</CardTitle>
-            <CardDescription>Eventos do funil: ViewContent → Lead → CompleteRegistration → Schedule. O server usa a config global (Settings → Meta Ads) para CAPI; o pixel_id abaixo alimenta o browser.</CardDescription></CardHeader>
+        <TabsContent value="meta" className="space-y-3">
+          <MetaTokenCard />
+          <Card><CardHeader><CardTitle>Pixel do formulário + eventos</CardTitle>
+            <CardDescription>Funil: ViewContent (browser) → Lead (browser + CAPI com mesmo event_id, deduplicado) → CompleteRegistration + QualifiedLead (CAPI) → Schedule (browser + CAPI). PII é normalizada + SHA-256 no servidor; fbp/fbc/ip/ua vão em user_data, conforme a doc oficial.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2"><Label>Pixel ID (sobrescreve o global neste formulário)</Label>
                 <Input value={form.meta_config.pixel_id ?? ""} onChange={(e) => updateForm("meta_config", { ...form.meta_config, pixel_id: e.target.value || null })} placeholder="Ex: 123456789012345" /></div>
@@ -326,7 +352,6 @@ export function LeadFormEditor({ formId }: Props) {
                   <Switch checked={(form.meta_config[k] as boolean) ?? true} onCheckedChange={(v) => updateForm("meta_config", { ...form.meta_config, [k]: v })} /> {label}
                 </label>
               ))}
-              <p className="text-xs text-muted-foreground">Dica: configure também Settings → Meta Ads (token + test_event_code) para o server-side funcionar. Use fbclid/fbp/fbc automáticos via URL.</p>
             </CardContent></Card>
           <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar Meta</Button>
         </TabsContent>
@@ -413,6 +438,113 @@ function OptionsEditor({ block, onChange }: { block: LeadFormBlock; onChange: (c
         <Plus className="h-3.5 w-3.5" /> Opção
       </Button>
     </div>
+  );
+}
+
+/**
+ * Token da Meta (CAPI server-side) — lê/salva a config GLOBAL da conta
+ * (`/api/meta-ads/config`, mesmo armazenamento de Settings → Meta Ads),
+ * exposta aqui porque é onde quem configura o formulário procura.
+ * Sem token, só o pixel browser dispara; o CAPI é pulado em silêncio.
+ */
+function MetaTokenCard() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [forbidden, setForbidden] = useState(false);
+  const [globalPixel, setGlobalPixel] = useState("");
+  const [hasToken, setHasToken] = useState(false);
+  const [token, setToken] = useState("");
+  const [testCode, setTestCode] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/meta-ads/config", { cache: "no-store" });
+        if (res.status === 403) {
+          if (!cancelled) setForbidden(true);
+          return;
+        }
+        if (!res.ok) throw new Error();
+        const j = (await res.json()) as {
+          configured?: boolean; pixel_id?: string | null;
+          test_event_code?: string | null; has_access_token?: boolean;
+        };
+        if (!cancelled) {
+          setGlobalPixel(j.pixel_id ?? "");
+          setTestCode(j.test_event_code ?? "");
+          setHasToken(!!j.has_access_token);
+        }
+      } catch {
+        if (!cancelled) toast.error("Falha ao carregar config Meta");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      // Preserva o pixel global atual — o endpoint zeraria se omitido.
+      const res = await fetch("/api/meta-ads/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pixel_id: globalPixel.trim() || null,
+          ...(token.trim() ? { access_token: token.trim() } : {}),
+          test_event_code: testCode.trim() || null,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? "save failed");
+      setToken("");
+      setHasToken(true);
+      toast.success("Token Meta salvo");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao salvar token");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card><CardContent className="flex items-center justify-center p-6">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </CardContent></Card>
+    );
+  }
+  if (forbidden) {
+    return (
+      <Card><CardHeader><CardTitle>Token da Meta (CAPI)</CardTitle>
+        <CardDescription>Requer papel admin — peça a um admin ou vá em Configurações → Meta Ads.</CardDescription>
+      </CardHeader></Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Token da Meta (CAPI server-side)</CardTitle>
+        <CardDescription>
+          Token de acesso do app Meta para a Conversions API. Onde gerar: Events Manager → Configurações do conjunto de dados → API de Conversões → Gerar token.
+          {hasToken ? " Status: configurado." : " Status: ausente — eventos server-side serão pulados."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2"><Label>Pixel ID global</Label>
+          <Input value={globalPixel} onChange={(e) => setGlobalPixel(e.target.value)} placeholder="123456789012345" /></div>
+        <div className="space-y-2"><Label>Token de acesso {hasToken && <span className="text-emerald-400">(salvo — preencha só para trocar)</span>}</Label>
+          <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={hasToken ? "••••••••••••••••" : "EAA..."} autoComplete="new-password" /></div>
+        <div className="space-y-2"><Label>Código de evento de teste <span className="text-muted-foreground">(opcional — aba Test Events)</span></Label>
+          <Input value={testCode} onChange={(e) => setTestCode(e.target.value)} placeholder="TEST12345" /></div>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="h-4 w-4 animate-spin" />}<Save className="h-4 w-4" /> Salvar token
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

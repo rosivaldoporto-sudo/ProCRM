@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { generateSlots } from '@/lib/lead-forms/availability';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
+import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 /** POST público — agenda reunião para resposta qualificada. */
@@ -28,7 +29,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
   }
   const { data: respRow } = await db.from('lead_form_responses').select('*').eq('id', body.response_id).eq('form_id', form.id).maybeSingle();
-  const resp = respRow as { id: string; is_qualified: boolean; respondent_email: string | null; respondent_phone: string | null } | null;
+  const resp = respRow as {
+    id: string; is_qualified: boolean; respondent_email: string | null; respondent_phone: string | null;
+    tracking: Record<string, string | undefined> | null; ip: string | null; user_agent: string | null;
+  } | null;
   if (!resp) return NextResponse.json({ error: 'Resposta não encontrada' }, { status: 404 });
   if (!resp.is_qualified) return NextResponse.json({ error: 'Apenas leads qualificados podem agendar' }, { status: 403 });
 
@@ -64,16 +68,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   if (error || !booking) return NextResponse.json({ error: 'Falha ao agendar' }, { status: 500 });
 
   await db.from('lead_form_responses').update({ status: 'booked' }).eq('id', resp.id);
-  void db.rpc('increment_lead_form_counter', { p_form_id: form.id, p_field: 'booked' });
+  void bumpFormCounter(db, form.id, 'booked');
 
   if (form.meta_config?.fire_schedule !== false) {
     const b = booking as { id: string };
+    // event_id `booking_<id>` = mesmo do browser (dedup pixel ↔ CAPI).
     void fireFormCapiEvent({
       accountId: form.account_id, formId: form.id, responseId: resp.id,
       event: 'Schedule',
+      eventId: `booking_${b.id}`,
       email: body.email ?? resp.respondent_email ?? undefined,
       phone: body.phone ?? resp.respondent_phone ?? undefined,
-      firstName: body.name,
+      fullName: body.name,
+      eventSourceUrl: resp.tracking?.source_url,
+      fbp: resp.tracking?.fbp, fbc: resp.tracking?.fbc, fbclid: resp.tracking?.fbclid,
+      clientIp: resp.ip ?? undefined, clientUa: resp.user_agent ?? undefined,
       custom: { form_name: form.name, booking_id: b.id, starts_at: match.start },
     });
   }

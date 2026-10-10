@@ -1481,6 +1481,18 @@ async function fireCapiLeadEvent(
     return; // not configured — silently skip
   }
 
+  // O token é salvo CRIPTOGRAFADO (ver /api/meta-ads/config). Enviar o
+  // valor raw como Bearer dá 401 na Meta — descriptografa, com fallback
+  // para linhas legadas em plaintext.
+  let accessToken = adsConfig.access_token as string;
+  if (accessToken.includes(':')) {
+    try {
+      accessToken = decrypt(accessToken);
+    } catch {
+      return;
+    }
+  }
+
   // Also load UTM data from the contact row; the tracking-link
   // flow populates these when a lead clicks a wa.me link with
   // UTM parameters before messaging.
@@ -1495,14 +1507,16 @@ async function fireCapiLeadEvent(
   await sendCapiEvents(
     {
       pixelId: adsConfig.pixel_id,
-      accessToken: adsConfig.access_token,
+      accessToken,
       testEventCode: adsConfig.test_event_code ?? undefined,
     },
     [
       {
         event_name: 'Lead',
         event_time: Math.floor(Date.now() / 1000),
-        action_source: 'whatsapp',
+        // Enum oficial: conversa via app de mensagem = 'chat'
+        // ('whatsapp' não existe e era rejeitado pela Meta).
+        action_source: 'chat',
         event_id: `lead_${accountId}_${contact.id}_${Date.now()}`,
         user_data: {
           phones: [contact.phone],

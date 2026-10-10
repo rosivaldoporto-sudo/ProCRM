@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Script from "next/script";
 import { Loader2, Send, Star, Check, CalendarDays } from "lucide-react";
-import { trackFormPixel } from "@/lib/lead-forms/meta-events";
+import { trackFormPixel } from "@/lib/lead-forms/meta-pixel";
 
 /**
  * Meta Pixel via <Script nonce> — o padrão do guia oficial de CSP
@@ -171,14 +171,26 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     }
   }
 
+  function newClientEventId(): string {
+    try {
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+    } catch { /* fallback abaixo */ }
+    return `evt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  }
+
   async function submit(finalAnswers: Record<string, unknown>) {
     setBusy(true);
     setTyping(true);
+    // Mesmo event_id no browser e no CAPI → a Meta deduplica
+    // (redundant setup recomendado na doc do Conversions API).
+    const clientEventId = newClientEventId();
     try {
       const res = await fetch(`/api/public/forms/${slug}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: finalAnswers, tracking: getTracking() }),
+        body: JSON.stringify({ answers: finalAnswers, tracking: getTracking(), event_id: clientEventId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error((json as { error?: string }).error ?? "submit failed");
@@ -186,7 +198,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       setDone({ score: r.score, is_qualified: r.is_qualified, message: r.message, response_id: r.response_id });
       setMsgs((m) => [...m, { from: "bot", text: r.message }]);
       if (pixelId) {
-        trackFormPixel(pixelId, "Lead", { content_name: slug });
+        trackFormPixel(pixelId, "Lead", { content_name: slug }, clientEventId);
         if (r.is_qualified) trackFormPixel(pixelId, "CompleteRegistration", { content_name: slug });
       }
       if (r.is_qualified && r.scheduling_enabled) {
@@ -225,11 +237,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ response_id: done.response_id, starts_at: picked, name, email, phone }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { error?: string }).error ?? "book failed");
+      const json = (await res.json()) as { booking?: { id: string }; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "book failed");
       setBooked(true);
       setMsgs((m) => [...m, { from: "bot", text: `Reunião confirmada para ${new Date(picked).toLocaleString("pt-BR")} 🎉` }]);
-      if (pixelId) trackFormPixel(pixelId, "Schedule", { content_name: slug });
+      // event_id idêntico ao do CAPI (`booking_<id>`) para deduplicar.
+      if (pixelId && json.booking?.id) trackFormPixel(pixelId, "Schedule", { content_name: slug }, `booking_${json.booking.id}`);
     } catch (err) {
       setMsgs((m) => [...m, { from: "bot", text: err instanceof Error ? err.message : "Horário indisponível." }]);
       void loadSlots();

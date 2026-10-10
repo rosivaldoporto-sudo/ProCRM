@@ -2,50 +2,87 @@
  * Meta Conversions API (CAPI) client.
  *
  * Sends server-side conversion events directly to Meta's Graph API
- * so WhatsApp leads are attributed to the correct ad — even though
- * there's no browser pixel firing on the WhatsApp conversation.
+ * so WhatsApp / form leads are attributed to the correct ad — even
+ * though there's no browser pixel firing on those conversations.
  *
- * https://developers.facebook.com/docs/marketing-api/conversions-api
+ * Tracking correto (conforme a doc oficial):
+ *  - https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
+ *  - https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/server-event/
+ *  - https://developers.facebook.com/documentation/ads-commerce/conversions-api/using-the-api
+ *
+ * Regras que este client aplica:
+ *  1. `em` / `ph` / `fn` / `ln` / `external_id` são NORMALIZADOS +
+ *     hasheados em SHA-256 antes do envio. A Meta REJEITA PII sem
+ *     hash ("Our systems are designed to not accept customer
+ *     information that is unhashed") — enviar raw quebra o match.
+ *  2. `fbp` / `fbc` / `client_ip_address` / `client_user_agent` vão
+ *     em `user_data` SEM hash (nunca no custom_data). ip + ua são
+ *     OBRIGATÓRIOS para action_source=website.
+ *  3. `event_source_url` é obrigatório para website.
+ *  4. `action_source` usa o enum oficial — 'whatsapp' NÃO existe;
+ *     conversa de WhatsApp = 'chat'.
+ *  5. `event_id` igual no browser e no servidor = deduplicação
+ *     (redundant setup recomendado pela Meta).
  */
 
-const META_API_VERSION = 'v21.0';
+const META_API_VERSION = 'v26.0';
 const CAPI_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
+/** Funil do Lead Form (eventos padrão + QualifiedLead custom). */
+export type FormFunnelEvent =
+  | 'ViewContent'
+  | 'Lead'
+  | 'CompleteRegistration'
+  | 'Schedule'
+  | 'QualifiedLead';
+
+export const FB_EVENTS_URL = 'https://connect.facebook.net/en_US/fbevents.js';
+
+/** Valores oficiais de action_source (server-event parameters). */
+export type CapiActionSource =
+  | 'website'
+  | 'app'
+  | 'phone_call'
+  | 'chat'
+  | 'email'
+  | 'physical_store'
+  | 'system_generated'
+  | 'business_messaging'
+  | 'other';
+
 export interface CapiEvent {
-  /** Standard Meta event name: "Lead", "Contact", "Purchase", etc. */
+  /** Standard Meta event name: "Lead", "Contact", "Schedule", etc. */
   event_name: string;
   /** Unix timestamp in seconds (when the event happened). */
   event_time: number;
-  /** Action source — always "whatsapp" for inbound message leads. */
-  action_source: 'whatsapp' | 'website' | 'phone_call' | 'email' | 'other';
-  /** Unique idempotency key for this event (prevents double-counting). */
+  action_source: CapiActionSource;
+  /** Shared browser↔server id for dedup (same event_name + event_id). */
   event_id?: string;
-  /** Event source URL — the tracking link the user clicked. */
+  /** REQUIRED for website events — page URL where it happened. */
   event_source_url?: string;
   user_data: {
-    /** Array of phone numbers, E.164 format (hashed = auto, raw accepted). */
+    /** RAW values — this client normalizes + hashes before sending. */
     phones?: string[];
-    /** Optional: first name (will be hashed by Meta if passed). */
+    emails?: string[];
     firstName?: string;
-    /** Optional: last name. */
     lastName?: string;
-    /** Optional: email. */
-    email?: string;
-    /** Optional: Meta external_id for dedup with pixel. */
+    /** Hashing recommended by Meta; hashed here like the rest. */
     external_id?: string;
+    /** Browser ID (_fbp cookie). Never hashed. */
+    fbp?: string;
+    /** Click ID (_fbc cookie or fbclid-derived). Never hashed. */
+    fbc?: string;
+    /** REQUIRED for website events. Never hashed. */
+    clientIpAddress?: string;
+    /** REQUIRED for website events. Never hashed. */
+    clientUserAgent?: string;
   };
   custom_data?: {
-    /** Lead source description, e.g. "WhatsApp" */
     lead_source?: string;
-    /** Campaign name from UTM. */
     campaign_name?: string;
-    /** Ad name from UTM content. */
     ad_name?: string;
-    /** Currency for purchase events. */
     currency?: string;
-    /** Value for purchase events. */
     value?: number;
-    /** Any additional custom properties. */
     [key: string]: unknown;
   };
 }
@@ -62,15 +99,83 @@ export interface CapiResponse {
   fbtrace_id?: string;
 }
 
+// ============================================================
+// Normalização + hash (exportados p/ testes com vetores da doc)
+// ============================================================
+
+/** Email: trim + lowercase. */
+export function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/**
+ * Phone: só dígitos, sem zeros à esquerda. Deve incluir o DDI
+ * (ex.: +55 (11) 99999-9999 → 5511999999999).
+ */
+export function normalizePhone(value: string): string {
+  return value.replace(/\D/g, '').replace(/^0+/, '');
+}
+
+/** Nome: trim + lowercase + sem pontuação (UTF-8 preservado). */
+export function normalizeName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/["'.,;:\-()+[\]{}]+/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/** Divide "João Silva" → { first: "João", last: "Silva" }. */
+export function splitName(full?: string | null): {
+  first?: string;
+  last?: string;
+} {
+  if (!full || !full.trim()) return {};
+  const parts = full.trim().split(/\s+/);
+  return {
+    first: parts[0],
+    last: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
+  };
+}
+
+export async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** fbc válido (cookie) ou sintetizado a partir do fbclid. */
+export function buildFbc(fbc?: string, fbclid?: string): string | undefined {
+  if (fbc && /^fb\.\d+\.\d+\..+/.test(fbc)) return fbc;
+  const click = fbclid?.trim();
+  if (click) return `fb.1.${Date.now()}.${click}`;
+  return undefined;
+}
+
+/** fbp válido (fb.subdomain.creation.random) ou undefined. */
+export function validFbp(fbp?: string): string | undefined {
+  if (fbp && /^fb\.\d+\.\d+\.\d+$/.test(fbp.trim())) return fbp.trim();
+  return undefined;
+}
+
+async function hashAll(values: string[], normalize: (v: string) => string): Promise<string[]> {
+  const out: string[] = [];
+  for (const raw of values) {
+    const n = normalize(raw);
+    if (n) out.push(await sha256Hex(n));
+  }
+  return out;
+}
+
 /**
  * Send one or more events to the Meta Conversions API.
  *
- * - Events are posted to `/{pixel_id}/events` with the access token.
- * - When `testEventCode` is set, the event carries `test_event_code`
- *   so it shows up in the Events Manager test view (no production data).
- * - Phone numbers are deduplicated and expected in E.164 format.
- *   Meta's CAPI applies standard hashing (SHA-256) on its side when
- *   `hash_phone` is not explicitly set.
+ * PII é hasheada aqui — callers passam valores RAW.
+ * `testEventCode` envia para a aba Test Events (sem dado produtivo).
  */
 export async function sendCapiEvents(
   config: CapiConfig,
@@ -78,31 +183,48 @@ export async function sendCapiEvents(
 ): Promise<CapiResponse> {
   const { pixelId, accessToken, testEventCode } = config;
 
-  const payload: Record<string, unknown> = {
-    data: events.map((e) => ({
-      event_name: e.event_name,
-      event_time: e.event_time,
-      action_source: e.action_source,
-      event_id: e.event_id,
-      event_source_url: e.event_source_url,
-      user_data: {
-        ...(e.user_data.phones && e.user_data.phones.length > 0
-          ? { ph: e.user_data.phones }
-          : {}),
-        ...(e.user_data.firstName ? { fn: e.user_data.firstName } : {}),
-        ...(e.user_data.lastName ? { ln: e.user_data.lastName } : {}),
-        ...(e.user_data.email ? { em: e.user_data.email } : {}),
-        ...(e.user_data.external_id
-          ? { external_id: e.user_data.external_id }
-          : {}),
-      },
-      ...(e.custom_data ? { custom_data: e.custom_data } : {}),
-    })),
-  };
+  const data = await Promise.all(
+    events.map(async (e) => {
+      const user_data: Record<string, unknown> = {};
+      if (e.user_data.emails?.length) {
+        user_data.em = await hashAll(e.user_data.emails, normalizeEmail);
+      }
+      if (e.user_data.phones?.length) {
+        user_data.ph = await hashAll(e.user_data.phones, normalizePhone);
+      }
+      if (e.user_data.firstName) {
+        const n = normalizeName(e.user_data.firstName);
+        if (n) user_data.fn = [await sha256Hex(n)];
+      }
+      if (e.user_data.lastName) {
+        const n = normalizeName(e.user_data.lastName);
+        if (n) user_data.ln = [await sha256Hex(n)];
+      }
+      if (e.user_data.external_id) {
+        user_data.external_id = [await sha256Hex(e.user_data.external_id)];
+      }
+      if (e.user_data.fbp) user_data.fbp = e.user_data.fbp;
+      if (e.user_data.fbc) user_data.fbc = e.user_data.fbc;
+      if (e.user_data.clientIpAddress) {
+        user_data.client_ip_address = e.user_data.clientIpAddress;
+      }
+      if (e.user_data.clientUserAgent) {
+        user_data.client_user_agent = e.user_data.clientUserAgent;
+      }
+      return {
+        event_name: e.event_name,
+        event_time: e.event_time,
+        action_source: e.action_source,
+        event_id: e.event_id,
+        event_source_url: e.event_source_url,
+        user_data,
+        ...(e.custom_data ? { custom_data: e.custom_data } : {}),
+      };
+    }),
+  );
 
-  if (testEventCode) {
-    payload.test_event_code = testEventCode;
-  }
+  const payload: Record<string, unknown> = { data };
+  if (testEventCode) payload.test_event_code = testEventCode;
 
   const url = `${CAPI_BASE}/${pixelId}/events`;
 

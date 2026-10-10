@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { bumpFormCounter } from '@/lib/lead-forms/counters';
 
 /** GET público — retorna config publicada do formulário (sem dados sensíveis). */
 export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
@@ -18,8 +19,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }
     .select('block_key, block_type, config, position')
     .eq('form_id', (form as { id: string }).id)
     .order('position');
-  // Conta view (fire-and-forget)
-  void db.rpc('increment_lead_form_counter', { p_form_id: (form as { id: string }).id, p_field: 'view' });
+  // Conta view (fire-and-forget, com log em caso de falha)
+  void bumpFormCounter(db, (form as { id: string }).id, 'view');
   const meta = (f.meta_config ?? {}) as { pixel_id?: string | null };
   return NextResponse.json({
     form: {

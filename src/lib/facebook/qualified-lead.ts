@@ -104,7 +104,9 @@ export async function fireQualifiedLeadEvent(
       {
         event_name: 'Lead',
         event_time: Math.floor(Date.now() / 1000),
-        action_source: 'whatsapp',
+        // 'chat' é o valor oficial para conversão via app de mensagem
+        // ('whatsapp' não existe no enum da Meta e era rejeitado).
+        action_source: 'chat',
         event_id: `qualified_${accountId}_${dealId}_${Date.now()}`,
         user_data: {
           phones: [contactRow.phone],
