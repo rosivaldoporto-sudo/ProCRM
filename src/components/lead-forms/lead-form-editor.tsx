@@ -1,0 +1,460 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, Copy } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import type {
+  LeadForm, LeadFormBlock, LeadFormBlockType, LeadFormScheduling,
+} from "@/lib/lead-forms/types";
+import { BLOCK_TYPE_LABELS } from "@/lib/lead-forms/types";
+
+interface Props {
+  formId: string;
+}
+
+const BLOCK_TYPES = Object.keys(BLOCK_TYPE_LABELS) as LeadFormBlockType[];
+
+export function LeadFormEditor({ formId }: Props) {
+  const [form, setForm] = useState<LeadForm | null>(null);
+  const [blocks, setBlocks] = useState<LeadFormBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [responses, setResponses] = useState<Array<Record<string, unknown>>>([]);
+  const [bookings, setBookings] = useState<Array<Record<string, unknown>>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/lead-forms/${formId}`);
+        if (!res.ok) throw new Error();
+        const json = await res.json() as { form: LeadForm; blocks: Array<{ block_key: string; block_type: LeadFormBlockType; config: LeadFormBlock["config"]; position: number; is_qualifier: boolean; score_weight: number }> };
+        if (!cancelled) {
+          setForm(json.form);
+          setBlocks(json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight })));
+        }
+        const r2 = await fetch(`/api/lead-forms/${formId}/responses`);
+        if (r2.ok) {
+          const j2 = await r2.json() as { responses: Array<Record<string, unknown>>; bookings: Array<Record<string, unknown>> };
+          if (!cancelled) {
+            setResponses(j2.responses ?? []);
+            setBookings(j2.bookings ?? []);
+          }
+        }
+      } catch {
+        if (!cancelled) toast.error("Falha ao carregar formulário");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formId]);
+
+  async function save(patch: Partial<LeadForm> & { blocks?: LeadFormBlock[] } = {}) {
+    setSaving(true);
+    try {
+      const payload = {
+        name: patch.name ?? form?.name,
+        description: patch.description ?? form?.description,
+        status: patch.status ?? form?.status,
+        slug: patch.slug ?? form?.slug,
+        theme_config: patch.theme_config ?? form?.theme_config,
+        settings: patch.settings ?? form?.settings,
+        qualification_config: patch.qualification_config ?? form?.qualification_config,
+        scheduling_config: patch.scheduling_config ?? form?.scheduling_config,
+        meta_config: patch.meta_config ?? form?.meta_config,
+        blocks: (patch.blocks ?? blocks).map((b, i) => ({
+          block_key: b.block_key, block_type: b.block_type, config: b.config,
+          position: i, is_qualifier: b.is_qualifier, score_weight: b.score_weight,
+        })),
+      };
+      const res = await fetch(`/api/lead-forms/${formId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error ?? "save failed");
+      }
+      const json = await res.json() as { form: LeadForm };
+      setForm(json.form);
+      if (patch.blocks) setBlocks(patch.blocks);
+      toast.success("Salvo");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateForm<K extends keyof LeadForm>(key: K, value: LeadForm[K]) {
+    if (form) setForm({ ...form, [key]: value });
+  }
+
+  if (loading || !form) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/f/${form.slug}` : `/f/${form.slug}`;
+  const convRate = form.view_count > 0 ? Math.round((form.response_count / form.view_count) * 100) : 0;
+
+  return (
+    <div className="space-y-4 p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} className="w-72 text-lg font-semibold" />
+          <Badge variant="outline">{form.status === "published" ? "Publicado" : form.status === "archived" ? "Arquivado" : "Rascunho"}</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={form.status} onValueChange={(v) => updateForm("status", v as LeadForm["status"])}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Rascunho</SelectItem>
+              <SelectItem value="published">Publicado</SelectItem>
+              <SelectItem value="archived">Arquivado</SelectItem>
+            </SelectContent>
+          </Select>
+          {form.status === "published" && (
+            <Button variant="outline" size="sm" onClick={() => window.open(publicUrl, "_blank")}>
+              <ExternalLink className="h-3.5 w-3.5" /> Abrir
+            </Button>
+          )}
+          <Button onClick={() => save()} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}<Save className="h-4 w-4" /> Salvar
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        {[
+          ["Views", form.view_count],
+          ["Respostas", form.response_count],
+          ["Conversão", `${convRate}%`],
+          ["Qualificados", form.qualified_count],
+          ["Agendados", form.booked_count],
+        ].map(([label, v]) => (
+          <Card key={label}><CardContent className="p-3 text-center">
+            <p className="text-2xl font-bold text-foreground">{v}</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+          </CardContent></Card>
+        ))}
+      </div>
+
+      <Tabs defaultValue="build">
+        <TabsList className="flex flex-wrap">
+          <TabsTrigger value="build">Perguntas</TabsTrigger>
+          <TabsTrigger value="design">Personalização</TabsTrigger>
+          <TabsTrigger value="qualify">Qualificação</TabsTrigger>
+          <TabsTrigger value="schedule">Agenda</TabsTrigger>
+          <TabsTrigger value="meta">Meta Ads</TabsTrigger>
+          <TabsTrigger value="share">Compartilhar</TabsTrigger>
+          <TabsTrigger value="responses">Respostas ({responses.length})</TabsTrigger>
+        </TabsList>
+
+        {/* ---------- BUILD ---------- */}
+        <TabsContent value="build" className="space-y-3">
+          {blocks.map((b, i) => (
+            <Card key={`${b.block_key}-${i}`}>
+              <CardContent className="flex gap-3 p-4">
+                <GripVertical className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input value={b.config.label} onChange={(e) => {
+                      const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, label: e.target.value } }; setBlocks(nb);
+                    }} placeholder="Pergunta" className="min-w-52 flex-1" />
+                    <Select value={b.block_type} onValueChange={(v) => {
+                      const nb = [...blocks]; nb[i] = { ...b, block_type: v as LeadFormBlockType }; setBlocks(nb);
+                    }}>
+                      <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {BLOCK_TYPES.map((t) => <SelectItem key={t} value={t}>{BLOCK_TYPE_LABELS[t]}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="sm" onClick={() => {
+                      const nb = [...blocks]; const [rm] = nb.splice(i, 1);
+                      void rm; setBlocks(nb.map((x, idx) => ({ ...x, position: idx })));
+                    }} className="text-red-400"><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <Input value={b.block_key} onChange={(e) => {
+                      const nb = [...blocks]; nb[i] = { ...b, block_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") }; setBlocks(nb);
+                    }} placeholder="chave (ex: faturamento)" />
+                    <Input value={b.config.placeholder ?? ""} onChange={(e) => {
+                      const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, placeholder: e.target.value } }; setBlocks(nb);
+                    }} placeholder="Placeholder" />
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch checked={!!b.config.required} onCheckedChange={(v) => {
+                        const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, required: v } }; setBlocks(nb);
+                      }} /> Obrigatório
+                    </label>
+                  </div>
+                  {(b.block_type === "choice_single" || b.block_type === "choice_multi") && (
+                    <OptionsEditor block={b} onChange={(cfg) => {
+                      const nb = [...blocks]; nb[i] = { ...b, config: cfg }; setBlocks(nb);
+                    }} />
+                  )}
+                  <div className="flex flex-wrap items-center gap-3 border-t border-border pt-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch checked={b.is_qualifier} onCheckedChange={(v) => {
+                        const nb = [...blocks]; nb[i] = { ...b, is_qualifier: v }; setBlocks(nb);
+                      }} /> Pergunta qualificadora
+                    </label>
+                    {b.is_qualifier && (
+                      <Input type="number" value={b.score_weight} onChange={(e) => {
+                        const nb = [...blocks]; nb[i] = { ...b, score_weight: Number(e.target.value) }; setBlocks(nb);
+                      }} className="w-28" placeholder="Peso" />
+                    )}
+                    {(b.block_type === "choice_single" || b.block_type === "choice_multi") && b.is_qualifier && (
+                      <span className="text-[11px] text-muted-foreground">Marque abaixo quais opções qualificam (score somado).</span>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setBlocks([...blocks, {
+              block_key: `pergunta_${blocks.length + 1}`, block_type: "short_text",
+              config: { label: "Nova pergunta", required: true }, position: blocks.length,
+              is_qualifier: false, score_weight: 0,
+            }])}>
+              <Plus className="h-4 w-4" /> Adicionar pergunta
+            </Button>
+            <Button variant="outline" onClick={() => setBlocks([...blocks, {
+              block_key: "agendar", block_type: "meeting",
+              config: { label: "Agende sua reunião" }, position: blocks.length,
+              is_qualifier: false, score_weight: 0,
+            }])}>
+              <Plus className="h-4 w-4" /> Bloco de agendamento
+            </Button>
+          </div>
+          <Button onClick={() => save({ blocks })} disabled={saving}>Salvar perguntas</Button>
+        </TabsContent>
+
+        {/* ---------- DESIGN ---------- */}
+        <TabsContent value="design">
+          <Card><CardHeader><CardTitle>Personalização</CardTitle>
+            <CardDescription>Cores, avatar, logo e textos — pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2"><Label>Cor primária</Label>
+                <div className="flex gap-2"><Input type="color" value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} className="h-10 w-16" />
+                  <Input value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} /></div></div>
+              <div className="space-y-2"><Label>Fundo</Label>
+                <div className="flex gap-2"><Input type="color" value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} className="h-10 w-16" />
+                  <Input value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} /></div></div>
+              <div className="space-y-2"><Label>Título de boas-vindas</Label><Input value={form.theme_config.welcome_title} onChange={(e) => updateForm("theme_config", { ...form.theme_config, welcome_title: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Subtítulo</Label><Input value={form.theme_config.welcome_subtitle} onChange={(e) => updateForm("theme_config", { ...form.theme_config, welcome_subtitle: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Texto do botão</Label><Input value={form.theme_config.button_text} onChange={(e) => updateForm("theme_config", { ...form.theme_config, button_text: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Avatar (URL)</Label><Input value={form.theme_config.avatar_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, avatar_url: e.target.value || null })} placeholder="https://..." /></div>
+              <div className="space-y-2"><Label>Logo (URL)</Label><Input value={form.theme_config.logo_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, logo_url: e.target.value || null })} placeholder="https://..." /></div>
+              <div className="space-y-2"><Label>Balão do visitante</Label><Input type="color" value={form.theme_config.bubble_user} onChange={(e) => updateForm("theme_config", { ...form.theme_config, bubble_user: e.target.value })} className="h-10 w-16" /></div>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={form.theme_config.show_branding} onCheckedChange={(v) => updateForm("theme_config", { ...form.theme_config, show_branding: v })} /> Mostrar marca ProCRM</label>
+            </CardContent></Card>
+          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar design</Button>
+        </TabsContent>
+
+        {/* ---------- QUALIFY ---------- */}
+        <TabsContent value="qualify">
+          <Card><CardHeader><CardTitle>Qualificação</CardTitle>
+            <CardDescription>Score 0–100. Leads com score ≥ limiar veem o agendamento.</CardDescription></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="space-y-2"><Label>Modo</Label>
+                  <Select value={form.qualification_config.mode} onValueChange={(v) => updateForm("qualification_config", { ...form.qualification_config, mode: v as "score" | "rules" | "all_required" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="score">Por score</SelectItem>
+                      <SelectItem value="all_required">Todas qualificadoras obrigatórias</SelectItem>
+                      <SelectItem value="rules">Score + qualificadoras</SelectItem>
+                    </SelectContent></Select></div>
+                <div className="space-y-2"><Label>Limiar (0–100)</Label>
+                  <Input type="number" min={0} max={100} value={form.qualification_config.threshold} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, threshold: Number(e.target.value) })} /></div>
+              </div>
+              <div className="space-y-2"><Label>Mensagem — qualificado</Label><Textarea value={form.qualification_config.qualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, qualified_message: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Mensagem — desqualificado</Label><Textarea value={form.qualification_config.disqualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, disqualified_message: e.target.value })} /></div>
+            </CardContent></Card>
+          <div className="mt-3 flex gap-2">
+            <Button onClick={() => save()} disabled={saving}>Salvar qualificação</Button>
+          </div>
+          <Card className="mt-3"><CardHeader><CardTitle>Criação automática</CardTitle></CardHeader>
+            <CardContent className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_contact} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_contact: v })} /> Criar contato</label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_deal} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_deal: v })} /> Criar deal</label>
+              <div className="w-full space-y-2"><Label>Webhook externo (POST JSON — opcional)</Label>
+                <Input value={form.settings.webhook_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, webhook_url: e.target.value || null })} placeholder="https://..." /></div>
+              <div className="w-full space-y-2"><Label>Redirecionar após concluir (opcional)</Label>
+                <Input value={form.settings.redirect_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, redirect_url: e.target.value || null })} placeholder="https://obrigado..." /></div>
+            </CardContent></Card>
+        </TabsContent>
+
+        {/* ---------- SCHEDULE ---------- */}
+        <TabsContent value="schedule">
+          <ScheduleEditor
+            value={form.scheduling_config}
+            onChange={(v) => updateForm("scheduling_config", v)}
+          />
+          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar agenda</Button>
+        </TabsContent>
+
+        {/* ---------- META ---------- */}
+        <TabsContent value="meta">
+          <Card><CardHeader><CardTitle>Meta Ads — Pixel + CAPI</CardTitle>
+            <CardDescription>Eventos do funil: ViewContent → Lead → CompleteRegistration → Schedule. O server usa a config global (Settings → Meta Ads) para CAPI; o pixel_id abaixo alimenta o browser.</CardDescription></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2"><Label>Pixel ID (sobrescreve o global neste formulário)</Label>
+                <Input value={form.meta_config.pixel_id ?? ""} onChange={(e) => updateForm("meta_config", { ...form.meta_config, pixel_id: e.target.value || null })} placeholder="Ex: 123456789012345" /></div>
+              {([
+                ["fire_view_content", "ViewContent — visualização"],
+                ["fire_lead", "Lead — resposta completa"],
+                ["fire_complete_registration", "CompleteRegistration — qualificado"],
+                ["fire_schedule", "Schedule — reunião agendada"],
+                ["fire_qualified", "QualifiedLead (Lead com lead_quality=qualified)"],
+              ] as const).map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2 text-sm">
+                  <Switch checked={(form.meta_config[k] as boolean) ?? true} onCheckedChange={(v) => updateForm("meta_config", { ...form.meta_config, [k]: v })} /> {label}
+                </label>
+              ))}
+              <p className="text-xs text-muted-foreground">Dica: configure também Settings → Meta Ads (token + test_event_code) para o server-side funcionar. Use fbclid/fbp/fbc automáticos via URL.</p>
+            </CardContent></Card>
+          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar Meta</Button>
+        </TabsContent>
+
+        {/* ---------- SHARE ---------- */}
+        <TabsContent value="share">
+          <Card><CardHeader><CardTitle>Compartilhar</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2"><Label>Slug público</Label>
+                <div className="flex gap-2"><Input value={form.slug} onChange={(e) => updateForm("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} />
+                  <Button variant="outline" onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success("Link copiado"); }}><Copy className="h-4 w-4" /></Button></div></div>
+              <div className="rounded border border-border bg-muted p-3 font-mono text-xs break-all">{publicUrl}?utm_source=facebook&utm_campaign=nome_campanha&utm_content=ad_01</div>
+              <div className="space-y-2"><Label>Embed (iframe)</Label>
+                <Textarea readOnly value={`<iframe src="${publicUrl}?embed=1" width="100%" height="700" frameborder="0" style="border-radius:12px"></iframe>`} /></div>
+            </CardContent></Card>
+          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar slug</Button>
+        </TabsContent>
+
+        {/* ---------- RESPONSES ---------- */}
+        <TabsContent value="responses" className="space-y-3">
+          <Card><CardHeader><CardTitle>Respostas</CardTitle><CardDescription>{responses.length} respostas · {bookings.length} agendamentos</CardDescription></CardHeader>
+            <CardContent className="space-y-2">
+              {responses.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma resposta ainda. Compartilhe o link.</p>}
+              {responses.map((r) => {
+                const row = r as { id: string; respondent_name?: string; score: number; is_qualified: boolean; status: string; created_at: string; answers: Record<string, unknown> };
+                return (
+                  <div key={row.id} className="rounded border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="text-sm text-foreground">{String(row.respondent_name ?? "Anônimo")}</strong>
+                      <Badge variant="outline">{row.is_qualified ? `Qualificado · ${row.score}` : `Score ${row.score}`} · {row.status}</Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{new Date(row.created_at).toLocaleString("pt-BR")}</p>
+                    <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-[11px]">{JSON.stringify(row.answers, null, 2)}</pre>
+                  </div>
+                );
+              })}
+            </CardContent></Card>
+          {bookings.length > 0 && (
+            <Card><CardHeader><CardTitle>Agendamentos</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {bookings.map((bk) => {
+                  const b = bk as { id: string; attendee_name: string; starts_at: string; ends_at: string; status: string };
+                  return (
+                    <div key={b.id} className="flex items-center justify-between rounded border border-border p-2 text-sm">
+                      <span>{b.attendee_name} — {new Date(b.starts_at).toLocaleString("pt-BR")}</span>
+                      <Badge variant="outline">{b.status}</Badge>
+                    </div>
+                  );
+                })}
+              </CardContent></Card>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function OptionsEditor({ block, onChange }: { block: LeadFormBlock; onChange: (cfg: LeadFormBlock["config"]) => void }) {
+  const opts = block.config.options ?? [];
+  return (
+    <div className="space-y-1">
+      {opts.map((o, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input value={o.label} placeholder="Rótulo" onChange={(e) => {
+            const no = [...opts]; no[i] = { ...o, label: e.target.value }; onChange({ ...block.config, options: no });
+          }} />
+          <Input value={o.value} placeholder="valor" className="w-32" onChange={(e) => {
+            const no = [...opts]; no[i] = { ...o, value: e.target.value }; onChange({ ...block.config, options: no });
+          }} />
+          <Input type="number" value={o.score ?? 0} className="w-20" placeholder="score" onChange={(e) => {
+            const no = [...opts]; no[i] = { ...o, score: Number(e.target.value) }; onChange({ ...block.config, options: no });
+          }} />
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground" title="Esta opção qualifica?">
+            <input type="checkbox" checked={(block.config.qualifying_values ?? []).includes(o.value)} onChange={(e) => {
+              const cur = new Set(block.config.qualifying_values ?? []);
+              if (e.target.checked) cur.add(o.value); else cur.delete(o.value);
+              onChange({ ...block.config, qualifying_values: [...cur] });
+            }} /> Q
+          </label>
+          <Button variant="ghost" size="sm" onClick={() => onChange({ ...block.config, options: opts.filter((_, j) => j !== i) })}><Trash2 className="h-3.5 w-3.5" /></Button>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" onClick={() => onChange({ ...block.config, options: [...opts, { value: `opcao_${opts.length + 1}`, label: "Nova opção", score: 0 }] })}>
+        <Plus className="h-3.5 w-3.5" /> Opção
+      </Button>
+    </div>
+  );
+}
+
+const DOWS = [
+  ["mon", "Seg"], ["tue", "Ter"], ["wed", "Qua"], ["thu", "Qui"], ["fri", "Sex"], ["sat", "Sáb"], ["sun", "Dom"],
+] as const;
+
+function ScheduleEditor({ value, onChange }: { value: LeadFormScheduling; onChange: (v: LeadFormScheduling) => void }) {
+  return (
+    <Card><CardHeader><CardTitle>Agendamento de reunião</CardTitle>
+      <CardDescription>Qualificados veem os horários livres e agendam direto no formulário.</CardDescription></CardHeader>
+      <CardContent className="space-y-3">
+        <label className="flex items-center gap-2 text-sm"><Switch checked={value.enabled} onCheckedChange={(v) => onChange({ ...value, enabled: v })} /> Ativar agendamento para qualificados</label>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="space-y-1"><Label>Duração (min)</Label><Input type="number" value={value.duration_min} onChange={(e) => onChange({ ...value, duration_min: Number(e.target.value) })} /></div>
+          <div className="space-y-1"><Label>Intervalo (min)</Label><Input type="number" value={value.buffer_min} onChange={(e) => onChange({ ...value, buffer_min: Number(e.target.value) })} /></div>
+          <div className="space-y-1"><Label>Fuso</Label><Input value={value.timezone} onChange={(e) => onChange({ ...value, timezone: e.target.value })} /></div>
+          <div className="space-y-1"><Label>Responsável</Label><Input value={value.owner_name ?? ""} onChange={(e) => onChange({ ...value, owner_name: e.target.value || null })} placeholder="Ex: Ana (SDR)" /></div>
+        </div>
+        <div className="space-y-1"><Label>Título da reunião</Label><Input value={value.meeting_title} onChange={(e) => onChange({ ...value, meeting_title: e.target.value })} /></div>
+        <div className="space-y-2">
+          <Label>Grade semanal (início — fim, um por linha: 09:00-18:00)</Label>
+          {DOWS.map(([k, label]) => (
+            <div key={k} className="flex items-start gap-2">
+              <span className="w-10 pt-2 text-xs text-muted-foreground">{label}</span>
+              <Textarea
+                value={(value.availability?.[k] ?? []).map(([a, b]) => `${a}-${b}`).join("\n")}
+                placeholder="—"
+                className="min-h-9"
+                onChange={(e) => {
+                  const lines = e.target.value.split("\n").map((l) => l.trim()).filter(Boolean);
+                  const parsed: Array<[string, string]> = [];
+                  for (const ln of lines) {
+                    const m = ln.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+                    if (m) parsed.push([m[1], m[2]]);
+                  }
+                  onChange({ ...value, availability: { ...value.availability, [k]: parsed } });
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </CardContent></Card>
+  );
+}

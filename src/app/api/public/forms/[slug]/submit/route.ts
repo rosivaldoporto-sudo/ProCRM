@@ -1,0 +1,237 @@
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { evaluateQualification, extractContactFields } from '@/lib/lead-forms/types';
+import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+
+function getIp(req: Request): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown'
+  );
+}
+
+/**
+ * POST público — recebe answers, avalia qualificação, cria contato/deal,
+ * dispara Meta CAPI (Lead + CompleteRegistration/QualifiedLead) e webhook.
+ */
+export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const { slug } = await ctx.params;
+  const limit = checkRateLimit(`leadform-submit:${getIp(req)}`, RATE_LIMITS.invitationPeek);
+  if (!limit.success) return rateLimitResponse(limit);
+
+  const body = (await req.json().catch(() => null)) as {
+    answers?: Record<string, unknown>;
+    tracking?: { utm_source?: string; utm_campaign?: string; utm_medium?: string; utm_term?: string; utm_content?: string; fbp?: string; fbc?: string; fbclid?: string; source_url?: string };
+  } | null;
+  if (!body?.answers || typeof body.answers !== 'object') {
+    return NextResponse.json({ error: 'answers é obrigatório' }, { status: 400 });
+  }
+
+  const db = supabaseAdmin();
+  const { data: formRow } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
+  const form = formRow as {
+    id: string; account_id: string; user_id: string; name: string; status: string;
+    settings: Record<string, unknown>; qualification_config: Parameters<typeof evaluateQualification>[2];
+    meta_config: Record<string, unknown>;
+  } | null;
+  if (!form || form.status !== 'published') {
+    return NextResponse.json({ error: 'Formulário não encontrado' }, { status: 404 });
+  }
+  const { data: blockRows } = await db
+    .from('lead_form_blocks')
+    .select('*')
+    .eq('form_id', form.id)
+    .order('position');
+  const blocks = ((blockRows ?? []) as Array<{
+    block_key: string; block_type: string; config: Record<string, unknown>;
+    position: number; is_qualifier: boolean; score_weight: number;
+  }>).map((b) => ({
+    block_key: b.block_key,
+    block_type: b.block_type as never,
+    config: b.config as never,
+    position: b.position,
+    is_qualifier: b.is_qualifier,
+    score_weight: b.score_weight,
+  }));
+
+  // Validação de obrigatórios
+  for (const b of blocks) {
+    const cfg = b.config as { required?: boolean; label?: string };
+    if (cfg.required) {
+      const v = body.answers[b.block_key];
+      if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)) {
+        return NextResponse.json({ error: `Campo obrigatório: ${cfg.label ?? b.block_key}` }, { status: 400 });
+      }
+    }
+  }
+
+  const { score, isQualified, reasons } = evaluateQualification(blocks, body.answers, form.qualification_config);
+  const contact = extractContactFields(blocks, body.answers);
+  const tracking = body.tracking ?? {};
+  const status = isQualified ? 'qualified' : 'disqualified';
+
+  const { data: response, error: respErr } = await db
+    .from('lead_form_responses')
+    .insert({
+      form_id: form.id,
+      account_id: form.account_id,
+      answers: body.answers,
+      score,
+      is_qualified: isQualified,
+      status,
+      respondent_name: contact.name ?? null,
+      respondent_email: contact.email ?? null,
+      respondent_phone: contact.phone ?? null,
+      tracking,
+      ip: getIp(req),
+      user_agent: req.headers.get('user-agent')?.slice(0, 500) ?? null,
+      completed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (respErr || !response) {
+    return NextResponse.json({ error: 'Falha ao salvar resposta' }, { status: 500 });
+  }
+  const responseId = (response as { id: string }).id;
+
+  // Contadores
+  void db.rpc('increment_lead_form_counter', { p_form_id: form.id, p_field: 'response' });
+  if (isQualified) void db.rpc('increment_lead_form_counter', { p_form_id: form.id, p_field: 'qualified' });
+
+  // Cria/atualiza contato + deal (fire-and-forget com await tolerante)
+  let contactId: string | null = null;
+  let dealId: string | null = null;
+  try {
+    const settings = form.settings as { create_contact?: boolean; create_deal?: boolean; qualified_pipeline_stage_id?: string | null };
+    if (settings.create_contact !== false && (contact.phone || contact.email)) {
+      // Dedup por telefone ou email dentro da conta
+      let existing: { id: string } | null = null;
+      if (contact.phone) {
+        const { data } = await db.from('contacts').select('id').eq('account_id', form.account_id).eq('phone', contact.phone).maybeSingle();
+        existing = (data as { id: string } | null) ?? null;
+      }
+      if (!existing && contact.email) {
+        const { data } = await db.from('contacts').select('id').eq('account_id', form.account_id).eq('email', contact.email).maybeSingle();
+        existing = (data as { id: string } | null) ?? null;
+      }
+      if (existing) {
+        contactId = existing.id;
+        await db.from('contacts').update({
+          name: contact.name ?? undefined,
+          email: contact.email ?? undefined,
+          utm_source: (tracking as Record<string, string>).utm_source ?? undefined,
+          utm_campaign: (tracking as Record<string, string>).utm_campaign ?? undefined,
+          utm_medium: (tracking as Record<string, string>).utm_medium ?? undefined,
+          utm_content: (tracking as Record<string, string>).utm_content ?? undefined,
+        }).eq('id', contactId);
+      } else {
+        const { data: created } = await db.from('contacts').insert({
+          account_id: form.account_id,
+          user_id: form.user_id,
+          name: contact.name ?? 'Lead via formulário',
+          phone: contact.phone ?? null,
+          email: contact.email ?? null,
+          company: typeof body.answers.empresa === 'string' ? (body.answers.empresa as string) : null,
+          utm_source: (tracking as Record<string, string>).utm_source ?? null,
+          utm_campaign: (tracking as Record<string, string>).utm_campaign ?? null,
+          utm_medium: (tracking as Record<string, string>).utm_medium ?? null,
+          utm_term: (tracking as Record<string, string>).utm_term ?? null,
+          utm_content: (tracking as Record<string, string>).utm_content ?? null,
+        }).select('id').single();
+        contactId = ((created as { id: string } | null)?.id) ?? null;
+      }
+    }
+    if (settings.create_deal !== false && contactId) {
+      // Pipeline: usa stage qualificado se definido, senão primeiro stage do pipeline default
+      let stageId = (settings.qualified_pipeline_stage_id as string | null) ?? null;
+      let pipelineId: string | null = null;
+      if (stageId) {
+        const { data: st } = await db.from('pipeline_stages').select('id, pipeline_id').eq('id', stageId).maybeSingle();
+        if (st) pipelineId = (st as { pipeline_id: string }).pipeline_id;
+        else stageId = null;
+      }
+      if (!stageId) {
+        const { data: pipes } = await db.from('pipelines').select('id').eq('account_id', form.account_id).order('created_at').limit(1);
+        pipelineId = ((pipes?.[0] as { id: string } | undefined)?.id) ?? null;
+        if (pipelineId) {
+          const { data: stages } = await db.from('pipeline_stages').select('id').eq('pipeline_id', pipelineId).order('position').limit(1);
+          stageId = ((stages?.[0] as { id: string } | undefined)?.id) ?? null;
+        }
+      }
+      if (stageId && pipelineId) {
+        const { data: deal } = await db.from('deals').insert({
+          account_id: form.account_id,
+          user_id: form.user_id,
+          pipeline_id: pipelineId,
+          stage_id: stageId,
+          contact_id: contactId,
+          title: `${contact.name ?? 'Lead'} — ${form.name}`,
+          value: 0,
+          status: 'open',
+        }).select('id').single();
+        dealId = ((deal as { id: string } | null)?.id) ?? null;
+      }
+    }
+    if (contactId || dealId) {
+      await db.from('lead_form_responses').update({ contact_id: contactId, deal_id: dealId }).eq('id', responseId);
+    }
+  } catch (err) {
+    console.error('[lead-forms] contact/deal:', err instanceof Error ? err.message : err);
+  }
+
+  // Meta CAPI: Lead sempre; CompleteRegistration/QualifiedLead se qualificado
+  const metaCfg = form.meta_config as { fire_lead?: boolean; fire_complete_registration?: boolean; fire_qualified?: boolean };
+  const metaIds: Record<string, string> = {};
+  const sourceUrl = (tracking as { source_url?: string }).source_url;
+  if (metaCfg.fire_lead !== false) {
+    const eid = await fireFormCapiEvent({
+      accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
+      email: contact.email, phone: contact.phone, firstName: contact.name,
+      eventSourceUrl: sourceUrl,
+      fbp: (tracking as Record<string, string>).fbp, fbc: (tracking as Record<string, string>).fbc,
+      custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: (tracking as Record<string, string>).utm_campaign },
+    });
+    if (eid) metaIds.lead = eid;
+  }
+  if (isQualified && metaCfg.fire_complete_registration !== false) {
+    const eid = await fireFormCapiEvent({
+      accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
+      email: contact.email, phone: contact.phone, firstName: contact.name,
+      eventSourceUrl: sourceUrl, custom: { form_name: form.name, score },
+    });
+    if (eid) metaIds.complete_registration = eid;
+  }
+  if (isQualified && metaCfg.fire_qualified !== false) {
+    const eid = await fireFormCapiEvent({
+      accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
+      email: contact.email, phone: contact.phone, firstName: contact.name,
+      eventSourceUrl: sourceUrl, custom: { form_name: form.name, score },
+    });
+    if (eid) metaIds.qualified = eid;
+  }
+  if (Object.keys(metaIds).length) {
+    await db.from('lead_form_responses').update({ meta_event_ids: metaIds }).eq('id', responseId);
+  }
+
+  // Webhook externo (fire-and-forget)
+  const webhook = (form.settings as { webhook_url?: string | null }).webhook_url;
+  if (webhook) {
+    fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ form_id: form.id, form_name: form.name, response_id: responseId, answers: body.answers, score, is_qualified: isQualified, contact, tracking }),
+    }).catch(() => undefined);
+  }
+
+  const qual = form.qualification_config as { qualified_message?: string; disqualified_message?: string };
+  return NextResponse.json({
+    response_id: responseId,
+    score,
+    is_qualified: isQualified,
+    reasons,
+    message: isQualified ? qual.qualified_message : qual.disqualified_message,
+    scheduling_enabled: ((await db.from('lead_forms').select('scheduling_config').eq('id', form.id).maybeSingle()).data as { scheduling_config?: { enabled?: boolean } } | null)?.scheduling_config?.enabled ?? false,
+  });
+}
