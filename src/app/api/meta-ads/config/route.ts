@@ -12,24 +12,68 @@ function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+function isMissingColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string; hint?: string };
+  // Postgres undefined_column + PostgREST schema-cache misses all surface
+  // when the 038 migration (capi_trigger_stage_ids) hasn't been applied.
+  if (e.code === '42703' || e.code === 'PGRST204') return true;
+  const msg = `${e.message ?? ''} ${e.hint ?? ''}`.toLowerCase();
+  return (
+    msg.includes('capi_trigger_stage_ids') ||
+    (msg.includes('column') && msg.includes('does not exist'))
+  );
+}
+
 export async function GET() {
   try {
     const { accountId } = await requireRole('admin');
-    const { data, error } = await supabaseAdmin()
+    const admin = supabaseAdmin();
+    let data: {
+      id: string;
+      pixel_id: string | null;
+      test_event_code: string | null;
+      capi_trigger_stage_ids?: string[] | null;
+      access_token: string | null;
+    } | null = null;
+
+    const full = await admin
       .from('meta_ads_config')
       .select(
         'id, pixel_id, test_event_code, capi_trigger_stage_ids, access_token'
       )
       .eq('account_id', accountId)
       .maybeSingle();
-    if (error) throw error;
+    if (full.error) {
+      if (!isMissingColumnError(full.error)) throw full.error;
+      // Fallback for DBs where migration 038 hasn't been applied yet.
+      console.error(
+        '[meta-ads/config] capi_trigger_stage_ids missing, falling back (apply migration 038):',
+        full.error.message
+      );
+      const legacy = await admin
+        .from('meta_ads_config')
+        .select('id, pixel_id, test_event_code, access_token')
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (legacy.error) throw legacy.error;
+      data = legacy.data;
+    } else {
+      data = full.data;
+    }
     if (!data) return NextResponse.json({ configured: false });
     if (data.access_token && !data.access_token.includes(':')) {
-      const { error: upgradeError } = await supabaseAdmin()
-        .from('meta_ads_config')
-        .update({ access_token: encrypt(data.access_token) })
-        .eq('id', data.id);
-      if (upgradeError) throw upgradeError;
+      try {
+        const { error: upgradeError } = await admin
+          .from('meta_ads_config')
+          .update({ access_token: encrypt(data.access_token) })
+          .eq('id', data.id);
+        if (upgradeError) throw upgradeError;
+      } catch (upgradeErr) {
+        // Never break a read because the legacy-token upgrade failed
+        // (e.g. missing ENCRYPTION_KEY) — the raw token still works.
+        console.error('[meta-ads/config] token upgrade failed:', upgradeErr);
+      }
     }
     return NextResponse.json({
       configured: true,
@@ -83,22 +127,24 @@ export async function POST(request: Request) {
     }
 
     if (stageIds.length) {
-      const { data: stages } = await supabaseAdmin()
+      const { data: stages, error: stagesError } = await supabaseAdmin()
         .from('pipeline_stages')
         .select('id, pipelines!inner(account_id)')
         .in('id', stageIds)
         .eq('pipelines.account_id', accountId);
+      if (stagesError) throw stagesError;
       if (!stages || stages.length !== stageIds.length) {
         return bad('Every trigger stage must belong to this account');
       }
     }
 
     const admin = supabaseAdmin();
-    const { data: existing } = await admin
+    const { data: existing, error: existingError } = await admin
       .from('meta_ads_config')
       .select('id, access_token')
       .eq('account_id', accountId)
       .maybeSingle();
+    if (existingError) throw existingError;
 
     if (!rawToken && !existing?.access_token && pixelId) {
       return bad('access_token is required');
@@ -123,7 +169,30 @@ export async function POST(request: Request) {
       ? admin.from('meta_ads_config').update(values).eq('id', existing.id)
       : admin.from('meta_ads_config').insert(values);
     const { error } = await query;
-    if (error) throw error;
+    if (error) {
+      // DBs behind migration 038 have no capi_trigger_stage_ids column —
+      // retry without it instead of failing the whole save.
+      if (stageIds.length >= 0 && isMissingColumnError(error)) {
+        console.error(
+          '[meta-ads/config] save fallback without capi_trigger_stage_ids (apply migration 038):',
+          error.message
+        );
+        const { capi_trigger_stage_ids: _dropped, ...legacyValues } = values;
+        void _dropped;
+        const retry = existing
+          ? await admin
+              .from('meta_ads_config')
+              .update(legacyValues)
+              .eq('id', existing.id)
+          : await admin.from('meta_ads_config').insert(legacyValues);
+        if (retry.error) throw retry.error;
+        return NextResponse.json({
+          success: true,
+          warning: 'capi_trigger_stage_ids_unsupported',
+        });
+      }
+      throw error;
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     return toErrorResponse(err);

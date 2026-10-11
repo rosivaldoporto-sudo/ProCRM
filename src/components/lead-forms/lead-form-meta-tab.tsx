@@ -88,6 +88,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
   const [testCode, setTestCode] = useState("");
   const [stageIds, setStageIds] = useState<string[]>([]);
   const [savingGlobal, setSavingGlobal] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // ---- Test send ----
   const [testEvent, setTestEvent] = useState<string>("Lead");
@@ -100,13 +101,17 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoadError(null);
       try {
         const res = await fetch("/api/meta-ads/config", { cache: "no-store" });
         if (res.status === 403) {
           if (!cancelled) setForbidden(true);
           return;
         }
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
         const j = (await res.json()) as GlobalConfig;
         if (!cancelled) {
           setGlobalPixel(j.pixel_id ?? "");
@@ -114,8 +119,11 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
           setHasToken(!!j.has_access_token);
           setStageIds(j.capi_trigger_stage_ids ?? []);
         }
-      } catch {
-        if (!cancelled) toast.error("Falha ao carregar config Meta");
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Falha ao carregar config Meta";
+          setLoadError(msg);
+        }
       } finally {
         if (!cancelled) setLoadingGlobal(false);
       }
@@ -124,6 +132,34 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
       cancelled = true;
     };
   }, []);
+
+  function retryLoad() {
+    setLoadingGlobal(true);
+    setLoadError(null);
+    setForbidden(false);
+    (async () => {
+      try {
+        const res = await fetch("/api/meta-ads/config", { cache: "no-store" });
+        if (res.status === 403) {
+          setForbidden(true);
+          return;
+        }
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
+        const j = (await res.json()) as GlobalConfig;
+        setGlobalPixel(j.pixel_id ?? "");
+        setTestCode(j.test_event_code ?? "");
+        setHasToken(!!j.has_access_token);
+        setStageIds(j.capi_trigger_stage_ids ?? []);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Falha ao carregar config Meta");
+      } finally {
+        setLoadingGlobal(false);
+      }
+    })();
+  }
 
   async function handleSaveGlobal() {
     setSavingGlobal(true);
@@ -227,6 +263,19 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
               Requer papel admin — peça a um admin ou vá em Configurações →
               Meta Ads.
             </p>
+          ) : loadError ? (
+            <div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-sm">
+              <p className="flex items-start gap-2 text-red-300">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Falha ao carregar config Meta: {loadError}. Verifique se as
+                  migrations do Supabase estão aplicadas e tente de novo.
+                </span>
+              </p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={retryLoad}>
+                Tentar novamente
+              </Button>
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

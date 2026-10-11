@@ -48,16 +48,22 @@ export function MetaAdsConfig() {
     {}
   );
   const [loadingStages, setLoadingStages] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const response = await fetch('/api/meta-ads/config', {
         cache: 'no-store',
       });
-      if (!response.ok)
-        throw new Error('Failed to load Meta Ads configuration');
+      if (!response.ok) {
+        const j = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(j.error || `HTTP ${response.status}`);
+      }
       const data = (await response.json()) as SafeMetaAdsConfig;
       if (data.configured) {
         setConfig(data);
@@ -72,6 +78,8 @@ export function MetaAdsConfig() {
         setTestEventCode('');
         setTriggerStageIds([]);
       }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -179,6 +187,21 @@ export function MetaAdsConfig() {
   return (
     <div className="space-y-6">
       <SettingsPanelHead title={t('pageTitle')} description={t('pageDesc')} />
+
+      {loadError && (
+        <Alert variant="destructive">
+          <AlertTitle>Falha ao carregar a configuração</AlertTitle>
+          <AlertDescription>
+            <p className="mb-2 text-sm">
+              {loadError}. Verifique se as migrations do Supabase estão
+              aplicadas e tente de novo.
+            </p>
+            <Button variant="outline" size="sm" onClick={fetchConfig}>
+              Tentar novamente
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Alert>
         <HelpCircle className="h-4 w-4" />
