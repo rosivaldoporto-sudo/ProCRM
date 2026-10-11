@@ -228,6 +228,8 @@ export async function sendCapiEvents(
 
   const url = `${CAPI_BASE}/${pixelId}/events`;
 
+  // Timeout explícito: sem ele, uma Meta lenta congela o submit do
+  // formulário (a rota pública aguarda o CAPI antes de responder).
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -235,9 +237,10 @@ export async function sendCapiEvents(
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(8000),
   });
 
-  const body = await res.json();
+  const body = await res.json().catch(() => ({}));
 
   if (!res.ok) {
     const errMsg =

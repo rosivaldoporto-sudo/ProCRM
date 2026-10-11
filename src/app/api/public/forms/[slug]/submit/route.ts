@@ -37,7 +37,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const form = formRow as {
     id: string; account_id: string; user_id: string; name: string; status: string;
     settings: Record<string, unknown>; qualification_config: Parameters<typeof evaluateQualification>[2];
-    meta_config: Record<string, unknown>;
+    meta_config: Record<string, unknown>; scheduling_config?: { enabled?: boolean };
   } | null;
   if (!form || form.status !== 'published') {
     return NextResponse.json({ error: 'Formulário não encontrado' }, { status: 404 });
@@ -185,9 +185,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   // Meta CAPI: Lead sempre; CompleteRegistration/QualifiedLead se qualificado.
-  // user_data segue a doc oficial: PII hasheada (feita no client CAPI),
-  // fbp/fbc em user_data, ip+ua obrigatórios p/ website, event_source_url
-  // obrigatório p/ website, e event_id compartilhado com o browser.
+  // Em PARALELO (Promise.all): sequencial, 3 round-trips à Meta somavam
+  // segundos e congelavam a última pergunta. Cada envio é best-effort
+  // (fireFormCapiEvent nunca lança) e tem timeout próprio de 8s.
   const metaCfg = form.meta_config as { fire_lead?: boolean; fire_complete_registration?: boolean; fire_qualified?: boolean };
   const metaIds: Record<string, string> = {};
   const trk = tracking as Record<string, string | undefined>;
@@ -200,29 +200,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     fbp: trk.fbp, fbc: trk.fbc, fbclid: trk.fbclid,
     clientIp: getIp(req), clientUa: req.headers.get('user-agent') ?? undefined,
   };
+  const capiSends: Array<Promise<{ key: string; eid: string | null }>> = [];
   if (metaCfg.fire_lead !== false) {
-    const eid = await fireFormCapiEvent({
-      accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
-      ...baseUser, eventId: sharedEventId,
-      custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: trk.utm_campaign },
-    });
-    if (eid) metaIds.lead = eid;
+    capiSends.push(
+      fireFormCapiEvent({
+        accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
+        ...baseUser, eventId: sharedEventId,
+        custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: trk.utm_campaign },
+      }).then((eid) => ({ key: 'lead', eid }))
+    );
   }
   if (isQualified && metaCfg.fire_complete_registration !== false) {
-    const eid = await fireFormCapiEvent({
-      accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
-      ...baseUser, eventId: `${sharedEventId}_complete`,
-      custom: { form_name: form.name, score },
-    });
-    if (eid) metaIds.complete_registration = eid;
+    capiSends.push(
+      fireFormCapiEvent({
+        accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
+        ...baseUser, eventId: `${sharedEventId}_complete`,
+        custom: { form_name: form.name, score },
+      }).then((eid) => ({ key: 'complete_registration', eid }))
+    );
   }
   if (isQualified && metaCfg.fire_qualified !== false) {
-    const eid = await fireFormCapiEvent({
-      accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
-      ...baseUser, eventId: `${sharedEventId}_qualified`,
-      custom: { form_name: form.name, score },
-    });
-    if (eid) metaIds.qualified = eid;
+    capiSends.push(
+      fireFormCapiEvent({
+        accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
+        ...baseUser, eventId: `${sharedEventId}_qualified`,
+        custom: { form_name: form.name, score },
+      }).then((eid) => ({ key: 'qualified', eid }))
+    );
+  }
+  for (const { key, eid } of await Promise.all(capiSends)) {
+    if (eid) metaIds[key] = eid;
   }
   if (Object.keys(metaIds).length) {
     await db.from('lead_form_responses').update({ meta_event_ids: metaIds }).eq('id', responseId);
@@ -245,6 +252,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     is_qualified: isQualified,
     reasons,
     message: isQualified ? qual.qualified_message : qual.disqualified_message,
-    scheduling_enabled: ((await db.from('lead_forms').select('scheduling_config').eq('id', form.id).maybeSingle()).data as { scheduling_config?: { enabled?: boolean } } | null)?.scheduling_config?.enabled ?? false,
+    // scheduling_config já veio no select('*') acima — sem round-trip extra.
+    scheduling_enabled: form.scheduling_config?.enabled ?? false,
   });
 }
