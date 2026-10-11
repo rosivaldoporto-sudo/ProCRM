@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { SettingsPanelHead } from './settings-panel-head';
+import { MetaAdsTestCard } from './meta-ads-test-card';
 import type { PipelineStage } from '@/types';
 
 interface SafeMetaAdsConfig {
@@ -262,6 +263,12 @@ export function MetaAdsConfig() {
           </Button>
         </CardContent>
       </Card>
+
+      <MetaAdsTestCard
+        pixelId={pixelId}
+        testEventCode={testEventCode}
+        hasToken={!!(config?.has_access_token || accessToken.trim())}
+      />
 
       {/* Qualified Lead Trigger — pipeline stage picker */}
       <Card>

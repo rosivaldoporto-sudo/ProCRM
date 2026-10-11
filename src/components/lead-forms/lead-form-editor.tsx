@@ -16,6 +16,7 @@ import type {
   LeadForm, LeadFormBlock, LeadFormBlockType, LeadFormScheduling,
 } from "@/lib/lead-forms/types";
 import { BLOCK_TYPE_LABELS } from "@/lib/lead-forms/types";
+import { LeadFormMetaTab } from "./lead-form-meta-tab";
 
 interface Props {
   formId: string;
@@ -335,25 +336,13 @@ export function LeadFormEditor({ formId }: Props) {
 
         {/* ---------- META ---------- */}
         <TabsContent value="meta" className="space-y-3">
-          <MetaTokenCard />
-          <Card><CardHeader><CardTitle>Pixel do formulário + eventos</CardTitle>
-            <CardDescription>Funil: ViewContent (browser) → Lead (browser + CAPI com mesmo event_id, deduplicado) → CompleteRegistration + QualifiedLead (CAPI) → Schedule (browser + CAPI). PII é normalizada + SHA-256 no servidor; fbp/fbc/ip/ua vão em user_data, conforme a doc oficial.</CardDescription></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2"><Label>Pixel ID (sobrescreve o global neste formulário)</Label>
-                <Input value={form.meta_config.pixel_id ?? ""} onChange={(e) => updateForm("meta_config", { ...form.meta_config, pixel_id: e.target.value || null })} placeholder="Ex: 123456789012345" /></div>
-              {([
-                ["fire_view_content", "ViewContent — visualização"],
-                ["fire_lead", "Lead — resposta completa"],
-                ["fire_complete_registration", "CompleteRegistration — qualificado"],
-                ["fire_schedule", "Schedule — reunião agendada"],
-                ["fire_qualified", "QualifiedLead (Lead com lead_quality=qualified)"],
-              ] as const).map(([k, label]) => (
-                <label key={k} className="flex items-center gap-2 text-sm">
-                  <Switch checked={(form.meta_config[k] as boolean) ?? true} onCheckedChange={(v) => updateForm("meta_config", { ...form.meta_config, [k]: v })} /> {label}
-                </label>
-              ))}
-            </CardContent></Card>
-          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar Meta</Button>
+          <LeadFormMetaTab
+            formId={formId}
+            meta={form.meta_config}
+            onChange={(meta_config) => updateForm("meta_config", meta_config)}
+            onSaveForm={() => save()}
+            savingForm={saving}
+          />
         </TabsContent>
 
         {/* ---------- SHARE ---------- */}
@@ -438,113 +427,6 @@ function OptionsEditor({ block, onChange }: { block: LeadFormBlock; onChange: (c
         <Plus className="h-3.5 w-3.5" /> Opção
       </Button>
     </div>
-  );
-}
-
-/**
- * Token da Meta (CAPI server-side) — lê/salva a config GLOBAL da conta
- * (`/api/meta-ads/config`, mesmo armazenamento de Settings → Meta Ads),
- * exposta aqui porque é onde quem configura o formulário procura.
- * Sem token, só o pixel browser dispara; o CAPI é pulado em silêncio.
- */
-function MetaTokenCard() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [forbidden, setForbidden] = useState(false);
-  const [globalPixel, setGlobalPixel] = useState("");
-  const [hasToken, setHasToken] = useState(false);
-  const [token, setToken] = useState("");
-  const [testCode, setTestCode] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/meta-ads/config", { cache: "no-store" });
-        if (res.status === 403) {
-          if (!cancelled) setForbidden(true);
-          return;
-        }
-        if (!res.ok) throw new Error();
-        const j = (await res.json()) as {
-          configured?: boolean; pixel_id?: string | null;
-          test_event_code?: string | null; has_access_token?: boolean;
-        };
-        if (!cancelled) {
-          setGlobalPixel(j.pixel_id ?? "");
-          setTestCode(j.test_event_code ?? "");
-          setHasToken(!!j.has_access_token);
-        }
-      } catch {
-        if (!cancelled) toast.error("Falha ao carregar config Meta");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      // Preserva o pixel global atual — o endpoint zeraria se omitido.
-      const res = await fetch("/api/meta-ads/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pixel_id: globalPixel.trim() || null,
-          ...(token.trim() ? { access_token: token.trim() } : {}),
-          test_event_code: testCode.trim() || null,
-        }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(j.error ?? "save failed");
-      setToken("");
-      setHasToken(true);
-      toast.success("Token Meta salvo");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Falha ao salvar token");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <Card><CardContent className="flex items-center justify-center p-6">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </CardContent></Card>
-    );
-  }
-  if (forbidden) {
-    return (
-      <Card><CardHeader><CardTitle>Token da Meta (CAPI)</CardTitle>
-        <CardDescription>Requer papel admin — peça a um admin ou vá em Configurações → Meta Ads.</CardDescription>
-      </CardHeader></Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Token da Meta (CAPI server-side)</CardTitle>
-        <CardDescription>
-          Token de acesso do app Meta para a Conversions API. Onde gerar: Events Manager → Configurações do conjunto de dados → API de Conversões → Gerar token.
-          {hasToken ? " Status: configurado." : " Status: ausente — eventos server-side serão pulados."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-2"><Label>Pixel ID global</Label>
-          <Input value={globalPixel} onChange={(e) => setGlobalPixel(e.target.value)} placeholder="123456789012345" /></div>
-        <div className="space-y-2"><Label>Token de acesso {hasToken && <span className="text-emerald-400">(salvo — preencha só para trocar)</span>}</Label>
-          <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={hasToken ? "••••••••••••••••" : "EAA..."} autoComplete="new-password" /></div>
-        <div className="space-y-2"><Label>Código de evento de teste <span className="text-muted-foreground">(opcional — aba Test Events)</span></Label>
-          <Input value={testCode} onChange={(e) => setTestCode(e.target.value)} placeholder="TEST12345" /></div>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2 className="h-4 w-4 animate-spin" />}<Save className="h-4 w-4" /> Salvar token
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 
