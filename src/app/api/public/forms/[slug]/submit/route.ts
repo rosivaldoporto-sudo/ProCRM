@@ -3,24 +3,16 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { evaluateQualification, extractContactFields } from '@/lib/lead-forms/types';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
 import { normalizeAttribution, sanitizeTracking, type TrackingBag } from '@/lib/lead-forms/attribution';
+import { getClientIp } from '@/lib/request-ip';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
-function getIp(req: Request): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  );
-}
-
-/**
- * POST público — recebe answers, avalia qualificação, cria contato/deal,
- * dispara Meta CAPI (Lead + CompleteRegistration/QualifiedLead) e webhook.
+/** POST público — recebe answers, avalia qualificação, cria contato/deal,
+ *  dispara Meta CAPI (Lead + CompleteRegistration/QualifiedLead) e webhook.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
-  const limit = checkRateLimit(`leadform-submit:${getIp(req)}`, RATE_LIMITS.invitationPeek);
+  const limit = checkRateLimit(`leadform-submit:${getClientIp(req)}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
 
   const body = (await req.json().catch(() => null)) as {
@@ -78,6 +70,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       : null;
   const fillMs = rawFillMs !== null && rawFillMs >= 0 ? rawFillMs : null;
   if (honeypot || (fillMs !== null && fillMs < 1500)) {
+    // Atraso proposital: o caminho falso precisa durar parecido com o real
+    // para o bot não detectar o honeypot por timing.
+    await new Promise((r) => setTimeout(r, 500));
     const qualMsg = (form.qualification_config as { disqualified_message?: string }).disqualified_message;
     return NextResponse.json({
       response_id: `bot_${Date.now().toString(36)}`,
@@ -136,7 +131,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       respondent_email: contact.email ?? null,
       respondent_phone: contact.phone ?? null,
       tracking,
-      ip: getIp(req),
+      ip: getClientIp(req),
       user_agent: req.headers.get('user-agent')?.slice(0, 500) ?? null,
       completed_at: new Date().toISOString(),
     })
@@ -256,7 +251,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     email: contact.email, phone: contact.phone, fullName: contact.name,
     eventSourceUrl: trk.source_url,
     fbp: trk.fbp, fbc: trk.fbc, fbclid: trk.fbclid,
-    clientIp: getIp(req), clientUa: req.headers.get('user-agent') ?? undefined,
+    clientIp: getClientIp(req), clientUa: req.headers.get('user-agent')?.slice(0, 500) ?? undefined,
   };
   const capiSends: Array<Promise<{ key: string; eid: string | null }>> = [];
   if (metaCfg.fire_lead !== false) {

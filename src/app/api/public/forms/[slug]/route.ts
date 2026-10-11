@@ -2,16 +2,14 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/request-ip';
 
 /** GET público — retorna config publicada do formulário (sem dados sensíveis). */
 export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
   // Rate limit por IP: sem ele, qualquer um infla `view_count` com refresh
   // e enumera slugs sem custo.
-  const ip =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown';
+  const ip = getClientIp(req);
   const limit = checkRateLimit(`leadform-view:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
   const db = supabaseAdmin();

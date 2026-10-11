@@ -129,11 +129,58 @@ export async function POST(request: Request) {
       )
     }
 
+    // Teto de fan-out (igual ao núcleo v1): sem ele, um POST com 100k
+    // números vira loop sequencial à Meta + conta telefônica gigante.
+    const MAX_RECIPIENTS = 1000
+    if (recipients.length > MAX_RECIPIENTS) {
+      return NextResponse.json(
+        { error: `Too many recipients (max ${MAX_RECIPIENTS} per campaign)` },
+        { status: 400 }
+      )
+    }
+    for (const raw of recipients) {
+      const r = raw as { phone?: unknown; params?: unknown } | null | undefined;
+      const params = typeof r === 'object' && r !== null ? r.params : undefined;
+      if (
+        r == null ||
+        typeof r !== 'object' ||
+        typeof r.phone !== 'string' ||
+        (params !== undefined &&
+          (!Array.isArray(params) ||
+            params.length > 20 ||
+            params.some(
+              (p: unknown) => typeof p !== 'string' || p.length > 1024
+            )))
+      ) {
+        return NextResponse.json(
+          { error: 'Invalid recipients (phone + up to 20 params of 1024 chars)' },
+          { status: 400 }
+        )
+      }
+    }
+
     if (!template_name) {
       return NextResponse.json(
         { error: 'template_name is required' },
         { status: 400 }
       )
+    }
+
+    if (
+      typeof template_name !== 'string' ||
+      template_name.length > 512 ||
+      !/^[a-z0-9_]+$/i.test(template_name)
+    ) {
+      return NextResponse.json({ error: 'Invalid template_name' }, { status: 400 })
+    }
+
+    if (
+      template_language !== undefined &&
+      (typeof template_language !== 'string' ||
+        template_language.length > 16 ||
+        !/^[a-z]{2}(_[A-Z]{2})?$/.test(template_language))
+    ) {
+      return NextResponse.json({ error: 'Invalid template_language' }, { status: 400 })
     }
 
     const { data: config, error: configError } = await supabaseAdmin()

@@ -40,7 +40,7 @@ const PRESETS: Preset[] = [
   {
     id: "meta",
     label: "Meta Ads (recomendado)",
-    hint: "As macros {{...}} são preenchidas pela Meta no clique — cada lead chega com campanha, conjunto e anúncio.",
+    hint: "As macros {{...}} são preenchidas pela Meta no clique. Cada lead chega com campanha, conjunto e anúncio.",
     fields: {
       source: "facebook",
       medium: "cpc",
@@ -152,7 +152,7 @@ export function LeadFormShareTab({ slug, onSlugChange, publicUrl }: Props) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Embed (iframe)</Label>
+            <Label>Incorporar (iframe)</Label>
             <Textarea
               readOnly
               value={`<iframe src="${publicUrl}?embed=1" width="100%" height="700" frameborder="0" style="border-radius:12px"></iframe>`}
@@ -168,7 +168,7 @@ export function LeadFormShareTab({ slug, onSlugChange, publicUrl }: Props) {
           </CardTitle>
           <CardDescription>
             Monte o link do anúncio aqui. Com os parâmetros corretos, cada resposta mostra
-            de qual <strong>campanha e anúncio</strong> o lead veio — e o CAPI devolve isso à Meta.
+            de qual <strong>campanha e anúncio</strong> o lead veio, e o CAPI devolve isso à Meta.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

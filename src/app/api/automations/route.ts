@@ -11,6 +11,9 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { TRIGGER_META } from '@/lib/automations/trigger-meta';
+import { reqStr, isValidEnum, jsonSizeOk } from '@/lib/api-validate';
 
 export async function GET() {
   const supabase = await createClient();
@@ -48,6 +51,9 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const limit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
+  if (!limit.success) return rateLimitResponse(limit);
 
   // Resolve the caller's account_id — `automations.account_id` is NOT
   // NULL post-017, so an INSERT without it trips the not-null constraint
@@ -96,9 +102,56 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!effectiveName || !effectiveTriggerType) {
+  const cleanName = reqStr(effectiveName, 200);
+  if (!cleanName || !effectiveTriggerType) {
     return NextResponse.json(
       { error: 'name and trigger_type are required' },
+      { status: 400 }
+    );
+  }
+  if (!isValidEnum(effectiveTriggerType, Object.keys(TRIGGER_META))) {
+    return NextResponse.json(
+      { error: 'Invalid trigger_type' },
+      { status: 400 }
+    );
+  }
+  if (
+    effectiveDescription !== undefined &&
+    effectiveDescription !== null
+  ) {
+    if (typeof effectiveDescription !== 'string') {
+      return NextResponse.json(
+        { error: 'Invalid description' },
+        { status: 400 }
+      );
+    }
+    if (effectiveDescription.length > 2000) {
+      return NextResponse.json(
+        { error: 'description is too long' },
+        { status: 400 }
+      );
+    }
+  }
+  if (effectiveSteps !== undefined) {
+    if (!Array.isArray(effectiveSteps)) {
+      return NextResponse.json(
+        { error: 'steps must be an array' },
+        { status: 400 }
+      );
+    }
+    if (effectiveSteps.length > 200) {
+      return NextResponse.json(
+        { error: 'Too many steps' },
+        { status: 400 }
+      );
+    }
+  }
+  if (
+    effectiveTriggerConfig !== undefined &&
+    !jsonSizeOk(effectiveTriggerConfig, 20000)
+  ) {
+    return NextResponse.json(
+      { error: 'trigger_config is too large' },
       { status: 400 }
     );
   }
@@ -137,7 +190,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: user.id,
       account_id: accountId,
-      name: effectiveName,
+      name: cleanName,
       description: effectiveDescription ?? null,
       trigger_type: effectiveTriggerType,
       trigger_config: effectiveTriggerConfig ?? {},
@@ -147,15 +200,19 @@ export async function POST(request: Request) {
     .single();
 
   if (insertErr || !automation) {
+    console.error('[api:automations] insert failed:', insertErr);
     return NextResponse.json(
-      { error: insertErr?.message ?? 'insert failed' },
+      { error: 'Failed to create automation' },
       { status: 500 }
     );
   }
 
   if (effectiveSteps && effectiveSteps.length > 0) {
     const err = await insertSteps(automation.id, effectiveSteps);
-    if (err) return NextResponse.json({ error: err }, { status: 500 });
+    if (err) {
+      console.error('[api:automations] insert steps failed:', err);
+      return NextResponse.json({ error: 'Failed to create automation' }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ automation }, { status: 201 });

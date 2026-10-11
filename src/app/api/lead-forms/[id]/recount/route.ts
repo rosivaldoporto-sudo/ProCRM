@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { recountFormCounters } from '@/lib/lead-forms/counters';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * POST /api/lead-forms/[id]/recount — recalcula response/qualified/
@@ -13,11 +14,16 @@ import { recountFormCounters } from '@/lib/lead-forms/counters';
  */
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  let userId: string;
   try {
-    await requireRole('agent');
+    ({ userId } = await requireRole('agent'));
   } catch (err) {
     return toErrorResponse(err);
   }
+  // Recount agrega 3 tabelas: sem teto, um agente (ou sessão roubada)
+  // poderia martelar o banco. 30/min por usuário é folga ampla.
+  const limit = checkRateLimit(`leadform-recount:${userId}`, RATE_LIMITS.adminAction);
+  if (!limit.success) return rateLimitResponse(limit);
   const supabase = await createClient();
   const {
     data: { user },
@@ -41,9 +47,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       .maybeSingle();
     return NextResponse.json({ counts, form: updated });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Recount failed' },
-      { status: 500 },
-    );
+    console.error('[lead-forms:recount]', err);
+    return NextResponse.json({ error: 'Falha ao recalcular' }, { status: 500 });
   }
 }

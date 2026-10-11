@@ -300,7 +300,7 @@ export function LeadFormEditor({ formId }: Props) {
                     }} placeholder="chave (ex: faturamento)" />
                     <Input value={b.config.placeholder ?? ""} onChange={(e) => {
                       const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, placeholder: e.target.value } }; setBlocks(nb);
-                    }} placeholder="Placeholder" />
+                    }} placeholder="Texto de exemplo" />
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Switch checked={!!b.config.required} onCheckedChange={(v) => {
                         const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, required: v } }; setBlocks(nb);
@@ -324,7 +324,7 @@ export function LeadFormEditor({ formId }: Props) {
                       }} className="w-28" placeholder="Peso" />
                     )}
                     {(b.block_type === "choice_single" || b.block_type === "choice_multi") && b.is_qualifier && (
-                      <span className="text-[11px] text-muted-foreground">Marque abaixo quais opções qualificam (score somado).</span>
+                      <span className="text-[11px] text-muted-foreground">Marque abaixo quais opções qualificam (pontuação somada).</span>
                     )}
                   </div>
                 </div>
@@ -353,7 +353,7 @@ export function LeadFormEditor({ formId }: Props) {
         {/* ---------- DESIGN ---------- */}
         <TabsContent value="design">
           <Card><CardHeader><CardTitle>Personalização</CardTitle>
-            <CardDescription>Cores, avatar, logo e textos — pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
+            <CardDescription>Cores, avatar, logo e textos. Pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2"><Label>Cor primária</Label>
                 <div className="flex gap-2"><Input type="color" value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} className="h-10 w-16" />
@@ -375,22 +375,22 @@ export function LeadFormEditor({ formId }: Props) {
         {/* ---------- QUALIFY ---------- */}
         <TabsContent value="qualify">
           <Card><CardHeader><CardTitle>Qualificação</CardTitle>
-            <CardDescription>Score 0–100. Leads com score ≥ limiar veem o agendamento.</CardDescription></CardHeader>
+            <CardDescription>Pontuação de 0 a 100. Leads com pontuação a partir do limiar veem o agendamento.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-2"><Label>Modo</Label>
                   <Select value={form.qualification_config.mode} onValueChange={(v) => updateForm("qualification_config", { ...form.qualification_config, mode: v as "score" | "rules" | "all_required" })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="score">Por score</SelectItem>
+                      <SelectItem value="score">Por pontuação</SelectItem>
                       <SelectItem value="all_required">Todas qualificadoras obrigatórias</SelectItem>
-                      <SelectItem value="rules">Score + qualificadoras</SelectItem>
+                      <SelectItem value="rules">Pontuação + qualificadoras</SelectItem>
                     </SelectContent></Select></div>
-                <div className="space-y-2"><Label>Limiar (0–100)</Label>
+                <div className="space-y-2"><Label>Limiar (0 a 100)</Label>
                   <Input type="number" min={0} max={100} value={form.qualification_config.threshold} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, threshold: Number(e.target.value) })} /></div>
               </div>
-              <div className="space-y-2"><Label>Mensagem — qualificado</Label><Textarea value={form.qualification_config.qualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, qualified_message: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Mensagem — desqualificado</Label><Textarea value={form.qualification_config.disqualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, disqualified_message: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Mensagem: lead qualificado</Label><Textarea value={form.qualification_config.qualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, qualified_message: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Mensagem: lead desqualificado</Label><Textarea value={form.qualification_config.disqualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, disqualified_message: e.target.value })} /></div>
             </CardContent></Card>
           <div className="mt-3 flex gap-2">
             <Button onClick={() => save()} disabled={saving}>Salvar qualificação</Button>
@@ -398,8 +398,8 @@ export function LeadFormEditor({ formId }: Props) {
           <Card className="mt-3"><CardHeader><CardTitle>Criação automática</CardTitle></CardHeader>
             <CardContent className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_contact} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_contact: v })} /> Criar contato</label>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_deal} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_deal: v })} /> Criar deal</label>
-              <div className="w-full space-y-2"><Label>Webhook externo (POST JSON — opcional)</Label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_deal} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_deal: v })} /> Criar negócio</label>
+              <div className="w-full space-y-2"><Label>Webhook externo (POST JSON, opcional)</Label>
                 <Input value={form.settings.webhook_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, webhook_url: e.target.value || null })} placeholder="https://..." /></div>
               <div className="w-full space-y-2"><Label>Redirecionar após concluir (opcional)</Label>
                 <Input value={form.settings.redirect_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, redirect_url: e.target.value || null })} placeholder="https://obrigado..." /></div>
@@ -457,7 +457,7 @@ function OptionsEditor({ block, onChange }: { block: LeadFormBlock; onChange: (c
           <Input value={o.value} placeholder="valor" className="w-32" onChange={(e) => {
             const no = [...opts]; no[i] = { ...o, value: e.target.value }; onChange({ ...block.config, options: no });
           }} />
-          <Input type="number" value={o.score ?? 0} className="w-20" placeholder="score" onChange={(e) => {
+          <Input type="number" value={o.score ?? 0} className="w-20" placeholder="pontos" onChange={(e) => {
             const no = [...opts]; no[i] = { ...o, score: Number(e.target.value) }; onChange({ ...block.config, options: no });
           }} />
           <label className="flex items-center gap-1 text-[11px] text-muted-foreground" title="Esta opção qualifica?">
@@ -495,13 +495,13 @@ function ScheduleEditor({ value, onChange }: { value: LeadFormScheduling; onChan
         </div>
         <div className="space-y-1"><Label>Título da reunião</Label><Input value={value.meeting_title} onChange={(e) => onChange({ ...value, meeting_title: e.target.value })} /></div>
         <div className="space-y-2">
-          <Label>Grade semanal (início — fim, um por linha: 09:00-18:00)</Label>
+          <Label>Grade semanal (início/fim, um por linha: 09:00-18:00)</Label>
           {DOWS.map(([k, label]) => (
             <div key={k} className="flex items-start gap-2">
               <span className="w-10 pt-2 text-xs text-muted-foreground">{label}</span>
               <Textarea
                 value={(value.availability?.[k] ?? []).map(([a, b]) => `${a}-${b}`).join("\n")}
-                placeholder="—"
+                placeholder="Ex: 09:00-18:00"
                 className="min-h-9"
                 onChange={(e) => {
                   const lines = e.target.value.split("\n").map((l) => l.trim()).filter(Boolean);

@@ -2,15 +2,13 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { generateSlots } from '@/lib/lead-forms/availability';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/request-ip';
 
 export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
   // Sem rate limit, bots varrem disponibilidade à vontade (enumeração +
   // custo de CPU no generateSlots). 30/min por IP é folga ampla.
-  const ip =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown';
+  const ip = getClientIp(req);
   const limit = checkRateLimit(`leadform-slots:${slug}:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
   const db = supabaseAdmin();

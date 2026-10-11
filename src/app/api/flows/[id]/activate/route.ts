@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { validateFlowForActivation } from '@/lib/flows/validate';
 import type { AccountContext } from '@/lib/auth/account';
 import { logServerError } from '@/lib/observability/error-log';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * POST /api/flows/[id]/activate
@@ -44,6 +45,12 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const activateLimit = checkRateLimit(
+    `flows:${accountContext.userId}`,
+    RATE_LIMITS.adminAction
+  );
+  if (!activateLimit.success) return rateLimitResponse(activateLimit);
 
   const body = (await request.json().catch(() => null)) as {
     status?: 'draft' | 'active' | 'archived';

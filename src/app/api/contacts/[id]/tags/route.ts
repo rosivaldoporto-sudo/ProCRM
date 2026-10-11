@@ -6,6 +6,8 @@ import {
   ContactTagWriteError,
   removeContactTag,
 } from '@/lib/contacts/tag-write';
+import { isUuid } from '@/lib/api-validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 function tagWriteErrorResponse(error: ContactTagWriteError): NextResponse {
   return NextResponse.json({ error: error.message }, { status: error.status });
@@ -26,10 +28,15 @@ export async function POST(
 ) {
   try {
     const ctx = await requireRole('agent');
+    const postLimit = checkRateLimit(`tags:${ctx.userId}`, RATE_LIMITS.adminAction);
+    if (!postLimit.success) return rateLimitResponse(postLimit);
     const { id: contactId } = await params;
+    if (!isUuid(contactId)) {
+      return NextResponse.json({ error: 'Invalid contact id' }, { status: 400 });
+    }
     const tagId = await readTagId(request);
-    if (!tagId) {
-      return NextResponse.json({ error: 'tag_id required' }, { status: 400 });
+    if (!tagId || !isUuid(tagId)) {
+      return NextResponse.json({ error: 'tag_id must be a UUID' }, { status: 400 });
     }
 
     const result = await addContactTagAndDispatch({
@@ -54,10 +61,15 @@ export async function DELETE(
 ) {
   try {
     const ctx = await requireRole('agent');
+    const deleteLimit = checkRateLimit(`tags:${ctx.userId}`, RATE_LIMITS.adminAction);
+    if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
     const { id: contactId } = await params;
+    if (!isUuid(contactId)) {
+      return NextResponse.json({ error: 'Invalid contact id' }, { status: 400 });
+    }
     const tagId = await readTagId(request);
-    if (!tagId) {
-      return NextResponse.json({ error: 'tag_id required' }, { status: 400 });
+    if (!tagId || !isUuid(tagId)) {
+      return NextResponse.json({ error: 'tag_id must be a UUID' }, { status: 400 });
     }
 
     await removeContactTag(ctx.supabase, {

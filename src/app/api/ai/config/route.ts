@@ -9,6 +9,9 @@ import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
+import { reqStr } from '@/lib/api-validate'
+
+const MODEL_RE = /^[a-z0-9_.\-:]+$/i
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -81,13 +84,19 @@ export async function POST(request: Request) {
     if (provider !== 'openai' && provider !== 'anthropic' && provider !== 'deepseek') {
       return bad('provider must be "openai", "anthropic", or "deepseek"')
     }
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
-    if (!model) return bad('model is required')
+    const model = reqStr(body.model, 128)
+    if (!model || !MODEL_RE.test(model)) return bad('model is required')
 
     const systemPrompt =
       typeof body.system_prompt === 'string' && body.system_prompt.trim()
         ? body.system_prompt.trim()
         : null
+    if (
+      typeof body.system_prompt === 'string' &&
+      body.system_prompt.length > 20000
+    ) {
+      return bad('system_prompt is too long')
+    }
     const isActive = body.is_active === true
     const autoReplyEnabled = body.auto_reply_enabled === true
 
@@ -115,6 +124,7 @@ export async function POST(request: Request) {
     }
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
+    if (rawKey.length > 4096) return bad('api_key is too long')
 
     // Embeddings key (optional, for semantic KB search): a non-empty
     // string sets/replaces it; an explicit null clears it; absent leaves
@@ -123,6 +133,7 @@ export async function POST(request: Request) {
       typeof body.embeddings_api_key === 'string'
         ? body.embeddings_api_key.trim()
         : ''
+    if (rawEmbeddingsKey.length > 4096) return bad('embeddings_api_key is too long')
     const clearEmbeddingsKey = body.embeddings_api_key === null
 
     // Reuse the stored key when the form didn't send a fresh one.
@@ -257,7 +268,9 @@ export async function POST(request: Request) {
  */
 export async function DELETE() {
   try {
-    const { supabase, accountId } = await requireRole('admin')
+    const { supabase, accountId, userId } = await requireRole('admin')
+    const limit = checkRateLimit(`ai-config:${userId}`, RATE_LIMITS.adminAction)
+    if (!limit.success) return rateLimitResponse(limit)
     const { error } = await supabase
       .from('ai_configs')
       .delete()

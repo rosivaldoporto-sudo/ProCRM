@@ -291,7 +291,7 @@ export default function FormsAgendaPage() {
         </Select>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "all")}>
           <SelectTrigger className="w-44">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder="Situação" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os status</SelectItem>
@@ -444,7 +444,7 @@ export default function FormsAgendaPage() {
                     day: "2-digit",
                     month: "short",
                   })}{" "}
-                  · {fmtTime(detail.starts_at)} – {fmtTime(detail.ends_at)}
+                  · {fmtTime(detail.starts_at)} às {fmtTime(detail.ends_at)}
                 </span>
                 <Badge variant="outline" className={cn("text-[10px]", STATUS_META[detail.status].className)}>
                   {STATUS_META[detail.status].label}
@@ -469,7 +469,7 @@ export default function FormsAgendaPage() {
                 )}
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">Formulário</dt>
-                  <dd className="text-right">{detail.lead_forms?.name ?? "—"}</dd>
+                  <dd className="text-right">{detail.lead_forms?.name ?? "Não informado"}</dd>
                 </div>
                 {detail.notes && (
                   <div className="flex justify-between gap-3">

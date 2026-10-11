@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { logServerError } from '@/lib/observability/error-log';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 async function flowErrorResponse(
   error: unknown,
@@ -131,15 +132,40 @@ export async function PUT(
   const guard = await requireOwnership(id);
   if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status });
 
+  const putLimit = checkRateLimit(`flows:${guard.userId}`, RATE_LIMITS.adminAction);
+  if (!putLimit.success) return rateLimitResponse(putLimit);
+
   const body = (await request.json().catch(() => null)) as PutBody | null;
   if (!body) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  if (body.name !== undefined && !body.name.trim()) {
-    return NextResponse.json(
-      { error: 'name cannot be empty' },
-      { status: 400 }
-    );
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      return NextResponse.json(
+        { error: 'name cannot be empty' },
+        { status: 400 }
+      );
+    }
+    if (body.name.trim().length > 200) {
+      return NextResponse.json(
+        { error: 'name is too long' },
+        { status: 400 }
+      );
+    }
+  }
+  if (body.nodes !== undefined) {
+    if (!Array.isArray(body.nodes)) {
+      return NextResponse.json(
+        { error: 'nodes must be an array' },
+        { status: 400 }
+      );
+    }
+    if (body.nodes.length > 200) {
+      return NextResponse.json(
+        { error: 'Too many nodes' },
+        { status: 400 }
+      );
+    }
   }
 
   const admin = supabaseAdmin();
@@ -249,6 +275,9 @@ export async function DELETE(
 
   const guard = await requireOwnership(id);
   if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status });
+
+  const deleteLimit = checkRateLimit(`flows:${guard.userId}`, RATE_LIMITS.adminAction);
+  if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
 
   // CASCADE on flow_nodes / flow_runs / flow_run_events handles the
   // children. Active runs end abruptly — there's no graceful "drain"

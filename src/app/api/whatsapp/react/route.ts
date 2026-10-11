@@ -9,6 +9,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
+import { isUuid } from '@/lib/api-validate';
 
 /**
  * POST /api/whatsapp/react
@@ -58,9 +59,15 @@ export async function POST(request: Request) {
       emoji?: string;
     };
 
-    if (!message_id || typeof emoji !== 'string') {
+    if (!isUuid(message_id)) {
       return NextResponse.json(
-        { error: 'message_id and emoji are required' },
+        { error: 'Invalid message_id' },
+        { status: 400 },
+      );
+    }
+    if (typeof emoji !== 'string' || emoji.length > 16) {
+      return NextResponse.json(
+        { error: 'emoji must be a string of up to 16 characters' },
         { status: 400 },
       );
     }

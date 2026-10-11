@@ -97,7 +97,11 @@ export async function POST(request: Request) {
         messageType: message_type,
         contentText: content_text,
         mediaUrl: media_url,
+        filename,
         templateName: template_name,
+        templateLanguage: template_language,
+        templateParams: template_params,
+        templateMessageParams: template_message_params,
         interactivePayload: interactive_payload,
       })
     } catch (err) {

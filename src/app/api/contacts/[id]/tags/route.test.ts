@@ -39,14 +39,19 @@ const context = {
 };
 
 function request(method: 'POST' | 'DELETE', body: unknown) {
-  return new Request('http://localhost/api/contacts/contact-1/tags', {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  return new Request(
+    'http://localhost/api/contacts/11111111-1111-4111-8111-111111111111/tags',
+    {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
 }
 
-const params = { params: Promise.resolve({ id: 'contact-1' }) };
+const CONTACT_ID = '11111111-1111-4111-8111-111111111111';
+const TAG_ID = '22222222-2222-4222-8222-222222222222';
+const params = { params: Promise.resolve({ id: CONTACT_ID }) };
 
 beforeEach(() => {
   mocks.requireRole.mockReset();
@@ -59,15 +64,15 @@ describe('/api/contacts/[id]/tags', () => {
   it('requires an agent and dispatches a newly-added tag', async () => {
     mocks.add.mockResolvedValue({ added: true, dispatched: true });
 
-    const response = await POST(request('POST', { tag_id: 'tag-1' }), params);
+    const response = await POST(request('POST', { tag_id: TAG_ID }), params);
 
     expect(response.status).toBe(200);
     expect(mocks.requireRole).toHaveBeenCalledWith('agent');
     expect(mocks.add).toHaveBeenCalledWith({
       db: context.supabase,
       accountId: 'account-1',
-      contactId: 'contact-1',
-      tagId: 'tag-1',
+      contactId: CONTACT_ID,
+      tagId: TAG_ID,
     });
   });
 
@@ -77,19 +82,26 @@ describe('/api/contacts/[id]/tags', () => {
     expect(mocks.add).not.toHaveBeenCalled();
   });
 
+  it('rejects non-UUID ids before writing', async () => {
+    const badParams = { params: Promise.resolve({ id: 'contact-1' }) };
+    const response = await POST(request('POST', { tag_id: TAG_ID }), badParams);
+    expect(response.status).toBe(400);
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+
   it('removes a tag through the same account-scoped route', async () => {
     mocks.remove.mockResolvedValue(undefined);
 
     const response = await DELETE(
-      request('DELETE', { tag_id: 'tag-1' }),
+      request('DELETE', { tag_id: TAG_ID }),
       params
     );
 
     expect(response.status).toBe(200);
     expect(mocks.remove).toHaveBeenCalledWith(context.supabase, {
       accountId: 'account-1',
-      contactId: 'contact-1',
-      tagId: 'tag-1',
+      contactId: CONTACT_ID,
+      tagId: TAG_ID,
     });
   });
 });

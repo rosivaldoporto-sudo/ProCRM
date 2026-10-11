@@ -11,6 +11,9 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { TRIGGER_META } from '@/lib/automations/trigger-meta';
+import { reqStr, isValidEnum, jsonSizeOk } from '@/lib/api-validate';
 
 async function requireUser() {
   const supabase = await createClient();
@@ -68,6 +71,9 @@ export async function PATCH(
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const patchLimit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
+  if (!patchLimit.success) return rateLimitResponse(patchLimit);
+
   const body = await request.json().catch(() => null);
   if (!body)
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
@@ -86,14 +92,46 @@ export async function PATCH(
   }
 
   const update: Record<string, unknown> = {};
-  for (const k of [
-    'name',
-    'description',
-    'trigger_type',
-    'trigger_config',
-    'is_active',
-  ] as const) {
-    if (k in body) update[k] = body[k];
+  if ('name' in body) {
+    const cleanName = reqStr(body.name, 200);
+    if (!cleanName) {
+      return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
+    }
+    update.name = cleanName;
+  }
+  if ('description' in body) {
+    if (body.description !== null) {
+      if (typeof body.description !== 'string') {
+        return NextResponse.json({ error: 'Invalid description' }, { status: 400 });
+      }
+      if (body.description.length > 2000) {
+        return NextResponse.json({ error: 'description is too long' }, { status: 400 });
+      }
+    }
+    update.description = body.description;
+  }
+  if ('trigger_type' in body) {
+    if (!isValidEnum(body.trigger_type, Object.keys(TRIGGER_META))) {
+      return NextResponse.json({ error: 'Invalid trigger_type' }, { status: 400 });
+    }
+    update.trigger_type = body.trigger_type;
+  }
+  if ('trigger_config' in body) {
+    if (!jsonSizeOk(body.trigger_config, 20000)) {
+      return NextResponse.json({ error: 'trigger_config is too large' }, { status: 400 });
+    }
+    update.trigger_config = body.trigger_config;
+  }
+  if ('is_active' in body) {
+    update.is_active = body.is_active;
+  }
+  if ('steps' in body && body.steps !== undefined) {
+    if (!Array.isArray(body.steps)) {
+      return NextResponse.json({ error: 'steps must be an array' }, { status: 400 });
+    }
+    if (body.steps.length > 200) {
+      return NextResponse.json({ error: 'Too many steps' }, { status: 400 });
+    }
   }
 
   // If this PATCH leaves the automation active (either explicitly
@@ -134,14 +172,18 @@ export async function PATCH(
     const { error: updErr } = await admin
       .from('automations')
       .update(update)
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
     if (updErr)
-      return NextResponse.json({ error: updErr.message }, { status: 500 });
+      return NextResponse.json({ error: 'Falha ao salvar automação' }, { status: 500 });
   }
 
   if (Array.isArray(body.steps)) {
     const err = await replaceSteps(id, body.steps as BuilderStepInput[]);
-    if (err) return NextResponse.json({ error: err }, { status: 500 });
+    if (err) {
+      console.error('[api:automations] replace steps failed:', err);
+      return NextResponse.json({ error: 'Failed to save automation' }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ ok: true });
@@ -164,6 +206,9 @@ export async function DELETE(
   const user = await requireUser();
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const deleteLimit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
+  if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
 
   const { error } = await supabaseAdmin()
     .from('automations')

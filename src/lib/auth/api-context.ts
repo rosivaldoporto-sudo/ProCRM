@@ -35,6 +35,7 @@ import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
 import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/request-ip';
 
 export interface ApiKeyContext {
   /** Discriminant — lets shared logic tell key auth from cookie auth. */
@@ -90,7 +91,16 @@ export async function requireApiKey(
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
-    // key ever existed.
+    // key ever existed. Misses are throttled per IP (distributed,
+    // fail-closed) so random-key probing can't scale for free; the
+    // uniform 401 below is returned either way.
+    const miss = await checkDistributedRateLimit(
+      `v1key-miss:${getClientIp(request)}`,
+      RATE_LIMITS.publicApi
+    );
+    if (!miss.success) {
+      throw rateLimited(miss);
+    }
     throw unauthorized();
   }
 

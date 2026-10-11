@@ -48,9 +48,12 @@ export function validateUazapiSendParams(params: {
   messageType: string;
   contentText?: string | null;
   mediaUrl?: string | null;
+  filename?: string | null;
   menuRows?: Array<{ id: string; title: string; description?: string }> | null;
+  menuTitle?: string | null;
+  menuFooter?: string | null;
 }): void {
-  const { messageType, contentText, mediaUrl, menuRows } = params;
+  const { messageType, contentText, mediaUrl, menuRows, menuTitle, menuFooter, filename } = params;
 
   if (!messageType) {
     throw new UazapiSendError('bad_request', 'message_type is required', 400);
@@ -66,28 +69,71 @@ export function validateUazapiSendParams(params: {
     );
   }
 
-  if (messageType === 'text' && !contentText) {
-    throw new UazapiSendError(
-      'bad_request',
-      'content_text is required for text messages',
-      400
-    );
+  if (messageType === 'text') {
+    if (!contentText) {
+      throw new UazapiSendError(
+        'bad_request',
+        'content_text is required for text messages',
+        400
+      );
+    }
+    if (contentText.length > 4096) {
+      throw new UazapiSendError(
+        'bad_request',
+        'content_text exceeds the 4096-character limit',
+        400
+      );
+    }
   }
 
-  if (isMediaKind && !mediaUrl) {
-    throw new UazapiSendError(
-      'bad_request',
-      `media_url is required for ${messageType} messages`,
-      400
-    );
+  if (isMediaKind) {
+    if (!mediaUrl) {
+      throw new UazapiSendError(
+        'bad_request',
+        `media_url is required for ${messageType} messages`,
+        400
+      );
+    }
+    try {
+      const u = new URL(mediaUrl);
+      if (u.protocol !== 'https:' || mediaUrl.length > 2048) {
+        throw new Error('bad scheme');
+      }
+    } catch {
+      throw new UazapiSendError(
+        'bad_request',
+        'media_url must be an https URL (max 2048 chars)',
+        400
+      );
+    }
   }
 
-  if (messageType === 'menu' && (!menuRows || menuRows.length === 0)) {
-    throw new UazapiSendError(
-      'bad_request',
-      'menu_rows is required for menu messages',
-      400
-    );
+  if (messageType === 'menu') {
+    if (!menuRows || menuRows.length === 0) {
+      throw new UazapiSendError(
+        'bad_request',
+        'menu_rows is required for menu messages',
+        400
+      );
+    }
+    if (menuRows.length > 20) {
+      throw new UazapiSendError('bad_request', 'menu_rows exceeds 20 rows', 400);
+    }
+    for (const row of menuRows) {
+      if (
+        !row ||
+        typeof row.id !== 'string' ||
+        typeof row.title !== 'string' ||
+        !row.id.trim() ||
+        !row.title.trim() ||
+        row.id.length > 100 ||
+        row.title.length > 100 ||
+        (row.description !== undefined &&
+          (typeof row.description !== 'string' || row.description.length > 200))
+      ) {
+        throw new UazapiSendError('bad_request', 'Invalid menu_rows', 400);
+      }
+    }
   }
 
   if (
@@ -99,6 +145,30 @@ export function validateUazapiSendParams(params: {
     throw new UazapiSendError(
       'bad_request',
       'Caption exceeds the 1024-character limit',
+      400
+    );
+  }
+
+  if (filename !== undefined && filename !== null && filename.length > 255) {
+    throw new UazapiSendError(
+      'bad_request',
+      'filename exceeds the 255-character limit',
+      400
+    );
+  }
+
+  if (menuTitle !== undefined && menuTitle !== null && menuTitle.length > 500) {
+    throw new UazapiSendError(
+      'bad_request',
+      'menu_title exceeds the 500-character limit',
+      400
+    );
+  }
+
+  if (menuFooter !== undefined && menuFooter !== null && menuFooter.length > 500) {
+    throw new UazapiSendError(
+      'bad_request',
+      'menu_footer exceeds the 500-character limit',
       400
     );
   }
@@ -129,7 +199,15 @@ export async function sendMessageToConversation(
     );
   }
 
-  validateUazapiSendParams({ messageType, contentText, mediaUrl, menuRows });
+  validateUazapiSendParams({
+    messageType,
+    contentText,
+    mediaUrl,
+    filename,
+    menuRows,
+    menuTitle,
+    menuFooter,
+  });
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 

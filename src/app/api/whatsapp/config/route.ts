@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { logServerError } from '@/lib/observability/error-log'
 import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
   registerPhoneNumber,
@@ -8,6 +9,8 @@ import {
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { isDigits } from '@/lib/api-validate'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * Resolve the caller's account_id from their profile. Inlined here
@@ -72,6 +75,11 @@ export async function GET() {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const getLimit = checkRateLimit(`wa-config:${user.id}`, RATE_LIMITS.adminAction)
+    if (!getLimit.success) {
+      return rateLimitResponse(getLimit)
     }
 
     const accountId = await resolveAccountId(supabase, user.id)
@@ -186,6 +194,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Escrita destrutiva compartilhada: só admin. Sem isso, qualquer viewer
+    // trocava tokens ou desconectava o WhatsApp da conta inteira.
+    try {
+      await requireRole('admin')
+    } catch (err) {
+      return toErrorResponse(err)
+    }
+
+    const postLimit = checkRateLimit(`wa-config:${user.id}`, RATE_LIMITS.adminAction)
+    if (!postLimit.success) {
+      return rateLimitResponse(postLimit)
+    }
+
     const accountId = await resolveAccountId(supabase, user.id)
     if (!accountId) {
       return NextResponse.json(
@@ -195,13 +216,40 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    let { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const { phone_number_id, waba_id, verify_token, pin } = body
+    let { access_token } = body
 
-    if (!phone_number_id) {
+    if (!isDigits(phone_number_id, 5, 30)) {
       return NextResponse.json(
-        { error: 'phone_number_id is required' },
+        { error: 'phone_number_id must be 5-30 digits' },
         { status: 400 }
       )
+    }
+    if (typeof access_token === 'string' && access_token.length > 4096) {
+      return NextResponse.json(
+        { error: 'access_token is too long' },
+        { status: 400 }
+      )
+    }
+    if (
+      verify_token !== undefined &&
+      verify_token !== null &&
+      verify_token !== ''
+    ) {
+      if (typeof verify_token !== 'string' || verify_token.length > 512) {
+        return NextResponse.json(
+          { error: 'verify_token is too long' },
+          { status: 400 }
+        )
+      }
+    }
+    if (waba_id !== undefined && waba_id !== null && waba_id !== '') {
+      if (!isDigits(waba_id, 1, 30)) {
+        return NextResponse.json(
+          { error: 'waba_id must be up to 30 digits' },
+          { status: 400 }
+        )
+      }
     }
 
     // If no access_token was sent but there's an existing config, fetch
@@ -486,6 +534,17 @@ export async function DELETE() {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    try {
+      await requireRole('admin')
+    } catch (err) {
+      return toErrorResponse(err)
+    }
+
+    const deleteLimit = checkRateLimit(`wa-config:${user.id}`, RATE_LIMITS.adminAction)
+    if (!deleteLimit.success) {
+      return rateLimitResponse(deleteLimit)
     }
 
     const accountId = await resolveAccountId(supabase, user.id)

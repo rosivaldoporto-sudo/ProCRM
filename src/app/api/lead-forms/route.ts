@@ -11,6 +11,7 @@ import {
   defaultBlocks,
   slugify,
 } from '@/lib/lead-forms/types';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 export async function GET() {
   const supabase = await createClient();
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const formLimit = checkRateLimit(`leadforms:${user.id}`, RATE_LIMITS.adminAction);
+  if (!formLimit.success) return rateLimitResponse(formLimit);
   const { data: profile } = await supabase
     .from('profiles')
     .select('account_id')
@@ -50,6 +53,12 @@ export async function POST(request: Request) {
     description?: string | null;
   } | null;
   if (!body?.name?.trim()) return NextResponse.json({ error: 'name é obrigatório' }, { status: 400 });
+  if (body.name.trim().length > 200) {
+    return NextResponse.json({ error: 'name excede 200 caracteres' }, { status: 400 });
+  }
+  if (typeof body.description === 'string' && body.description.length > 2000) {
+    return NextResponse.json({ error: 'description excede 2000 caracteres' }, { status: 400 });
+  }
 
   const admin = supabaseAdmin();
   const baseSlug = slugify(body.name);
@@ -84,7 +93,10 @@ export async function POST(request: Request) {
     })
     .select()
     .single();
-  if (error || !form) return NextResponse.json({ error: error?.message ?? 'insert failed' }, { status: 500 });
+  if (error || !form) {
+    console.error('[lead-forms:create]', error);
+    return NextResponse.json({ error: 'Falha ao criar formulário' }, { status: 500 });
+  }
 
   const blocks = defaultBlocks();
   await admin.from('lead_form_blocks').insert(

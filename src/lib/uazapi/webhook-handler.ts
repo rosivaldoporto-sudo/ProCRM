@@ -193,6 +193,27 @@ export async function handleWebhook(request: Request, accountId?: string) {
   }
 
   try {
+    const envSecret = uazapiEnvConfig().webhookSecret;
+    // Corta flood pré-auth: com segredo global configurado e header
+    // presente porém errado, 401 imediato SEM tocar no banco (antes, cada
+    // POST inválido forçava select + decrypt). Sem header, segue o fluxo
+    // legado via token do payload (precisa do DB para conferir).
+    if (envSecret) {
+      const headerSecret =
+        request.headers.get('x-uazapi-webhook-secret') ??
+        request.headers.get('x-webhook-secret');
+      if (
+        headerSecret &&
+        !verifyUazapiWebhookCredential({
+          request,
+          instanceToken: '',
+          webhookSecret: envSecret,
+        })
+      ) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
     const rawBody = await readWebhookBody(request);
     const payload = JSON.parse(rawBody) as UazapiWebhookPayload;
     const db = supabaseAdmin();

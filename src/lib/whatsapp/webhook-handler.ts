@@ -1,4 +1,5 @@
 import { NextResponse, after } from 'next/server';
+import { createHash, timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { getMediaUrl, getMessageDetails } from '@/lib/whatsapp/meta-api';
@@ -153,6 +154,16 @@ export async function handleWebhook(request: Request, accountId?: string) {
   return handlePost(request, accountId);
 }
 
+/**
+ * Comparação de segredos em tempo constante (via SHA-256 + timingSafeEqual,
+ * que exige buffers do mesmo tamanho). Nunca use `===` em tokens.
+ */
+function safeEqualSecret(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a, 'utf8').digest();
+  const hb = createHash('sha256').update(b, 'utf8').digest();
+  return timingSafeEqual(ha, hb);
+}
+
 async function handleVerification(request: Request, accountId?: string) {
   try {
     const { searchParams } = new URL(request.url);
@@ -192,7 +203,9 @@ async function handleVerification(request: Request, accountId?: string) {
       }
 
       try {
-        if (decrypt(config.verify_token) === verifyToken) {
+        // Comparação em tempo constante sobre hashes (nunca === direto em
+        // segredo): evita oráculo de timing no verify_token.
+        if (safeEqualSecret(decrypt(config.verify_token), verifyToken)) {
           matchedConfig = config;
         }
       } catch {
@@ -215,7 +228,7 @@ async function handleVerification(request: Request, accountId?: string) {
       for (const config of configs) {
         if (!config.verify_token) continue;
         try {
-          if (decrypt(config.verify_token) === verifyToken) {
+          if (safeEqualSecret(decrypt(config.verify_token), verifyToken)) {
             matchedConfig = config;
             break;
           }
@@ -249,8 +262,11 @@ async function handleVerification(request: Request, accountId?: string) {
       });
     }
 
+    // Resposta única para config ausente e token errado: corpos distintos
+    // virariam oráculo de enumeração de accountId (sondagem revela quem
+    // tem WhatsApp configurado).
     return NextResponse.json(
-      { error: 'Verification token mismatch' },
+      { error: 'Verification failed' },
       { status: 403 }
     );
   } catch (error) {

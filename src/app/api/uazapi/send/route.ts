@@ -59,7 +59,10 @@ export async function POST(request: Request) {
         messageType: message_type,
         contentText: content_text,
         mediaUrl: media_url,
+        filename,
         menuRows: menu_rows,
+        menuTitle: menu_title,
+        menuFooter: menu_footer,
       })
     } catch (err) {
       if (err instanceof UazapiSendError) {

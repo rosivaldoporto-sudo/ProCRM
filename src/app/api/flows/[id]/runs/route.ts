@@ -53,7 +53,8 @@ export async function GET(
     .order('started_at', { ascending: false })
     .limit(50)
   if (runsErr) {
-    return NextResponse.json({ error: runsErr.message }, { status: 500 })
+    console.error('[api:flows-runs] fetch failed:', runsErr)
+    return NextResponse.json({ error: 'Failed to load flow runs' }, { status: 500 })
   }
 
   const runIds = (runs ?? []).map((r) => (r as { id: string }).id)

@@ -175,7 +175,7 @@ export default function LeadFormsPage() {
               </div>
               <p className="mt-1 text-xs text-muted-foreground">/{f.slug}</p>
               <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span className="inline-flex items-center gap-1"><BarChart3 className="h-3 w-3" />{f.view_count} views</span>
+                <span className="inline-flex items-center gap-1"><BarChart3 className="h-3 w-3" />{f.view_count} visualizações</span>
                 <span>{f.response_count} respostas</span>
                 <span>{f.qualified_count} qualificados</span>
                 <span>{f.booked_count} agendados</span>
@@ -203,7 +203,7 @@ export default function LeadFormsPage() {
           <DialogHeader>
             <DialogTitle>Novo formulário</DialogTitle>
           </DialogHeader>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Qualificação — Tráfego pago" onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Qualificação do Tráfego Pago" onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
             <Button onClick={handleCreate} disabled={!name.trim() || creating}>

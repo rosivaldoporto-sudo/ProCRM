@@ -23,6 +23,7 @@ import {
   extractUazapiQuotedId,
 } from '@/lib/uazapi/message-mapping';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   findExistingContact,
   isUniqueViolation,
@@ -49,6 +50,9 @@ export const maxDuration = 120;
 export async function POST(request: Request) {
   try {
     const { supabase, accountId, userId } = await requireRole('admin');
+
+    const rateLimit = checkRateLimit(`uazapi-sync:${userId}`, RATE_LIMITS.adminAction);
+    if (!rateLimit.success) return rateLimitResponse(rateLimit);
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(

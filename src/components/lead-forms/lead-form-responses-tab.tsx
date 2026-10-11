@@ -214,7 +214,7 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
               </SelectContent>
             </Select>
             <Select value={qualifiedFilter} onValueChange={(v) => setQualifiedFilter(v ?? "all")}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Situação" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="qualified">Qualificados</SelectItem>
@@ -252,7 +252,7 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
                         {String(row.respondent_name ?? "Anônimo")}
                       </strong>
                       <Badge variant="outline" className="text-[10px]">
-                        {row.is_qualified ? `Qualificado · ${row.score}` : `Score ${row.score}`}
+                        {row.is_qualified ? `Qualificado · ${row.score}` : `Pontuação ${row.score}`}
                       </Badge>
                       {row.booked && (
                         <Badge variant="outline" className="border-emerald-600/40 bg-emerald-500/10 text-[10px] text-emerald-300">

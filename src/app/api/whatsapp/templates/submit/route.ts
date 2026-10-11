@@ -10,6 +10,7 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * Shared upsert payload builder — both the Meta-failure path and the
@@ -95,6 +96,11 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const limit = checkRateLimit(`templates-submit:${user.id}`, RATE_LIMITS.adminAction)
+    if (!limit.success) {
+      return rateLimitResponse(limit)
     }
 
     // Resolve the caller's account_id — whatsapp_config + the

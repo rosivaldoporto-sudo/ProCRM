@@ -112,11 +112,24 @@ export function validateSendMessageParams(params: {
   messageType: string;
   contentText?: string | null;
   mediaUrl?: string | null;
+  filename?: string | null;
   templateName?: string | null;
+  templateLanguage?: string | null;
+  templateParams?: unknown;
+  templateMessageParams?: unknown;
   interactivePayload?: InteractiveMessagePayload | null;
 }): void {
-  const { messageType, contentText, mediaUrl, templateName, interactivePayload } =
-    params;
+  const {
+    messageType,
+    contentText,
+    mediaUrl,
+    filename,
+    templateName,
+    templateLanguage,
+    templateParams,
+    templateMessageParams,
+    interactivePayload,
+  } = params;
 
   if (!messageType) {
     throw new SendMessageError('bad_request', 'message_type is required', 400);
@@ -132,20 +145,77 @@ export function validateSendMessageParams(params: {
     );
   }
 
-  if (messageType === 'text' && !contentText) {
-    throw new SendMessageError(
-      'bad_request',
-      'content_text is required for text messages',
-      400
-    );
+  if (messageType === 'text') {
+    if (!contentText) {
+      throw new SendMessageError(
+        'bad_request',
+        'content_text is required for text messages',
+        400
+      );
+    }
+    // Meta rejeita acima de 4096 — barra antes de gravar no banco.
+    if (contentText.length > 4096) {
+      throw new SendMessageError(
+        'bad_request',
+        'content_text exceeds the 4096-character limit',
+        400
+      );
+    }
   }
 
-  if (messageType === 'template' && !templateName) {
-    throw new SendMessageError(
-      'bad_request',
-      'template_name is required for template messages',
-      400
-    );
+  if (messageType === 'template') {
+    if (!templateName) {
+      throw new SendMessageError(
+        'bad_request',
+        'template_name is required for template messages',
+        400
+      );
+    }
+    if (templateName.length > 512 || !/^[a-z0-9_]+$/i.test(templateName)) {
+      throw new SendMessageError(
+        'bad_request',
+        'Invalid template_name (letters, numbers and underscores, max 512)',
+        400
+      );
+    }
+    if (
+      templateLanguage !== undefined &&
+      templateLanguage !== null &&
+      (templateLanguage.length > 16 || !/^[a-z]{2}(_[A-Z]{2})?$/.test(templateLanguage))
+    ) {
+      throw new SendMessageError(
+        'bad_request',
+        'Invalid template_language (e.g. pt_BR)',
+        400
+      );
+    }
+    // Params posicionais: no máximo 20 textos de até 1024 chars.
+    if (templateParams !== undefined && templateParams !== null) {
+      if (
+        !Array.isArray(templateParams) ||
+        templateParams.length > 20 ||
+        templateParams.some(
+          (p) => typeof p !== 'string' || p.length > 1024
+        )
+      ) {
+        throw new SendMessageError(
+          'bad_request',
+          'Invalid template_params (max 20 texts of 1024 chars)',
+          400
+        );
+      }
+    }
+    if (
+      templateMessageParams !== undefined &&
+      templateMessageParams !== null &&
+      JSON.stringify(templateMessageParams).length > 20_000
+    ) {
+      throw new SendMessageError(
+        'bad_request',
+        'template_message_params exceeds the size limit',
+        400
+      );
+    }
   }
 
   // Interactive: validate the full structured payload against Meta's
@@ -155,14 +225,44 @@ export function validateSendMessageParams(params: {
     if (!result.ok) {
       throw new SendMessageError('bad_request', result.error, 400);
     }
+    if (JSON.stringify(interactivePayload).length > 20_000) {
+      throw new SendMessageError(
+        'bad_request',
+        'interactive_payload exceeds the size limit',
+        400
+      );
+    }
   }
 
-  if (isMediaKind && !mediaUrl) {
-    throw new SendMessageError(
-      'bad_request',
-      `media_url is required for ${messageType} messages`,
-      400
-    );
+  if (isMediaKind) {
+    if (!mediaUrl) {
+      throw new SendMessageError(
+        'bad_request',
+        `media_url is required for ${messageType} messages`,
+        400
+      );
+    }
+    // URL https com teto — barra `javascript:`/blobs persistidos que
+    // virariam XSS ao renderizar o histórico, além do DB bloat.
+    try {
+      const u = new URL(mediaUrl);
+      if (u.protocol !== 'https:' || mediaUrl.length > 2048) {
+        throw new Error('bad scheme');
+      }
+    } catch {
+      throw new SendMessageError(
+        'bad_request',
+        'media_url must be an https URL (max 2048 chars)',
+        400
+      );
+    }
+    if (filename !== undefined && filename !== null && filename.length > 255) {
+      throw new SendMessageError(
+        'bad_request',
+        'filename exceeds the 255-character limit',
+        400
+      );
+    }
   }
 
   // Meta caps media captions at 1024 chars (audio carries none).

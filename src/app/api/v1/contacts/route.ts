@@ -9,7 +9,8 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, okList, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   parseListParams,
   keysetFilter,
@@ -24,6 +25,7 @@ import {
   resolveAuditUserId,
   ContactError,
 } from '@/lib/api/v1/contacts';
+import { capStr, validEmail, strArray } from '@/lib/api-validate';
 
 // PostgREST filter values are comma/paren-delimited; strip anything
 // that could break the `.or()` grammar before interpolating a search
@@ -97,6 +99,12 @@ export async function POST(request: Request) {
   try {
     const ctx = await requireApiKey(request, 'contacts:write');
 
+    const mutate = await checkDistributedRateLimit(
+      `v1-mutate:${ctx.keyId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!mutate.success) throw rateLimited(mutate);
+
     const body = (await request.json().catch(() => null)) as Record<
       string,
       unknown
@@ -112,25 +120,56 @@ export async function POST(request: Request) {
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
+    let name: string | undefined;
+    if (body.name !== undefined) {
+      if (typeof body.name !== 'string') {
+        return fail('bad_request', "'name' must be a string", 400);
+      }
+      name = capStr(body.name, 200);
+    }
+    let company: string | undefined;
+    if (body.company !== undefined) {
+      if (typeof body.company !== 'string') {
+        return fail('bad_request', "'company' must be a string", 400);
+      }
+      company = capStr(body.company, 200);
+    }
+    let email: string | undefined;
+    if (body.email !== undefined) {
+      if (typeof body.email !== 'string') {
+        return fail('bad_request', "'email' must be a string", 400);
+      }
+      if (body.email.trim() === '') {
+        email = undefined;
+      } else {
+        const valid = validEmail(body.email);
+        if (!valid) {
+          return fail('bad_request', "'email' must be a valid email address", 400);
+        }
+        email = valid;
+      }
+    }
+
     const { id, created } = await findOrCreateContact(
       ctx.supabase,
       ctx.accountId,
       auditUserId,
       {
         phone,
-        name: typeof body.name === 'string' ? body.name : undefined,
-        email: typeof body.email === 'string' ? body.email : undefined,
-        company: typeof body.company === 'string' ? body.company : undefined,
+        name,
+        email,
+        company,
       }
     );
 
     if (Array.isArray(body.tags)) {
+      const tags = strArray(body.tags, 50, 80) ?? [];
       await setContactTags(
         ctx.supabase,
         ctx.accountId,
         auditUserId,
         id,
-        body.tags.filter((t): t is string => typeof t === 'string')
+        tags
       );
     }
 

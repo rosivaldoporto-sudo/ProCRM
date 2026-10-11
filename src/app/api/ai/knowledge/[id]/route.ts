@@ -8,6 +8,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadEmbeddingsKey } from '@/lib/ai/config'
 import { ingestDocument } from '@/lib/ai/knowledge'
 import { AiError } from '@/lib/ai/types'
+import { reqStr } from '@/lib/api-validate'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -47,20 +48,23 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const { id } = await params
     const body = await request.json().catch(() => null)
-    const title = typeof body?.title === 'string' ? body.title.trim() : undefined
+    const title = body?.title !== undefined ? reqStr(body?.title, 300) : undefined
     const content = typeof body?.content === 'string' ? body.content.trim() : undefined
     if (title === undefined && content === undefined) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
-    if (title !== undefined && !title) {
+    if (body?.title !== undefined && !title) {
       return NextResponse.json({ error: 'title cannot be empty' }, { status: 400 })
     }
     if (content !== undefined && !content) {
       return NextResponse.json({ error: 'content cannot be empty' }, { status: 400 })
     }
+    if (content !== undefined && content.length > 100000) {
+      return NextResponse.json({ error: 'content is too large' }, { status: 413 })
+    }
 
     const update: Record<string, string> = {}
-    if (title !== undefined) update.title = title
+    if (title) update.title = title
     if (content !== undefined) update.content = content
 
     const { data: updated, error } = await supabase
@@ -114,7 +118,9 @@ export async function PATCH(request: Request, { params }: Params) {
  */
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const { supabase, accountId } = await requireRole('admin')
+    const { supabase, accountId, userId } = await requireRole('admin')
+    const limit = checkRateLimit(`ai-kb:${userId}`, RATE_LIMITS.adminAction)
+    if (!limit.success) return rateLimitResponse(limit)
     const { id } = await params
     const { error } = await supabase
       .from('ai_knowledge_documents')

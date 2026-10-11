@@ -4,16 +4,15 @@ import { generateSlots } from '@/lib/lead-forms/availability';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/request-ip';
 
 /** POST público — agenda reunião para resposta qualificada. */
 export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
   // Chave por slug+IP: por slug puro, um atacante esgotaria o bucket e
   // faria DoS do agendamento para todos os visitantes do formulário.
-  const ip =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown';
+  // IP via getClientIp (x-real-ip antes do XFF falsificável).
+  const ip = getClientIp(req);
   const limit = checkRateLimit(`leadform-book:${slug}:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
 

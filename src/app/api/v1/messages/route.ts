@@ -32,7 +32,8 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import {
   sendMessageToConversation,
@@ -44,6 +45,14 @@ import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 export async function POST(request: Request) {
   try {
     const ctx = await requireApiKey(request, 'messages:send');
+
+    // Cada chamada pode custar um envio à Meta: orçamento por chave além
+    // do bucket geral da API.
+    const burst = await checkDistributedRateLimit(
+      `v1-send:${ctx.keyId}`,
+      RATE_LIMITS.send
+    );
+    if (!burst.success) throw rateLimited(burst);
 
     const body = (await request.json().catch(() => null)) as Record<
       string,
@@ -91,7 +100,12 @@ export async function POST(request: Request) {
       messageType: type,
       contentText: typeof body.text === 'string' ? body.text : null,
       mediaUrl: typeof body.media_url === 'string' ? body.media_url : null,
+      filename: typeof body.filename === 'string' ? body.filename : null,
       templateName: typeof template?.name === 'string' ? template.name : null,
+      templateLanguage:
+        typeof template?.language === 'string' ? template.language : null,
+      templateParams,
+      templateMessageParams,
       interactivePayload,
     });
 
@@ -102,7 +116,7 @@ export async function POST(request: Request) {
       ctx.supabase,
       ctx.accountId,
       to,
-      typeof body.name === 'string' ? body.name : null
+      typeof body.name === 'string' ? body.name.trim().slice(0, 200) || null : null
     );
 
     const result = await sendMessageToConversation(

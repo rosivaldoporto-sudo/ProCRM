@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getFlowTemplate } from '@/lib/flows/templates';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { reqStr, isValidEnum, jsonSizeOk } from '@/lib/api-validate';
+
+const FLOW_TRIGGER_TYPES = ['keyword', 'first_inbound_message', 'manual'] as const;
 
 /**
  * GET /api/flows — list the caller's flows.
@@ -68,6 +72,9 @@ export async function POST(request: Request) {
   }
   const { userId, supabase } = guard;
 
+  const limit = checkRateLimit(`flows:${userId}`, RATE_LIMITS.adminAction);
+  if (!limit.success) return rateLimitResponse(limit);
+
   // Resolve the caller's account_id — `flows.account_id` is NOT NULL
   // post-017, so an INSERT without it trips the not-null constraint
   // even though the admin client below bypasses RLS.
@@ -117,7 +124,7 @@ export async function POST(request: Request) {
       .insert({
         user_id: userId,
         account_id: accountId,
-        name: body.name?.trim() || template.name,
+        name: body.name !== undefined ? reqStr(body.name, 200) ?? template.name : template.name,
         description: template.description,
         status: 'draft',
         trigger_type: template.trigger_type,
@@ -127,8 +134,9 @@ export async function POST(request: Request) {
       .select()
       .single();
     if (flowErr || !flow) {
+      console.error('[api:flows] flow insert failed:', flowErr);
       return NextResponse.json(
-        { error: flowErr?.message ?? 'flow insert failed' },
+        { error: 'Failed to create flow' },
         { status: 500 }
       );
     }
@@ -146,34 +154,54 @@ export async function POST(request: Request) {
         // sit as an empty draft. CASCADE on flow_id removes the
         // (probably zero) nodes too.
         await admin.from('flows').delete().eq('id', flow.id);
-        return NextResponse.json({ error: nodesErr.message }, { status: 500 });
+        console.error('[api:flows] flow nodes insert failed:', nodesErr);
+        return NextResponse.json({ error: 'Failed to create flow' }, { status: 500 });
       }
     }
     return NextResponse.json({ flow }, { status: 201 });
   }
 
   // -------- Plain (empty) create path --------
-  if (!body.name?.trim()) {
+  const name = reqStr(body.name, 200);
+  if (!name) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 });
   }
   const trigger_type = body.trigger_type ?? 'keyword';
+  if (!isValidEnum(trigger_type, FLOW_TRIGGER_TYPES)) {
+    return NextResponse.json({ error: 'Invalid trigger_type' }, { status: 400 });
+  }
+  let description: string | null = null;
+  if (body.description !== undefined && body.description !== null) {
+    if (typeof body.description !== 'string') {
+      return NextResponse.json({ error: 'Invalid description' }, { status: 400 });
+    }
+    if (body.description.length > 2000) {
+      return NextResponse.json({ error: 'description is too long' }, { status: 400 });
+    }
+    description = body.description;
+  }
+  const triggerConfig = body.trigger_config ?? {};
+  if (!jsonSizeOk(triggerConfig, 20000)) {
+    return NextResponse.json({ error: 'trigger_config is too large' }, { status: 400 });
+  }
 
   const { data, error } = await admin
     .from('flows')
     .insert({
       user_id: userId,
       account_id: accountId,
-      name: body.name.trim(),
-      description: body.description ?? null,
+      name,
+      description,
       status: 'draft',
       trigger_type,
-      trigger_config: body.trigger_config ?? {},
+      trigger_config: triggerConfig,
     })
     .select()
     .single();
   if (error || !data) {
+    console.error('[api:flows] flow insert failed:', error);
     return NextResponse.json(
-      { error: error?.message ?? 'insert failed' },
+      { error: 'Failed to create flow' },
       { status: 500 }
     );
   }

@@ -66,6 +66,13 @@ export async function POST(request: Request) {
       )
     }
 
+    if (typeof name === 'string' && name.length > 200) {
+      return NextResponse.json(
+        { error: 'Name exceeds the 200-character limit' },
+        { status: 400 }
+      )
+    }
+
     // When source is 'uazapi', just create conversation (no template send)
     if (channelSource === 'uazapi') {
       const sanitized = sanitizePhoneForMeta(phone)
@@ -89,6 +96,7 @@ export async function POST(request: Request) {
             .from('contacts')
             .update({ name, updated_at: new Date().toISOString() })
             .eq('id', existing.id)
+            .eq('account_id', accountId)
         }
       } else {
         const { data: created, error: createErr } = await supabase
@@ -137,6 +145,8 @@ export async function POST(request: Request) {
       validateSendMessageParams({
         messageType: 'template',
         templateName: template_name,
+        templateLanguage: template_language,
+        templateParams: template_params,
       })
     } catch (err) {
       if (err instanceof SendMessageError) {

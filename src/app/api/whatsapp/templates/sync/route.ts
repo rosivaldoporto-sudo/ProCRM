@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * Sync message templates from Meta → local message_templates table.
@@ -133,6 +134,11 @@ export async function POST() {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const limit = checkRateLimit(`templates-sync:${user.id}`, RATE_LIMITS.adminAction)
+    if (!limit.success) {
+      return rateLimitResponse(limit)
     }
 
     // Resolve the caller's account_id — both whatsapp_config and

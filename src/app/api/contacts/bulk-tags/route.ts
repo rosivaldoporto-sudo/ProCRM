@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { addContactTagIfAbsent, removeContactTag } from '@/lib/contacts/tag-write';
+import { bad, isUuid } from '@/lib/api-validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('agent');
+    const tagLimit = checkRateLimit(`tags:${ctx.userId}`, RATE_LIMITS.adminAction);
+    if (!tagLimit.success) return rateLimitResponse(tagLimit);
     const body = await request.json().catch(() => null) as {
       contact_ids?: string[];
       tag_id?: string;
@@ -17,6 +21,18 @@ export async function POST(request: Request) {
         { error: 'contact_ids and tag_id are required' },
         { status: 400 }
       );
+    }
+
+    if (
+      !Array.isArray(body.contact_ids) ||
+      body.contact_ids.length === 0 ||
+      body.contact_ids.length > 500 ||
+      !body.contact_ids.every((v) => isUuid(v))
+    ) {
+      return bad('contact_ids must be an array of 1-500 UUIDs');
+    }
+    if (!isUuid(body.tag_id)) {
+      return bad('tag_id must be a UUID');
     }
 
     const { contact_ids, tag_id, action = 'add' } = body;

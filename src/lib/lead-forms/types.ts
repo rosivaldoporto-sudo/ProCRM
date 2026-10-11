@@ -248,8 +248,8 @@ export function defaultBlocks(): LeadFormBlock[] {
         required: true,
         options: [
           { value: 'ate_10k', label: 'Até R$ 10 mil', score: 0 },
-          { value: '10_50k', label: 'R$ 10–50 mil', score: 20 },
-          { value: '50_200k', label: 'R$ 50–200 mil', score: 40 },
+          { value: '10_50k', label: 'R$ 10 a 50 mil', score: 20 },
+          { value: '50_200k', label: 'R$ 50 a 200 mil', score: 40 },
           { value: 'acima_200k', label: 'Acima de R$ 200 mil', score: 60 },
         ],
         qualifying_values: ['10_50k', '50_200k', 'acima_200k'],

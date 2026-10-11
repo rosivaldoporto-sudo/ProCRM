@@ -8,7 +8,8 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { normalizeEvents } from '@/lib/webhooks/events';
 import {
   WEBHOOK_PUBLIC_COLUMNS,
@@ -50,6 +51,12 @@ export async function PATCH(
   try {
     const ctx = await requireApiKey(request, 'webhooks:manage');
     const { id } = await params;
+
+    const mutate = await checkDistributedRateLimit(
+      `v1-mutate:${ctx.keyId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!mutate.success) throw rateLimited(mutate);
 
     const body = (await request.json().catch(() => null)) as Record<
       string,
@@ -124,6 +131,12 @@ export async function DELETE(
   try {
     const ctx = await requireApiKey(request, 'webhooks:manage');
     const { id } = await params;
+
+    const delMutate = await checkDistributedRateLimit(
+      `v1-mutate:${ctx.keyId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!delMutate.success) throw rateLimited(delMutate);
 
     const { data, error } = await ctx.supabase
       .from('webhook_endpoints')

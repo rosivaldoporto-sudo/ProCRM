@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { requireOwnership } from '@/lib/lead-forms/ownership';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { slugify, BLOCK_TYPE_LABELS } from '@/lib/lead-forms/types';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 const VALID_BLOCK_TYPES = new Set(Object.keys(BLOCK_TYPE_LABELS));
 const MAX_BLOCKS = 60;
@@ -16,39 +17,6 @@ function bad(message: string) {
 function fail(op: string, err: unknown) {
   console.error(`[lead-forms:${op}]`, err);
   return NextResponse.json({ error: 'Falha ao salvar formulário' }, { status: 500 });
-}
-
-/**
- * Ownership com checagem explícita de tenancy.
- *
- * Por que não basta o RLS aqui: as mutações usam `supabaseAdmin` (bypassa
- * RLS), então a guarda precisa comparar o `account_id` do formulário com
- * a conta do chamador. Sem isso, qualquer usuário autenticado de QUALQUER
- * conta poderia ler/alterar/excluir formulários alheios (IDOR) — inclusive
- * trocar o `webhook_url` e exfiltrar PII de leads futuros. Retorna 404
- * genérico em mismatch para não revelar a existência do recurso.
- */
-async function requireOwnership(formId: string) {
-  let accountId: string;
-  let userId: string;
-  try {
-    const ctx = await getCurrentAccount();
-    accountId = ctx.accountId;
-    userId = ctx.userId;
-  } catch {
-    return { ok: false as const, status: 401 as const };
-  }
-  const supabase = await createClient();
-  const { data: form } = await supabase
-    .from('lead_forms')
-    .select('id, account_id')
-    .eq('id', formId)
-    .maybeSingle();
-  const ownerAccount = (form as { account_id: string } | null)?.account_id;
-  if (!ownerAccount || ownerAccount !== accountId) {
-    return { ok: false as const, status: 404 as const };
-  }
-  return { ok: true as const, userId, accountId, supabase };
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -72,6 +40,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   }
   const guard = await requireOwnership(id);
   if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  const putLimit = checkRateLimit(`leadforms:${guard.userId}`, RATE_LIMITS.adminAction);
+  if (!putLimit.success) return rateLimitResponse(putLimit);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 

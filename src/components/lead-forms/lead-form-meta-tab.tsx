@@ -49,11 +49,11 @@ interface GlobalConfig {
 }
 
 const TEST_EVENTS = [
-  { value: "Lead", label: "Lead — resposta completa" },
-  { value: "CompleteRegistration", label: "CompleteRegistration — qualificado" },
-  { value: "Schedule", label: "Schedule — reunião agendada" },
-  { value: "ViewContent", label: "ViewContent — visualização" },
-  { value: "Contact", label: "Contact — contato" },
+  { value: "Lead", label: "Lead: resposta completa" },
+  { value: "CompleteRegistration", label: "CompleteRegistration: qualificado" },
+  { value: "Schedule", label: "Schedule: reunião agendada" },
+  { value: "ViewContent", label: "ViewContent: visualização" },
+  { value: "Contact", label: "Contact: contato" },
 ] as const;
 
 interface TestResult {
@@ -70,10 +70,10 @@ interface TestResult {
 }
 
 const EVENT_TOGGLES = [
-  ["fire_view_content", "ViewContent — visualização", "Dispara no browser quando o formulário é exibido."],
-  ["fire_lead", "Lead — resposta completa", "Browser + CAPI com o mesmo event_id (deduplicado pela Meta)."],
-  ["fire_complete_registration", "CompleteRegistration — qualificado", "CAPI quando o lead atinge o score de qualificação."],
-  ["fire_schedule", "Schedule — reunião agendada", "Browser + CAPI quando o lead agenda."],
+  ["fire_view_content", "ViewContent: visualização", "Dispara no navegador quando o formulário é exibido."],
+  ["fire_lead", "Lead: resposta completa", "Navegador + CAPI com o mesmo event_id (deduplicado pela Meta)."],
+  ["fire_complete_registration", "CompleteRegistration: qualificado", "CAPI quando o lead atinge a pontuação de qualificação."],
+  ["fire_schedule", "Schedule: reunião agendada", "Navegador + CAPI quando o lead agenda."],
   ["fire_qualified", "QualifiedLead (Lead + lead_quality=qualified)", "CAPI extra para otimizar campanhas para leads qualificados."],
 ] as const;
 
@@ -215,7 +215,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
       setResult({ ...j, success: true });
       toast.success(
         j.test_mode
-          ? "Evento de teste enviado — confira a aba Test Events"
+          ? "Evento de teste enviado. Confira a aba Eventos de teste"
           : "Evento enviado em modo produção"
       );
     } catch (err) {
@@ -227,8 +227,8 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
     }
   }
 
-  const effectivePixel = meta.pixel_id?.trim() || globalPixel.trim() || "—";
-  const effectiveTestCode = testCode.trim() || "—";
+  const effectivePixel = meta.pixel_id?.trim() || globalPixel.trim() || "Não configurado";
+  const effectiveTestCode = testCode.trim() || "Nenhum";
   const canTest = !loadingGlobal && !forbidden && !!globalPixel.trim() && hasToken;
 
   return (
@@ -238,11 +238,11 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <CardTitle>1 · Conexão Meta (CAPI server-side)</CardTitle>
+              <CardTitle>1 · Conexão Meta (via servidor)</CardTitle>
               <CardDescription>
                 Token de acesso do app Meta para a Conversions API. Onde gerar:
-                Events Manager → Configurações do conjunto de dados → API de
-                Conversões → Gerar token. Sem token, só o pixel browser dispara;
+                Gerenciador de Eventos → Configurações do conjunto de dados → API de
+                Conversões → Gerar token. Sem token, só o pixel do navegador dispara;
                 o CAPI é pulado em silêncio.
               </CardDescription>
             </div>
@@ -260,7 +260,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
             </div>
           ) : forbidden ? (
             <p className="text-sm text-muted-foreground">
-              Requer papel admin — peça a um admin ou vá em Configurações →
+              Requer papel admin. Peça a um admin ou vá em Configurações →
               Meta Ads.
             </p>
           ) : loadError ? (
@@ -290,7 +290,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
                 <div className="space-y-2">
                   <Label>
                     Código de evento de teste{" "}
-                    <span className="text-muted-foreground">(aba Test Events)</span>
+                    <span className="text-muted-foreground">(aba Eventos de teste)</span>
                   </Label>
                   <Input
                     value={testCode}
@@ -304,7 +304,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
                   Token de acesso{" "}
                   {hasToken && (
                     <span className="text-emerald-400">
-                      (salvo — preencha só para trocar)
+                      (salvo. Preencha só para trocar)
                     </span>
                   )}
                 </Label>
@@ -330,9 +330,9 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
         <CardHeader>
           <CardTitle>2 · Pixel deste formulário + eventos do funil</CardTitle>
           <CardDescription>
-            Funil: ViewContent (browser) → Lead (browser + CAPI com mesmo
+            Funil: ViewContent (navegador) → Lead (navegador + CAPI com mesmo
             event_id, deduplicado) → CompleteRegistration + QualifiedLead (CAPI)
-            → Schedule (browser + CAPI). PII é normalizada + SHA-256 no
+            → Schedule (navegador + CAPI). PII é normalizada + SHA-256 no
             servidor; fbp/fbc/ip/ua vão em user_data, conforme a doc oficial.
           </CardDescription>
         </CardHeader>
@@ -383,7 +383,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
               <CardDescription>
                 Envia um evento CAPI de teste com os dados abaixo usando o pixel
                 e o token salvos. Se houver código de teste, o evento aparece
-                na aba <strong>Test Events</strong> do Events Manager sem sujar
+                na aba <strong>Eventos de teste</strong> do Gerenciador de Eventos sem sujar
                 os dados de produção.
               </CardDescription>
             </div>
@@ -393,7 +393,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
-              Abrir Events Manager <ExternalLink className="h-3 w-3" />
+              Abrir Gerenciador de Eventos <ExternalLink className="h-3 w-3" />
             </a>
           </div>
         </CardHeader>
@@ -496,13 +496,13 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
                         <div>
                           <dt className="uppercase tracking-wide">fbtrace_id</dt>
                           <dd className="font-mono break-all text-foreground">
-                            {result.fbtrace_id ?? "—"}
+                            {result.fbtrace_id ?? "não retornado"}
                           </dd>
                         </div>
                         <div>
                           <dt className="uppercase tracking-wide">event_id</dt>
                           <dd className="font-mono break-all text-foreground">
-                            {result.event_id ?? "—"}
+                            {result.event_id ?? "não retornado"}
                           </dd>
                         </div>
                         <div>
@@ -518,7 +518,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
                         </pre>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Confira em Events Manager → Test Events
+                        Confira no Gerenciador de Eventos, aba Eventos de teste
                         {result.test_event_code
                           ? ` com o código ${result.test_event_code}`
                           : ""}

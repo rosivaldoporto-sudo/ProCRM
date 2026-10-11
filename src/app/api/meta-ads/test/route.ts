@@ -8,17 +8,15 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/request-ip';
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
 function getIp(req: Request): string | undefined {
-  const fwd = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  if (fwd && fwd !== 'unknown') return fwd;
-  const real = req.headers.get('x-real-ip')?.trim();
-  if (real && real !== 'unknown') return real;
-  return undefined;
+  const ip = getClientIp(req);
+  return ip === 'unknown' ? undefined : ip;
 }
 
 const ALLOWED_EVENTS = [

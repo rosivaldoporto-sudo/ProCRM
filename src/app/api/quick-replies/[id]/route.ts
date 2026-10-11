@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
+import { reqStr } from '@/lib/api-validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 // Update / delete a single quick reply. Quick replies are account-
 // shared, so every mutation is scoped by `account_id` (the service-role
@@ -20,13 +22,16 @@ export async function PATCH(
     return toErrorResponse(err);
   }
 
+  const patchLimit = checkRateLimit(`quickreplies:${ctx.userId}`, RATE_LIMITS.adminAction);
+  if (!patchLimit.success) return rateLimitResponse(patchLimit);
+
   const body = await request.json().catch(() => null);
   if (!body)
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 
   const update: Record<string, unknown> = {};
   if (typeof body.title === 'string') {
-    const title = body.title.trim();
+    const title = reqStr(body.title, 120);
     if (!title)
       return NextResponse.json(
         { error: 'title cannot be empty' },
@@ -61,12 +66,35 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (text.length > 4096) {
+        return NextResponse.json(
+          { error: 'content_text is too long' },
+          { status: 400 }
+        );
+      }
       update.content_text = text;
       update.interactive_payload = null;
     }
   } else {
     // No kind change — allow partial edits of whichever field the row uses.
-    if ('content_text' in body) update.content_text = body.content_text ?? null;
+    if ('content_text' in body) {
+      const v = body.content_text;
+      if (v !== null) {
+        if (typeof v !== 'string') {
+          return NextResponse.json(
+            { error: 'content_text must be a string' },
+            { status: 400 }
+          );
+        }
+        if (v.length > 4096) {
+          return NextResponse.json(
+            { error: 'content_text is too long' },
+            { status: 400 }
+          );
+        }
+      }
+      update.content_text = v ?? null;
+    }
     if ('interactive_payload' in body) {
       if (body.interactive_payload != null) {
         const result = validateInteractivePayload(body.interactive_payload);
@@ -106,6 +134,9 @@ export async function DELETE(
   } catch (err) {
     return toErrorResponse(err);
   }
+
+  const deleteLimit = checkRateLimit(`quickreplies:${ctx.userId}`, RATE_LIMITS.adminAction);
+  if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
 
   const { error } = await supabaseAdmin()
     .from('quick_replies')

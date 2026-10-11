@@ -35,7 +35,8 @@ import { requireApiKey } from '@/lib/auth/api-context';
 // still exceed 60s, so very large sends should be split across
 // requests. A durable queue/cron drain is the complete fix (follow-up).
 export const maxDuration = 60;
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
 import {
   createBroadcast,
@@ -46,6 +47,14 @@ import {
 export async function POST(request: Request) {
   try {
     const ctx = await requireApiKey(request, 'broadcasts:send');
+
+    // Fan-out custa caro (até 1000 envios à Meta por chamada): teto rígido
+    // por chave além do bucket geral da API.
+    const burst = await checkDistributedRateLimit(
+      `v1-broadcast:${ctx.keyId}`,
+      RATE_LIMITS.broadcast
+    );
+    if (!burst.success) throw rateLimited(burst);
 
     const body = (await request.json().catch(() => null)) as Record<
       string,

@@ -6,6 +6,8 @@ import {
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
+import { reqStr } from '@/lib/api-validate';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 // Quick replies — reusable snippets (plain text or a saved interactive
 // message) shared across the account. GET lists; POST creates. Mirrors
@@ -39,11 +41,14 @@ export async function POST(request: Request) {
     return toErrorResponse(err);
   }
 
+  const limit = checkRateLimit(`quickreplies:${ctx.userId}`, RATE_LIMITS.adminAction);
+  if (!limit.success) return rateLimitResponse(limit);
+
   const body = await request.json().catch(() => null);
   if (!body)
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 
-  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const title = reqStr(body.title, 120);
   const kind = body.kind === 'interactive' ? 'interactive' : 'text';
   if (!title) {
     return NextResponse.json({ error: 'title is required' }, { status: 400 });
@@ -63,6 +68,12 @@ export async function POST(request: Request) {
     if (!text.trim()) {
       return NextResponse.json(
         { error: 'content_text is required for text quick replies' },
+        { status: 400 }
+      );
+    }
+    if (text.length > 4096) {
+      return NextResponse.json(
+        { error: 'content_text is too long' },
         { status: 400 }
       );
     }

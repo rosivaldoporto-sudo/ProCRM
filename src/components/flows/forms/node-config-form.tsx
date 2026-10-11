@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { isSafeLinkUrl } from "@/lib/safe-url";
 import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { slugify, type BuilderNode } from "../shared";
 import { NextNodeRow, NodeKeySelect, TextRow } from "./fields";
@@ -978,15 +979,21 @@ function SendMediaForm({
         {cfg.media_url ? (
           <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs">
             <Paperclip className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-            <a
-              href={cfg.media_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="min-w-0 flex-1 truncate text-foreground hover:text-cyan-300"
-              title={displayName || cfg.media_url}
-            >
-              {displayName || cfg.media_url}
-            </a>
+            {isSafeLinkUrl(cfg.media_url) ? (
+              <a
+                href={cfg.media_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 flex-1 truncate text-foreground hover:text-cyan-300"
+                title={displayName || cfg.media_url}
+              >
+                {displayName || cfg.media_url}
+              </a>
+            ) : (
+              <span className="min-w-0 flex-1 truncate" title={displayName || cfg.media_url}>
+                {displayName || cfg.media_url}
+              </span>
+            )}
             <button
               type="button"
               onClick={handleClear}

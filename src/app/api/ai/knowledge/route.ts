@@ -8,6 +8,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadEmbeddingsKey } from '@/lib/ai/config'
 import { ingestDocument } from '@/lib/ai/knowledge'
 import { AiError } from '@/lib/ai/types'
+import { reqStr } from '@/lib/api-validate'
 
 /**
  * GET /api/ai/knowledge
@@ -48,12 +49,18 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit)
 
     const body = await request.json().catch(() => null)
-    const title = typeof body?.title === 'string' ? body.title.trim() : ''
+    const title = reqStr(body?.title, 300)
     const content = typeof body?.content === 'string' ? body.content.trim() : ''
     if (!title || !content) {
       return NextResponse.json(
         { error: 'title and content are required' },
         { status: 400 },
+      )
+    }
+    if (content.length > 100000) {
+      return NextResponse.json(
+        { error: 'content is too large' },
+        { status: 413 },
       )
     }
 

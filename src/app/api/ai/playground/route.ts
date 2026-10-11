@@ -44,6 +44,20 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    if (
+      rawMessages.some(
+        (m: unknown) =>
+          !!m &&
+          typeof m === 'object' &&
+          typeof (m as ChatMessage).content === 'string' &&
+          (m as ChatMessage).content.length > 20000
+      )
+    ) {
+      return NextResponse.json(
+        { error: 'A message is too long' },
+        { status: 400 }
+      );
+    }
 
     const messages: ChatMessage[] = rawMessages
       .filter(
@@ -53,7 +67,8 @@ export async function POST(request: Request) {
           ((m as ChatMessage).role === 'user' ||
             (m as ChatMessage).role === 'assistant') &&
           typeof (m as ChatMessage).content === 'string' &&
-          (m as ChatMessage).content.trim().length > 0
+          (m as ChatMessage).content.trim().length > 0 &&
+          (m as ChatMessage).content.length <= 20000
       )
       .slice(-MAX_TURNS);
 

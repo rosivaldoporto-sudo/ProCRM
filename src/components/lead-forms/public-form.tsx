@@ -442,7 +442,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                   Sua reunião está agendada
                 </h2>
                 <p className="mt-4 max-w-lg text-lg leading-relaxed text-stone-500">
-                  Está tudo certo{booking.attendee_name ? `, ${booking.attendee_name.split(" ")[0]}` : ""}. Anote os detalhes abaixo — enviamos a confirmação para você.
+                  Está tudo certo{booking.attendee_name ? `, ${booking.attendee_name.split(" ")[0]}` : ""}. Anote os detalhes abaixo. Enviamos a confirmação para você.
                 </p>
                 <div className="mt-8 max-w-lg rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-widest text-stone-400">
@@ -454,7 +454,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                   <div className="mt-4 space-y-2 text-base text-stone-600">
                     <p className="flex items-center gap-2.5">
                       <Clock className="h-4 w-4 shrink-0" style={{ color: accent }} />
-                      {fmtTime(booking.starts_at)} – {fmtTime(booking.ends_at)}
+                      {fmtTime(booking.starts_at)} às {fmtTime(booking.ends_at)}
                     </p>
                     <p className="flex items-center gap-2.5">
                       <Globe className="h-4 w-4 shrink-0" style={{ color: accent }} />
@@ -495,7 +495,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                       </div>
                     ) : slots.length === 0 ? (
                       <p className="px-5 py-10 text-sm text-stone-400 sm:px-6">
-                        Sem horários livres nos próximos dias. Fique tranquilo — entraremos em contato.
+                        Sem horários livres nos próximos dias. Fique tranquilo, entraremos em contato.
                       </p>
                     ) : (
                       <div className="grid md:grid-cols-[1fr_190px]">

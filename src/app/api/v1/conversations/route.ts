@@ -18,7 +18,10 @@ import {
   normalizeConversation,
 } from '@/lib/inbox/conversations';
 import { serializeConversation } from '@/lib/api/v1/conversations';
+import { isUuid, isValidEnum } from '@/lib/api-validate';
 import type { Conversation } from '@/types';
+
+const CONVERSATION_STATUSES = ['open', 'pending', 'closed'] as const;
 
 export async function GET(request: Request) {
   try {
@@ -27,6 +30,13 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const contactId = url.searchParams.get('contact_id');
+
+    if (status !== null && !isValidEnum(status, CONVERSATION_STATUSES)) {
+      return fail('bad_request', "'status' must be open, pending, or closed", 400);
+    }
+    if (contactId !== null && !isUuid(contactId)) {
+      return fail('bad_request', "'contact_id' must be a UUID", 400);
+    }
 
     let query = ctx.supabase
       .from('conversations')

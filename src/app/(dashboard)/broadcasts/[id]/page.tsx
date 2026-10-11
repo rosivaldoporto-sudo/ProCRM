@@ -125,7 +125,12 @@ const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
 ];
 
 function toCsv(rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const escape = (v: string) => {
+    // Anti formula-injection: células iniciadas por = + - @ executam código
+    // no Excel/Sheets (nome/telefone vêm do contato — dado não-confiável).
+    const safe = /^[=+\-@|\t\r]/.test(v) ? `'${v}` : v;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
   return rows.map((r) => r.map(escape).join(',')).join('\n');
 }
 

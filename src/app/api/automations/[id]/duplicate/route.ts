@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function POST(
   _request: Request,
@@ -24,6 +25,9 @@ export async function POST(
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const limit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction)
+  if (!limit.success) return rateLimitResponse(limit)
+
   const admin = supabaseAdmin()
   const { data: original, error: origErr } = await admin
     .from('automations')
@@ -31,7 +35,10 @@ export async function POST(
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle()
-  if (origErr) return NextResponse.json({ error: origErr.message }, { status: 500 })
+  if (origErr) {
+    console.error('[api:automations] load original failed:', origErr)
+    return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
+  }
   if (!original) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const { data: copy, error: copyErr } = await admin
@@ -50,7 +57,8 @@ export async function POST(
     .select()
     .single()
   if (copyErr || !copy) {
-    return NextResponse.json({ error: copyErr?.message ?? 'copy failed' }, { status: 500 })
+    console.error('[api:automations] copy failed:', copyErr)
+    return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
   }
 
   const { data: steps } = await admin
@@ -79,7 +87,10 @@ export async function POST(
       position: row.position,
     }))
     const { error: insErr } = await admin.from('automation_steps').insert(rows)
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+    if (insErr) {
+      console.error('[api:automations] copy steps failed:', insErr)
+      return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ automation: copy }, { status: 201 })

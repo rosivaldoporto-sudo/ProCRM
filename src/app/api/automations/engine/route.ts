@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import type { AutomationTriggerType } from '@/types'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * Manual trigger for testing or for external integrations that want
@@ -12,12 +13,17 @@ export async function POST(request: Request) {
   // Firing automations sends outbound WhatsApp — a write action. Require
   // at least `agent`; a viewer must not be able to trigger sends.
   let accountId: string
+  let userId: string
   try {
     const ctx = await requireRole('agent')
     accountId = ctx.accountId
+    userId = ctx.userId
   } catch (err) {
     return toErrorResponse(err)
   }
+
+  const limit = checkRateLimit(`automations:${userId}`, RATE_LIMITS.adminAction)
+  if (!limit.success) return rateLimitResponse(limit)
 
   const body = await request.json().catch(() => null)
   if (!body?.trigger_type) {

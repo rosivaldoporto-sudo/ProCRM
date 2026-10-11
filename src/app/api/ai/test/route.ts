@@ -4,6 +4,9 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { AiError, type AiProvider } from '@/lib/ai/types'
+import { reqStr } from '@/lib/api-validate'
+
+const MODEL_RE = /^[a-z0-9_.\-:]+$/i
 
 /**
  * POST /api/ai/test  (admin+)
@@ -33,12 +36,15 @@ export async function POST(request: Request) {
         { status: 400 },
       )
     }
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
-    if (!model) {
+    const model = reqStr(body.model, 128)
+    if (!model || !MODEL_RE.test(model)) {
       return NextResponse.json({ error: 'model is required' }, { status: 400 })
     }
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
+    if (rawKey.length > 4096) {
+      return NextResponse.json({ error: 'api_key is too long' }, { status: 400 })
+    }
     let apiKeyPlain = rawKey
     if (!apiKeyPlain) {
       const { data: existing } = await supabase

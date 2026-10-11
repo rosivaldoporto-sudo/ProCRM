@@ -6,6 +6,7 @@ import {
   getCachedInstanceToken,
 } from '@/lib/uazapi/runtime-config';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * GET /api/uazapi/media/[messageId]
@@ -40,6 +41,9 @@ export async function GET(
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const limit = checkRateLimit(`media:${user.id}`, RATE_LIMITS.send);
+    if (!limit.success) return rateLimitResponse(limit);
 
     // Resolve the caller's account — teammates share the account's
     // Uazapi config, so look it up by account_id like the WhatsApp

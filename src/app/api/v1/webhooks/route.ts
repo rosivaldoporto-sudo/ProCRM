@@ -8,7 +8,8 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, okList, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { encrypt } from '@/lib/whatsapp/encryption';
 import { normalizeEvents } from '@/lib/webhooks/events';
 import {
@@ -49,6 +50,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const ctx = await requireApiKey(request, 'webhooks:manage');
+
+    const mutate = await checkDistributedRateLimit(
+      `v1-mutate:${ctx.keyId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!mutate.success) throw rateLimited(mutate);
 
     const body = (await request.json().catch(() => null)) as Record<
       string,

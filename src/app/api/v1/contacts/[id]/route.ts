@@ -9,13 +9,15 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { ok, fail, toApiErrorResponse, rateLimited } from '@/lib/api/v1/respond';
+import { checkDistributedRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   getContactById,
   setContactTags,
   resolveAuditUserId,
   ContactError,
 } from '@/lib/api/v1/contacts';
+import { capStr, validEmail, strArray } from '@/lib/api-validate';
 
 export async function GET(
   request: Request,
@@ -40,6 +42,12 @@ export async function PATCH(
     const ctx = await requireApiKey(request, 'contacts:write');
     const { id } = await params;
 
+    const mutate = await checkDistributedRateLimit(
+      `v1-mutate:${ctx.keyId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!mutate.success) throw rateLimited(mutate);
+
     const body = (await request.json().catch(() => null)) as Record<
       string,
       unknown
@@ -60,10 +68,25 @@ export async function PATCH(
     for (const field of ['name', 'email', 'company'] as const) {
       if (!(field in body)) continue;
       const value = body[field];
-      if (value === null || typeof value === 'string') {
-        updates[field] = value;
-      } else {
+      if (value === null) {
+        updates[field] = null;
+        continue;
+      }
+      if (typeof value !== 'string') {
         return fail('bad_request', `'${field}' must be a string or null`, 400);
+      }
+      if (value === '') {
+        updates[field] = value;
+        continue;
+      }
+      if (field === 'email') {
+        const valid = validEmail(value);
+        if (!valid) {
+          return fail('bad_request', "'email' must be a valid email address", 400);
+        }
+        updates[field] = valid;
+      } else {
+        updates[field] = capStr(value, 200) ?? '';
       }
     }
 
@@ -80,14 +103,17 @@ export async function PATCH(
       }
     }
 
-    if (Array.isArray(body.tags)) {
+    if (body.tags !== undefined) {
+      if (!Array.isArray(body.tags)) {
+        return fail('bad_request', "'tags' must be an array", 400);
+      }
       const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
       await setContactTags(
         ctx.supabase,
         ctx.accountId,
         auditUserId,
         id,
-        body.tags.filter((t): t is string => typeof t === 'string')
+        strArray(body.tags, 50, 80) ?? []
       );
     }
 

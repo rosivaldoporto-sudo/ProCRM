@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
+import { isSafeLinkUrl } from "@/lib/safe-url";
 import { useTranslations } from "next-intl";
 
 interface MessageBubbleProps {
@@ -174,8 +175,9 @@ function MediaDownloadButton({ url, filename }: { url: string; filename?: string
       a.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      // Cross-origin URLs can't be blob-fetched — open directly instead.
-      window.open(url, "_blank", "noopener");
+      // Cross-origin URLs can't be blob-fetched — open directly instead,
+      // mas só se o esquema for seguro (media_url vem de dado externo).
+      if (isSafeLinkUrl(url)) window.open(url, "_blank", "noopener");
     } finally {
       setDownloading(false);
     }
@@ -356,6 +358,17 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
       }
       if (mediaFailed) {
         return <MediaUnavailable label={message.content_text || t("document")} t={t} />;
+      }
+      // media_url é dado externo persistido: esquema inseguro vira texto.
+      if (!isSafeLinkUrl(mediaUrl)) {
+        return (
+          <span className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+            <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              {message.content_text || t("document")}
+            </span>
+          </span>
+        );
       }
       if (mediaLoading) {
         return (

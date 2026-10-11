@@ -166,7 +166,7 @@ export async function POST(request: Request) {
     }
 
     const query = existing
-      ? admin.from('meta_ads_config').update(values).eq('id', existing.id)
+      ? admin.from('meta_ads_config').update(values).eq('id', existing.id).eq('account_id', accountId)
       : admin.from('meta_ads_config').insert(values);
     const { error } = await query;
     if (error) {
@@ -184,6 +184,7 @@ export async function POST(request: Request) {
               .from('meta_ads_config')
               .update(legacyValues)
               .eq('id', existing.id)
+              .eq('account_id', accountId)
           : await admin.from('meta_ads_config').insert(legacyValues);
         if (retry.error) throw retry.error;
         return NextResponse.json({

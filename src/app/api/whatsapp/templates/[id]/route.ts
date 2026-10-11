@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   deleteMessageTemplate,
@@ -63,6 +64,13 @@ export async function PATCH(
     } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    // Mutação compartilhada: viewers só leem. Sem isso, qualquer viewer
+    // re-submetia ou apagava templates (inclusive no lado da Meta).
+    try {
+      await requireRole('agent')
+    } catch (err) {
+      return toErrorResponse(err)
     }
 
     // Resolve the caller's account_id so template + whatsapp_config
@@ -178,6 +186,7 @@ export async function PATCH(
             last_submitted_at: new Date().toISOString(),
           })
           .eq('id', id)
+          .eq('account_id', accountId)
         return NextResponse.json({ error: message }, { status: 502 })
       }
     }
@@ -201,13 +210,15 @@ export async function PATCH(
         last_submitted_at: new Date().toISOString(),
       })
       .eq('id', id)
+      .eq('account_id', accountId)
       .select()
       .single()
 
     if (updErr) {
+      console.error('[api:templates] local save failed:', updErr)
       return NextResponse.json(
         {
-          error: `Edited on Meta but failed to save locally: ${updErr.message}. Run "Sync from Meta" to recover.`,
+          error: 'Failed to save template',
         },
         { status: 500 },
       )
@@ -219,11 +230,10 @@ export async function PATCH(
       dry_run: isDryRun(),
     })
   } catch (error) {
-    console.error('Error editing template:', error)
+    console.error('[api:templates] edit failed:', error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to edit template.',
+        error: 'Failed to save template',
       },
       { status: 500 },
     )
@@ -249,6 +259,11 @@ export async function DELETE(
     } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    try {
+      await requireRole('agent')
+    } catch (err) {
+      return toErrorResponse(err)
     }
 
     // Same account-scoping rationale as the PATCH handler above —
@@ -307,10 +322,12 @@ export async function DELETE(
       .from('message_templates')
       .delete()
       .eq('id', id)
+      .eq('account_id', accountId)
     if (delErr) {
+      console.error('[api:templates] local delete failed:', delErr)
       return NextResponse.json(
         {
-          error: `Deleted on Meta but failed to delete locally: ${delErr.message}.`,
+          error: 'Failed to delete template',
         },
         { status: 500 },
       )
@@ -318,11 +335,10 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, dry_run: isDryRun() })
   } catch (error) {
-    console.error('Error deleting template:', error)
+    console.error('[api:templates] delete failed:', error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to delete template.',
+        error: 'Failed to delete template',
       },
       { status: 500 },
     )

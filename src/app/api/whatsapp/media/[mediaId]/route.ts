@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function GET(
   request: Request,
@@ -30,6 +31,11 @@ export async function GET(
         { error: 'Unauthorized' },
         { status: 401 }
       )
+    }
+
+    const limit = checkRateLimit(`media:${user.id}`, RATE_LIMITS.send)
+    if (!limit.success) {
+      return rateLimitResponse(limit)
     }
 
     // Resolve the caller's account_id — whatsapp_config is one-per-
