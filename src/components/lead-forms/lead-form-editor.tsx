@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, Copy, RefreshCw, Calculator } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, RefreshCw, Calculator, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,12 +17,30 @@ import type {
 } from "@/lib/lead-forms/types";
 import { BLOCK_TYPE_LABELS } from "@/lib/lead-forms/types";
 import { LeadFormMetaTab } from "./lead-form-meta-tab";
+import { LeadFormShareTab } from "./lead-form-share-tab";
+import { LeadFormResponsesTab } from "./lead-form-responses-tab";
 
 interface Props {
   formId: string;
 }
 
 const BLOCK_TYPES = Object.keys(BLOCK_TYPE_LABELS) as LeadFormBlockType[];
+
+/** Snapshot só dos campos editáveis (contadores de views/respostas não sujam o dirty). */
+function editableSnapshot(form: LeadForm, blocks: LeadFormBlock[]): string {
+  return JSON.stringify({
+    name: form.name,
+    description: form.description,
+    status: form.status,
+    slug: form.slug,
+    theme_config: form.theme_config,
+    settings: form.settings,
+    qualification_config: form.qualification_config,
+    scheduling_config: form.scheduling_config,
+    meta_config: form.meta_config,
+    blocks,
+  });
+}
 
 export function LeadFormEditor({ formId }: Props) {
   const [form, setForm] = useState<LeadForm | null>(null);
@@ -31,6 +49,10 @@ export function LeadFormEditor({ formId }: Props) {
   const [saving, setSaving] = useState(false);
   const [responses, setResponses] = useState<Array<Record<string, unknown>>>([]);
   const [bookings, setBookings] = useState<Array<Record<string, unknown>>>([]);
+  const [dirty, setDirty] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const snapshotRef = useRef<string>("");
+  const saveRef = useRef<() => void>(() => undefined);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -39,7 +61,10 @@ export function LeadFormEditor({ formId }: Props) {
       if (!res.ok) throw new Error();
       const json = await res.json() as { form: LeadForm; blocks: Array<{ block_key: string; block_type: LeadFormBlockType; config: LeadFormBlock["config"]; position: number; is_qualifier: boolean; score_weight: number }> };
       setForm(json.form);
-      setBlocks(json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight })));
+      const mapped = json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight }));
+      setBlocks(mapped);
+      snapshotRef.current = editableSnapshot(json.form, mapped);
+      setDirty(false);
       const r2 = await fetch(`/api/lead-forms/${formId}/responses`, { cache: "no-store" });
       if (r2.ok) {
         const j2 = await r2.json() as { responses: Array<Record<string, unknown>>; bookings: Array<Record<string, unknown>> };
@@ -57,6 +82,27 @@ export function LeadFormEditor({ formId }: Props) {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formId]);
+
+  // Dirty tracking: compara editáveis atuais com o último snapshot salvo.
+  useEffect(() => {
+    if (!form) return;
+    setDirty(editableSnapshot(form, blocks) !== snapshotRef.current);
+  }, [form, blocks]);
+
+  // Ctrl/Cmd+S salva de qualquer aba.
+  useEffect(() => {
+    saveRef.current = save;
+  });
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveRef.current();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function handleRecount() {
     setSaving(true);
@@ -101,7 +147,11 @@ export function LeadFormEditor({ formId }: Props) {
       }
       const json = await res.json() as { form: LeadForm };
       setForm(json.form);
+      const nextBlocks = patch.blocks ?? blocks;
       if (patch.blocks) setBlocks(patch.blocks);
+      snapshotRef.current = editableSnapshot(json.form, nextBlocks);
+      setDirty(false);
+      setLastSaved(new Date());
       toast.success("Salvo");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao salvar");
@@ -116,8 +166,17 @@ export function LeadFormEditor({ formId }: Props) {
 
   if (loading || !form) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-4 p-6" aria-busy="true" aria-label="Carregando formulário">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="h-9 w-72 animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-40 animate-pulse rounded-md bg-muted" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
+          ))}
+        </div>
+        <div className="h-64 animate-pulse rounded-lg bg-muted" />
       </div>
     );
   }
@@ -149,7 +208,18 @@ export function LeadFormEditor({ formId }: Props) {
           <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading} title="Recarregar métricas e respostas">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Atualizar
           </Button>
-          <Button onClick={() => save()} disabled={saving}>
+          <span
+            className={`hidden items-center gap-1.5 text-xs sm:inline-flex ${dirty ? "text-amber-400" : "text-muted-foreground"}`}
+            role="status"
+            title={dirty ? "Há alterações ainda não salvas" : lastSaved ? `Salvo às ${lastSaved.toLocaleTimeString("pt-BR")}` : "Nenhuma alteração pendente"}
+          >
+            {dirty ? (
+              <><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Não salvo</>
+            ) : (
+              <><Check className="h-3.5 w-3.5 text-emerald-400" /> Salvo</>
+            )}
+          </span>
+          <Button onClick={() => save()} disabled={saving} title="Salvar (Ctrl+S)">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}<Save className="h-4 w-4" /> Salvar
           </Button>
         </div>
@@ -208,9 +278,20 @@ export function LeadFormEditor({ formId }: Props) {
                         {BLOCK_TYPES.map((t) => <SelectItem key={t} value={t}>{BLOCK_TYPE_LABELS[t]}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="sm" onClick={() => {
-                      const nb = [...blocks]; const [rm] = nb.splice(i, 1);
-                      void rm; setBlocks(nb.map((x, idx) => ({ ...x, position: idx })));
+                    <Button variant="ghost" size="sm" aria-label="Excluir pergunta" onClick={() => {
+                      const nb = [...blocks]; const [removed] = nb.splice(i, 1);
+                      const idx = i;
+                      setBlocks(nb.map((x, j) => ({ ...x, position: j })));
+                      toast("Pergunta excluída", {
+                        action: {
+                          label: "Desfazer",
+                          onClick: () => setBlocks((prev) => {
+                            const cp = [...prev];
+                            cp.splice(Math.min(idx, cp.length), 0, removed);
+                            return cp.map((x, j) => ({ ...x, position: j }));
+                          }),
+                        },
+                      });
                     }} className="text-red-400"><Trash2 className="h-4 w-4" /></Button>
                   </div>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -346,52 +427,18 @@ export function LeadFormEditor({ formId }: Props) {
         </TabsContent>
 
         {/* ---------- SHARE ---------- */}
-        <TabsContent value="share">
-          <Card><CardHeader><CardTitle>Compartilhar</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2"><Label>Slug público</Label>
-                <div className="flex gap-2"><Input value={form.slug} onChange={(e) => updateForm("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} />
-                  <Button variant="outline" onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success("Link copiado"); }}><Copy className="h-4 w-4" /></Button></div></div>
-              <div className="rounded border border-border bg-muted p-3 font-mono text-xs break-all">{publicUrl}?utm_source=facebook&utm_campaign=nome_campanha&utm_content=ad_01</div>
-              <div className="space-y-2"><Label>Embed (iframe)</Label>
-                <Textarea readOnly value={`<iframe src="${publicUrl}?embed=1" width="100%" height="700" frameborder="0" style="border-radius:12px"></iframe>`} /></div>
-            </CardContent></Card>
-          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar slug</Button>
+        <TabsContent value="share" className="space-y-3">
+          <LeadFormShareTab
+            slug={form.slug}
+            onSlugChange={(slug) => updateForm("slug", slug)}
+            publicUrl={publicUrl}
+          />
+          <Button onClick={() => save()} disabled={saving}>Salvar slug</Button>
         </TabsContent>
 
         {/* ---------- RESPONSES ---------- */}
         <TabsContent value="responses" className="space-y-3">
-          <Card><CardHeader><CardTitle>Respostas</CardTitle><CardDescription>{responses.length} respostas · {bookings.length} agendamentos</CardDescription></CardHeader>
-            <CardContent className="space-y-2">
-              {responses.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma resposta ainda. Compartilhe o link.</p>}
-              {responses.map((r) => {
-                const row = r as { id: string; respondent_name?: string; score: number; is_qualified: boolean; status: string; created_at: string; answers: Record<string, unknown> };
-                return (
-                  <div key={row.id} className="rounded border border-border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <strong className="text-sm text-foreground">{String(row.respondent_name ?? "Anônimo")}</strong>
-                      <Badge variant="outline">{row.is_qualified ? `Qualificado · ${row.score}` : `Score ${row.score}`} · {row.status}</Badge>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{new Date(row.created_at).toLocaleString("pt-BR")}</p>
-                    <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-[11px]">{JSON.stringify(row.answers, null, 2)}</pre>
-                  </div>
-                );
-              })}
-            </CardContent></Card>
-          {bookings.length > 0 && (
-            <Card><CardHeader><CardTitle>Agendamentos</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {bookings.map((bk) => {
-                  const b = bk as { id: string; attendee_name: string; starts_at: string; ends_at: string; status: string };
-                  return (
-                    <div key={b.id} className="flex items-center justify-between rounded border border-border p-2 text-sm">
-                      <span>{b.attendee_name} — {new Date(b.starts_at).toLocaleString("pt-BR")}</span>
-                      <Badge variant="outline">{b.status}</Badge>
-                    </div>
-                  );
-                })}
-              </CardContent></Card>
-          )}
+          <LeadFormResponsesTab responses={responses} bookings={bookings} />
         </TabsContent>
       </Tabs>
     </div>

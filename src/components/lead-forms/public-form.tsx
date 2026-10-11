@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { trackFormPixel } from "@/lib/lead-forms/meta-pixel";
+import { collectTracking } from "@/lib/lead-forms/attribution";
 
 /**
  * Meta Pixel via <Script nonce> — o padrão do guia oficial de CSP
@@ -57,23 +58,9 @@ interface PublicFormData {
 }
 
 function getTracking() {
-  if (typeof window === "undefined") return {};
-  const qs = new URLSearchParams(window.location.search);
-  const cookies = Object.fromEntries(document.cookie.split(";").map((c) => {
-    const [k, ...rest] = c.trim().split("=");
-    return [k, rest.join("=")];
-  }));
-  return {
-    utm_source: qs.get("utm_source") ?? undefined,
-    utm_campaign: qs.get("utm_campaign") ?? undefined,
-    utm_medium: qs.get("utm_medium") ?? undefined,
-    utm_term: qs.get("utm_term") ?? undefined,
-    utm_content: qs.get("utm_content") ?? undefined,
-    fbclid: qs.get("fbclid") ?? undefined,
-    fbp: cookies._fbp,
-    fbc: cookies._fbc,
-    source_url: window.location.href,
-  };
+  // Captura ampliada (UTMs + macros de campanha/anúncio + click IDs +
+  // cookies + referrer). Ver `lib/lead-forms/attribution.ts`.
+  return collectTracking();
 }
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
@@ -88,7 +75,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const [multi, setMulti] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ score: number; is_qualified: boolean; message: string; response_id: string } | null>(null);
+  const [done, setDone] = useState<{ is_qualified: boolean; message: string; response_id: string } | null>(null);
   const [slots, setSlots] = useState<Array<{ start: string; end: string }>>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -107,6 +94,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   // Guarda síncrona contra duplo envio (toque duplo na última pergunta):
   // setState é assíncrono e não barra o segundo toque a tempo.
   const submittingRef = useRef(false);
+  // Anti-bot: honeypot invisível + instante de abertura (tempo de preenchimento).
+  const [honeypot, setHoneypot] = useState("");
+  const openedAt = useRef(0);
+  if (openedAt.current === 0) openedAt.current = Date.now();
 
   const blocks = useMemo(() => (data?.blocks ?? []).filter((b) => b.type !== "meeting"), [data]);
   const theme = data?.form.theme;
@@ -228,12 +219,18 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       const res = await fetch(`/api/public/forms/${slug}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: finalAnswers, tracking: getTracking(), event_id: clientEventId }),
+        body: JSON.stringify({
+          answers: finalAnswers,
+          tracking: getTracking(),
+          event_id: clientEventId,
+          website: honeypot || undefined,
+          started_at: openedAt.current,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error((json as { error?: string }).error ?? "submit failed");
-      const r = json as { score: number; is_qualified: boolean; message: string; response_id: string; scheduling_enabled: boolean };
-      setDone({ score: r.score, is_qualified: r.is_qualified, message: r.message, response_id: r.response_id });
+      const r = json as { is_qualified: boolean; message: string; response_id: string; scheduling_enabled: boolean };
+      setDone({ is_qualified: r.is_qualified, message: r.message, response_id: r.response_id });
       if (pixelId) {
         trackFormPixel(pixelId, "Lead", { content_name: slug }, clientEventId);
         if (r.is_qualified) trackFormPixel(pixelId, "CompleteRegistration", { content_name: slug });
@@ -397,6 +394,17 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       </div>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-6 py-16 sm:px-10">
+        {/* Honeypot anti-bot: campo invisível que humanos nunca preenchem. */}
+        <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, height: 1, width: 1, overflow: "hidden" }}>
+          <input
+            type="text"
+            name="website"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            autoComplete="off"
+            tabIndex={-1}
+          />
+        </div>
         {!started ? (
           <div key="welcome" className="animate-rise">
             {theme.logo_url && (

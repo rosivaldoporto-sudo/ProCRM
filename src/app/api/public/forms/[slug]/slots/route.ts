@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { generateSlots } from '@/lib/lead-forms/availability';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
+  // Sem rate limit, bots varrem disponibilidade à vontade (enumeração +
+  // custo de CPU no generateSlots). 30/min por IP é folga ampla.
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown';
+  const limit = checkRateLimit(`leadform-slots:${slug}:${ip}`, RATE_LIMITS.invitationPeek);
+  if (!limit.success) return rateLimitResponse(limit);
   const db = supabaseAdmin();
   const { data: formRow } = await db.from('lead_forms').select('id, status, scheduling_config').eq('slug', slug).maybeSingle();
   const form = formRow as { id: string; status: string; scheduling_config: Parameters<typeof generateSlots>[0] } | null;
