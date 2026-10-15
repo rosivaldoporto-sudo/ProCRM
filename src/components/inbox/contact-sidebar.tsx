@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [savingTagId, setSavingTagId] = useState<string | null>(null);
+  const [savingTagIds, setSavingTagIds] = useState<Set<string>>(new Set());
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -64,8 +64,24 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [movingDealId, setMovingDealId] = useState<string | null>(null);
   const [addingDeal, setAddingDeal] = useState(false);
 
+  // Contact id estável — usar o objeto `contact` inteiro como dep faria
+  // refetch a cada render do pai; usar só o id evita isso e ainda
+  // detecta troca de contato de forma confiável.
+  const contactId = contact?.id ?? null;
+
+  // Espelho síncrono do contato atual + contador de requisições.
+  // Servem para descartar respostas atrasadas: se o usuário troca de
+  // contato enquanto um fetch do contato anterior ainda está no ar,
+  // a resposta antiga é ignorada em vez de sobrescrever as tags do
+  // contato novo (bug da tag "vazando" entre contatos).
+  const contactIdRef = useRef<string | null>(null);
+  contactIdRef.current = contactId;
+  const requestIdRef = useRef(0);
+
   const fetchContactData = useCallback(async () => {
-    if (!contact) return;
+    if (!contactId) return;
+    const targetContactId = contactId;
+    const requestId = ++requestIdRef.current;
 
     const supabase = createClient();
 
@@ -75,17 +91,17 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         supabase
           .from("deals")
           .select("*, stage:pipeline_stages(*)")
-          .eq("contact_id", contact.id)
+          .eq("contact_id", targetContactId)
           .order("created_at", { ascending: false }),
         supabase
           .from("contact_notes")
           .select("*")
-          .eq("contact_id", contact.id)
+          .eq("contact_id", targetContactId)
           .order("created_at", { ascending: false }),
         supabase
           .from("contact_tags")
           .select("id, tag_id, tags(*)")
-          .eq("contact_id", contact.id),
+          .eq("contact_id", targetContactId),
         supabase.from("tags").select("*").order("name"),
         supabase
           .from("pipelines")
@@ -97,6 +113,15 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           .select("*")
           .order("position", { ascending: true }),
       ]);
+
+    // Resposta de um contato que já não está mais selecionado, ou de
+    // uma requisição superada por outra mais recente — descarta.
+    if (
+      contactIdRef.current !== targetContactId ||
+      requestIdRef.current !== requestId
+    ) {
+      return;
+    }
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
@@ -118,13 +143,19 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
       }
       setStagesByPipeline(byPipeline);
     }
-  }, [contact, accountId]);
+  }, [contactId, accountId]);
 
-  // Load on contact change. setContactData/setTags run inside async
-  // Supabase callbacks, not synchronously in the effect body.
+  // Load on contact change. Limpa o estado do contato anterior de
+  // imediato para nunca exibir tags/deals/notes de outro contato
+  // enquanto o fetch do novo ainda está no ar.
   useEffect(() => {
-    fetchContactData();
-  }, [fetchContactData]);
+    setTags([]);
+    setDeals([]);
+    setNotes([]);
+    if (contactId) {
+      fetchContactData();
+    }
+  }, [fetchContactData, contactId]);
 
   const handleCopyPhone = useCallback(async () => {
     if (!contact?.phone) return;
@@ -138,23 +169,44 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   // Add/remove a tag on the contact via the API route (same path the
   // Contacts detail view uses — also fires tag-triggered automations).
+  // Atualização otimista: a tag aparece/some de imediato, sem esperar
+  // o POST (que aguarda automações no servidor) nem o re-fetch.
   const handleToggleTag = useCallback(
     async (tagId: string) => {
-      if (!contact || savingTagId) return;
+      if (!contact || savingTagIds.has(tagId)) return;
+      const targetContactId = contact.id;
+      // Calculado de forma síncrona a partir do estado atual: updaters
+      // do setState não executam na hora, então ler dentro do updater
+      // chegaria tarde para decidir POST vs DELETE.
       const attached = tags.some((t) => t.id === tagId);
-      setSavingTagId(tagId);
+      if (attached) {
+        setTags((prev) => prev.filter((t) => t.id !== tagId));
+      } else {
+        const tagInfo = allTags.find((t) => t.id === tagId);
+        if (tagInfo) {
+          setTags((prev) =>
+            prev.some((t) => t.id === tagId)
+              ? prev
+              : [...prev, { ...tagInfo, contact_tag_id: `temp-${tagId}` }],
+          );
+        }
+      }
+      setSavingTagIds((prev) => new Set(prev).add(tagId));
       try {
         if (attached) {
-          await deleteContactTag(contact.id, tagId);
+          await deleteContactTag(targetContactId, tagId);
         } else {
-          await addContactTag(contact.id, tagId);
+          await addContactTag(targetContactId, tagId);
         }
         // Re-fetch the contact's tag rows so contact_tag_id stays accurate.
+        // Ignora o resultado se o usuário já trocou de contato no meio
+        // da requisição para não clobberar as tags do contato novo.
         const supabase = createClient();
         const { data } = await supabase
           .from("contact_tags")
           .select("id, tag_id, tags(*)")
-          .eq("contact_id", contact.id);
+          .eq("contact_id", targetContactId);
+        if (contactIdRef.current !== targetContactId) return;
         if (data) {
           const mapped = data
             .filter((ct: Record<string, unknown>) => ct.tags)
@@ -165,14 +217,36 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           setTags(mapped);
         }
       } catch (err) {
+        // Reverte o otimista recarregando as tags reais do contato
+        // (somente se ele ainda estiver selecionado).
+        if (contactIdRef.current === targetContactId) {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("contact_tags")
+            .select("id, tag_id, tags(*)")
+            .eq("contact_id", targetContactId);
+          if (data) {
+            const mapped = data
+              .filter((ct: Record<string, unknown>) => ct.tags)
+              .map((ct: Record<string, unknown>) => ({
+                ...(ct.tags as Tag),
+                contact_tag_id: ct.id as string,
+              }));
+            setTags(mapped);
+          }
+        }
         toast.error(
           err instanceof Error ? err.message : tSidebar("toastTagUpdateFailed"),
         );
       } finally {
-        setSavingTagId(null);
+        setSavingTagIds((prev) => {
+          const next = new Set(prev);
+          next.delete(tagId);
+          return next;
+        });
       }
     },
-    [contact, tags, savingTagId, tSidebar],
+    [contact, tags, allTags, savingTagIds, tSidebar],
   );
 
   const handleAddNote = useCallback(async () => {
@@ -374,7 +448,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {tags.map((tag) => (
                 <span
-                  key={tag.contact_tag_id}
+                  key={tag.id}
                   className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
                   style={{
                     backgroundColor: `${tag.color}20`,
@@ -385,7 +459,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                   <button
                     type="button"
                     onClick={() => handleToggleTag(tag.id)}
-                    disabled={savingTagId === tag.id}
+                    disabled={savingTagIds.has(tag.id)}
                     aria-label={tSidebar("removeTag")}
                     title={tSidebar("removeTag")}
                     className="opacity-60 transition-opacity hover:opacity-100 disabled:opacity-40"
@@ -424,7 +498,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                               setTagMenuOpen(false);
                               handleToggleTag(tag.id);
                             }}
-                            disabled={savingTagId === tag.id}
+                            disabled={savingTagIds.has(tag.id)}
                             className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-50"
                           >
                             <span
