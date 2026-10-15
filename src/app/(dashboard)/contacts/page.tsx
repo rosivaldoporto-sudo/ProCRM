@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -71,9 +71,159 @@ interface ContactWithTags extends Contact {
   tags?: TagType[];
 }
 
+interface ContactRowProps {
+  contact: ContactWithTags;
+  index: number;
+  isSelected: boolean;
+  onToggle: (id: string, index: number, event?: React.MouseEvent) => void;
+  onOpenDetail: (contactId: string) => void;
+  onOpenEdit: (contact: Contact) => void;
+  onConfirmDelete: (contact: Contact) => void;
+  t: ReturnType<typeof useTranslations>;
+}
+
+// Linha memorizada: sem isso, cada clique de seleção re-renderiza TODAS
+// as linhas da tabela (250–3000, cada uma com Checkbox + DropdownMenu),
+// travando o navegador. Com memo + props estáveis, só as linhas cujo
+// `isSelected` (ou dados) mudou re-renderizam.
+const ContactRow = memo(function ContactRow({
+  contact,
+  index,
+  isSelected,
+  onToggle,
+  onOpenDetail,
+  onOpenEdit,
+  onConfirmDelete,
+  t,
+}: ContactRowProps) {
+  return (
+    <TableRow
+      key={contact.id}
+      className={cn(
+        "border-border hover:bg-muted/50 cursor-pointer",
+        isSelected && "bg-muted/30"
+      )}
+      onClick={(e) => {
+        onToggle(contact.id, index, e);
+      }}
+    >
+      <TableCell>
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={() => onToggle(contact.id, index)}
+          aria-label={`Select ${contact.name || contact.phone}`}
+        />
+      </TableCell>
+      <TableCell
+        className="text-foreground font-medium cursor-pointer"
+        onClick={(e) => {
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            onOpenDetail(contact.id);
+          }
+        }}
+      >
+        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+      </TableCell>
+      <TableCell
+        className="text-muted-foreground font-mono text-xs cursor-pointer"
+        onClick={(e) => {
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            onOpenDetail(contact.id);
+          }
+        }}
+      >
+        {contact.phone}
+      </TableCell>
+      <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
+        {contact.email || <span className="text-muted-foreground">-</span>}
+      </TableCell>
+      <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
+        {contact.company || <span className="text-muted-foreground">-</span>}
+      </TableCell>
+      <TableCell className="hidden md:table-cell">
+        <div className="flex flex-wrap gap-1">
+          {contact.tags && contact.tags.length > 0 ? (
+            contact.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag.id}
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                style={{
+                  backgroundColor: tag.color + '20',
+                  color: tag.color,
+                }}
+              >
+                {tag.name}
+              </span>
+            ))
+          ) : (
+            <span className="text-muted-foreground text-xs">-</span>
+          )}
+          {contact.tags && contact.tags.length > 3 && (
+            <span className="text-[10px] text-muted-foreground">
+              +{contact.tags.length - 3}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
+        {new Date(contact.created_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })}
+      </TableCell>
+      <TableCell>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={(e) => e.stopPropagation()}
+              />
+            }
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="bg-popover border-border"
+          >
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenEdit(contact);
+              }}
+              className="text-popover-foreground focus:bg-muted focus:text-foreground"
+            >
+              <Pencil className="size-4" />
+              {t('editAction')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-border" />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmDelete(contact);
+              }}
+            >
+              <Trash2 className="size-4" />
+              {t('deleteAction')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+});
+
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
-  const supabase = createClient();
+  // Memoizado para manter identidade estável entre renders — os
+  // useCallbacks/useEffects abaixo dependem dele; nova identidade a
+  // cada render invalidaria tudo e refaria fetches em loop.
+  const supabase = useMemo(() => createClient(), []);
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
 
@@ -244,7 +394,7 @@ export default function ContactsPage() {
     setFormOpen(true);
   }
 
-  async function openEditForm(contact: Contact) {
+  const openEditForm = useCallback(async (contact: Contact) => {
     const { data } = await supabase
       .from('contact_tags')
       .select('*')
@@ -252,17 +402,17 @@ export default function ContactsPage() {
     setEditContact(contact);
     setEditContactTags(data ?? []);
     setFormOpen(true);
-  }
+  }, [supabase]);
 
-  function openDetail(contactId: string) {
+  const openDetail = useCallback((contactId: string) => {
     setDetailContactId(contactId);
     setDetailOpen(true);
-  }
+  }, []);
 
-  function confirmDelete(contact: Contact) {
+  const confirmDelete = useCallback((contact: Contact) => {
     setDeleteTarget(contact);
     setDeleteConfirmOpen(true);
-  }
+  }, []);
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -285,11 +435,16 @@ export default function ContactsPage() {
     setDeleteTarget(null);
   }
 
-  const allOnPageSelected =
-    contacts.length > 0 && contacts.every((c) => selected.has(c.id));
-  const someOnPageSelected = contacts.some((c) => selected.has(c.id));
+  const allOnPageSelected = useMemo(
+    () => contacts.length > 0 && contacts.every((c) => selected.has(c.id)),
+    [contacts, selected]
+  );
+  const someOnPageSelected = useMemo(
+    () => contacts.some((c) => selected.has(c.id)),
+    [contacts, selected]
+  );
 
-  function toggleSelectAll() {
+  const toggleSelectAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (allOnPageSelected) {
@@ -299,18 +454,18 @@ export default function ContactsPage() {
       }
       return next;
     });
-  }
+  }, [contacts, allOnPageSelected]);
 
-  function toggleSelect(id: string, index?: number, event?: React.MouseEvent) {
+  const toggleSelect = useCallback((id: string, index?: number, event?: React.MouseEvent) => {
     // Handle shift+click for range selection (Windows-style)
     if (event?.shiftKey && lastSelectedIndex !== null && index !== undefined) {
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
+      // Snapshot fora do updater: o updater pode rodar 2x no StrictMode.
+      const ids = contacts.slice(start, end + 1).map((c) => c.id);
       setSelected((prev) => {
         const next = new Set(prev);
-        for (let i = start; i <= end; i++) {
-          if (contacts[i]) next.add(contacts[i].id);
-        }
+        ids.forEach((cid) => next.add(cid));
         return next;
       });
       return;
@@ -339,7 +494,7 @@ export default function ContactsPage() {
       return next;
     });
     if (index !== undefined) setLastSelectedIndex(index);
-  }
+  }, [contacts, lastSelectedIndex]);
 
   async function handleBulkDelete() {
     const ids = [...selected];
@@ -366,8 +521,11 @@ export default function ContactsPage() {
 
   // Tag filter helpers. Every change resets to page 0 — the result set
   // shrinks/grows so page N may no longer be valid (mirrors the search box).
-  const allTags = Object.values(tagsMap).sort((a, b) =>
-    a.name.localeCompare(b.name)
+  // Memorizado: Object.values().sort() a cada render custava O(n log n)
+  // à toa e quebrava a estabilidade de props dos componentes filhos.
+  const allTags = useMemo(
+    () => Object.values(tagsMap).sort((a, b) => a.name.localeCompare(b.name)),
+    [tagsMap]
   );
   const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0 || channelFilter !== 'all';
 
@@ -789,124 +947,17 @@ export default function ContactsPage() {
               </TableRow>
             ) : (
               contacts.map((contact, index) => (
-                <TableRow
+                <ContactRow
                   key={contact.id}
-                  className={cn(
-                    "border-border hover:bg-muted/50 cursor-pointer",
-                    selected.has(contact.id) && "bg-muted/30"
-                  )}
-                  onClick={(e) => {
-                    toggleSelect(contact.id, index, e);
-                  }}
-                >
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id, index)}
-                      aria-label={`Select ${contact.name || contact.phone}`}
-                    />
-                  </TableCell>
-                  <TableCell
-                    className="text-foreground font-medium cursor-pointer"
-                    onClick={(e) => {
-                      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-                        openDetail(contact.id);
-                      }
-                    }}
-                  >
-                    {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
-                  </TableCell>
-                  <TableCell
-                    className="text-muted-foreground font-mono text-xs cursor-pointer"
-                    onClick={(e) => {
-                      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-                        openDetail(contact.id);
-                      }
-                    }}
-                  >
-                    {contact.phone}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
-                    {contact.email || <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
-                    {contact.company || <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {contact.tags && contact.tags.length > 0 ? (
-                        contact.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {tag.name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
-                      )}
-                      {contact.tags && contact.tags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          +{contact.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="bg-popover border-border"
-                      >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Pencil className="size-4" />
-                          {t('editAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          {t('deleteAction')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
+                  contact={contact}
+                  index={index}
+                  isSelected={selected.has(contact.id)}
+                  onToggle={toggleSelect}
+                  onOpenDetail={openDetail}
+                  onOpenEdit={openEditForm}
+                  onConfirmDelete={confirmDelete}
+                  t={t}
+                />
               ))
             )}
           </TableBody>
