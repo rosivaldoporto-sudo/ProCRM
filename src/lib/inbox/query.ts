@@ -3,12 +3,14 @@ import { CONVERSATION_SELECT, normalizeConversations } from './conversations';
 import type { Conversation, ConversationStatus } from '@/types';
 
 export const INBOX_PAGE_SIZE = 50;
+export type InboxSort = 'newest' | 'oldest';
 export interface InboxQuery {
   search: string;
   status: ConversationStatus | 'all' | 'unread' | 'awaitingReply';
   source: 'all' | 'whatsapp' | 'uazapi';
   tagIds: string[];
   company: string | null;
+  sort?: InboxSort;
 }
 
 // Quote PostgREST grammar and escape LIKE wildcards: user input is literal text.
@@ -70,8 +72,9 @@ export function buildInboxQuery(
         ? query.eq('last_message_sender_type', 'customer')
         : query.neq('status', 'closed');
   else if (filters.status !== 'all') query = query.eq('status', filters.status);
+  const oldestFirst = filters.sort === 'oldest';
   return query
-    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('last_message_at', { ascending: oldestFirst, nullsFirst: false })
     .order('id')
     .range(offset, offset + INBOX_PAGE_SIZE - 1);
 }

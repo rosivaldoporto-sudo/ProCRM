@@ -29,7 +29,7 @@ import {
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
-import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
+import { persistBroadcastMessageIfConversationExists } from '@/lib/whatsapp/broadcast-inbox';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -300,14 +300,10 @@ export async function deliverBroadcast(
     if (sentMessageId) {
       sentCount++;
 
-      // Persist conversation + message so the broadcast shows in the inbox
+      // Transmissão não cria conversa no inbox: a conversa nasce na
+      // resposta do cliente (webhook inbound). Se o número já tem
+      // conversa aberta, a mensagem aparece na thread existente.
       try {
-        const resolved = await resolveConversationByPhone(
-          db,
-          plan.accountId,
-          recipient.phone,
-        )
-
         // Render the template body with recipient's params
         const renderedBody = plan.templateRow?.body_text
           ? plan.templateRow.body_text.replace(/\{\{(\d+)\}\}/g, (_match: string, raw: string) => {
@@ -317,26 +313,13 @@ export async function deliverBroadcast(
             })
           : `[${plan.templateName}]`;
 
-        await db
-          .from('messages')
-          .insert({
-            conversation_id: resolved.conversationId,
-            sender_type: 'agent',
-            content_type: 'template',
-            content_text: renderedBody,
-            template_name: plan.templateName,
-            message_id: sentMessageId,
-            status: 'sent',
-            created_at: new Date().toISOString(),
-          })
-        await db
-          .from('conversations')
-          .update({
-            last_message_text: renderedBody,
-            last_message_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', resolved.conversationId)
+        await persistBroadcastMessageIfConversationExists(db, {
+          accountId: plan.accountId,
+          phone: recipient.phone,
+          renderedBody,
+          templateName: plan.templateName,
+          whatsappMessageId: sentMessageId,
+        })
       } catch (err) {
         console.error(
           `[broadcast-core] Failed to persist message for ${recipient.phone}:`,

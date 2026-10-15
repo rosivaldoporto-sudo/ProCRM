@@ -14,6 +14,8 @@ import {
   Plus,
   MessageSquare,
   Smartphone,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useTranslations } from 'next-intl';
@@ -58,6 +60,7 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 type InboxFilter = ConversationStatus | 'all' | 'unread' | 'awaitingReply';
 type SourceFilter = 'all' | 'whatsapp' | 'uazapi';
+type SortOrder = 'newest' | 'oldest';
 
 export function ConversationList({
   activeConversationId,
@@ -84,6 +87,7 @@ export function ConversationList({
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -107,6 +111,7 @@ export function ConversationList({
     sourceFilter,
     selectedTagIds,
     selectedCompany,
+    sortOrder,
   ]);
   const requestKey = queryKey + ':' + resyncToken;
   const offset = pageRequest.key === requestKey ? pageRequest.offset : 0;
@@ -144,6 +149,7 @@ export function ConversationList({
       SourceFilter,
       string[],
       string | null,
+      SortOrder?,
     ];
     const reset = offset === 0;
     // Defer state changes while still starting only one bounded request.
@@ -161,6 +167,7 @@ export function ConversationList({
             source: filters[2],
             tagIds: filters[3],
             company: filters[4],
+            sort: filters[5] ?? 'newest',
           },
           offset,
           controller.signal
@@ -324,7 +331,18 @@ export function ConversationList({
       result = result.filter((c) => resultIds.has(c.id));
     }
 
-    return result;
+    // Reaplica a ordenação no subconjunto carregado: eventos realtime
+    // (nova mensagem move a conversa para o topo) e filtros locais
+    // preservam a ordem do array, então ordenamos aqui por
+    // last_message_at conforme o modo escolhido.
+    const sorted = [...result].sort((a, b) => {
+      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      if (aTime === bTime) return a.id.localeCompare(b.id);
+      return sortOrder === 'oldest' ? aTime - bTime : bTime - aTime;
+    });
+
+    return sorted;
   }, [
     conversations,
     loadedKey,
@@ -334,6 +352,7 @@ export function ConversationList({
     sourceFilter,
     selectedTagIds,
     selectedCompany,
+    sortOrder,
     resultIds,
   ]);
 
@@ -470,6 +489,52 @@ export function ConversationList({
               </button>
             ))}
           </div>
+
+          {/* Sort order — newest / oldest by last message */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs"
+              aria-label={t('sortLabel')}
+              title={t('sortLabel')}
+            >
+              {sortOrder === 'newest' ? (
+                <ArrowDownWideNarrow className="h-3 w-3" />
+              ) : (
+                <ArrowUpNarrowWide className="h-3 w-3" />
+              )}
+              {sortOrder === 'newest' ? t('sortNewest') : t('sortOldest')}
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="border-border bg-popover"
+            >
+              <DropdownMenuItem
+                onClick={() => setSortOrder('newest')}
+                className={cn(
+                  'text-sm',
+                  sortOrder === 'newest'
+                    ? 'text-primary'
+                    : 'text-popover-foreground'
+                )}
+              >
+                <ArrowDownWideNarrow className="h-3 w-3" />
+                {t('sortNewest')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setSortOrder('oldest')}
+                className={cn(
+                  'text-sm',
+                  sortOrder === 'oldest'
+                    ? 'text-primary'
+                    : 'text-popover-foreground'
+                )}
+              >
+                <ArrowUpNarrowWide className="h-3 w-3" />
+                {t('sortOldest')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {tags.length > 0 && (
             <DropdownMenu>
