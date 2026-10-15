@@ -11,6 +11,10 @@ import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
 
+// Remembers the agent's sidebar preference (expanded vs icons-only)
+// across reloads and sessions (device-scoped, like the theme prefs).
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "wacrm:sidebar-collapsed";
+
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -19,6 +23,32 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   // always visible and this stays at `false` (ignored by the component).
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  // Desktop icon-only sidebar. Defaults to expanded; restored from
+  // localStorage after mount (not in the initializer, to avoid a
+  // server/client hydration mismatch).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSidebarCollapsed(true);
+      }
+    } catch {
+      // Persistence is best-effort; ignore storage failures.
+    }
+  }, []);
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
+      } catch {
+        // Persistence is best-effort; ignore storage failures.
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -44,7 +74,12 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={closeSidebar}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapsed}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
