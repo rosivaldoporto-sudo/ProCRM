@@ -53,6 +53,8 @@ import {
   List,
   Tag,
   Tags,
+  MessageSquare,
+  Smartphone,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -83,6 +85,11 @@ export default function ContactsPage() {
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // Channel filter — 'whatsapp' = API oficial, 'uazapi' = UZ API.
+  // Contato entra quando tem conversa OU mensagem do canal (cobre
+  // mistas com conversations.source NULL e linhas legadas).
+  type ChannelFilter = 'all' | 'whatsapp' | 'uazapi';
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -141,16 +148,16 @@ export default function ContactsPage() {
     let contactRows: Contact[];
     let count: number;
 
-    if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
+    if (selectedTagIds.length > 0 || channelFilter !== 'all') {
+      // Tag e/ou canal ativos — resolve server-side (join + distinct +
+      // total + paginação) para não truncar nem estourar IN clause.
+      // Ver migrations 025 e 056.
       const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
         p_tag_ids: selectedTagIds,
         p_search: term || null,
         p_limit: pageSize,
         p_offset: from,
+        p_source: channelFilter === 'all' ? null : channelFilter,
       });
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
@@ -215,7 +222,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, pageSize, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, pageSize, search, selectedTagIds, channelFilter, tagsMap, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -362,7 +369,7 @@ export default function ContactsPage() {
   const allTags = Object.values(tagsMap).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
-  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
+  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0 || channelFilter !== 'all';
 
   function toggleTagFilter(tagId: string) {
     setSelectedTagIds((prev) =>
@@ -375,6 +382,11 @@ export default function ContactsPage() {
 
   function clearTagFilters() {
     setSelectedTagIds([]);
+    setPage(0);
+  }
+
+  function selectChannel(value: ChannelFilter) {
+    setChannelFilter(value);
     setPage(0);
   }
 
@@ -509,11 +521,62 @@ export default function ContactsPage() {
               )}
             </PopoverContent>
           </Popover>
+
+          {/* Channel filter — Todos / API oficial (WA) / UZ API */}
+          <div
+            className="flex items-center gap-1"
+            role="group"
+            aria-label={t('channelFilter')}
+          >
+            {(
+              [
+                { value: 'all' as const, label: t('channelAll'), icon: null },
+                {
+                  value: 'whatsapp' as const,
+                  label: t('channelOfficial'),
+                  icon: MessageSquare,
+                },
+                {
+                  value: 'uazapi' as const,
+                  label: t('channelUazapi'),
+                  icon: Smartphone,
+                },
+              ] as const
+            ).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => selectChannel(value)}
+                className={cn(
+                  'inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm transition-colors border',
+                  channelFilter === value
+                    ? 'bg-primary/10 text-primary border-primary/30'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'
+                )}
+              >
+                {Icon && <Icon className="size-4" />}
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Active tag-filter chips */}
-        {selectedTagIds.length > 0 && (
+        {/* Active tag/channel-filter chips */}
+        {(selectedTagIds.length > 0 || channelFilter !== 'all') && (
           <div className="flex flex-wrap items-center gap-1.5">
+            {channelFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                {channelFilter === 'whatsapp'
+                  ? t('channelOfficial')
+                  : t('channelUazapi')}
+                <button
+                  onClick={() => selectChannel('all')}
+                  aria-label={t('clearAll')}
+                  className="hover:opacity-70"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
             {selectedTagIds.map((id) => {
               const tag = tagsMap[id];
               if (!tag) return null;
@@ -538,7 +601,10 @@ export default function ContactsPage() {
               );
             })}
             <button
-              onClick={clearTagFilters}
+              onClick={() => {
+                clearTagFilters();
+                setChannelFilter('all');
+              }}
               className="text-xs text-muted-foreground hover:text-foreground px-1"
             >
               {t('clearAll')}

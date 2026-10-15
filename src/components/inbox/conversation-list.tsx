@@ -50,6 +50,13 @@ interface ConversationListProps {
    */
   resyncToken?: number;
   onConversationCreated?: (conversationId: string) => void;
+  /**
+   * Recebe a lista visível (filtros + ordenação aplicados) sempre que
+   * ela muda. O pai guarda em ref (sem re-render) para saber qual é a
+   * "próxima conversa" ao fechar a atual — a lista crua não reflete
+   * busca/filtros/ordenação.
+   */
+  onVisibleConversationsChange?: (conversations: Conversation[]) => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -69,6 +76,7 @@ export function ConversationList({
   onConversationsLoaded,
   resyncToken = 0,
   onConversationCreated,
+  onVisibleConversationsChange,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
 
@@ -366,6 +374,11 @@ export function ConversationList({
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
     );
   }, []);
+
+  // Publica a ordem visível ao pai (guardada em ref, sem re-render).
+  useEffect(() => {
+    onVisibleConversationsChange?.(filtered);
+  }, [filtered, onVisibleConversationsChange]);
 
   const clearContactFilters = useCallback(() => {
     setSelectedTagIds([]);

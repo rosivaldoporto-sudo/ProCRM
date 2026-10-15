@@ -125,6 +125,19 @@ function InboxPageInner() {
     knownConvIdsRef.current = next;
   }, [conversations]);
 
+  /**
+   * Ordem visível da lista (filtros + ordenação aplicados), publicada
+   * pelo ConversationList e guardada em ref. Usada para avançar à
+   * próxima conversa ao fechar a atual.
+   */
+  const visibleConvsRef = useRef<Conversation[]>([]);
+  const handleVisibleConversationsChange = useCallback(
+    (convs: Conversation[]) => {
+      visibleConvsRef.current = convs;
+    },
+    []
+  );
+
   // Pull the conversation row with its `contact` joined and merge it
   // into state. Needed because Supabase Realtime payloads only carry the
   // row's own columns — a brand-new conversation arrives without a
@@ -598,11 +611,51 @@ function InboxPageInner() {
       setConversations((prev) =>
         prev.map((c) => (c.id === conversationId ? { ...c, status } : c))
       );
-      if (activeConversation?.id === conversationId) {
-        setActiveConversation((prev) => (prev ? { ...prev, status } : prev));
+      if (activeConversation?.id !== conversationId) return;
+      setActiveConversation((prev) => (prev ? { ...prev, status } : prev));
+      if (status !== 'closed') return;
+      // A conversa fechada sai da lista (exceto no filtro "Fechadas"):
+      // avança para a próxima visível para o agente não ficar parado
+      // numa thread que sumiu da lista. Sem próxima, volta para a lista.
+      const visible = visibleConvsRef.current;
+      let next: Conversation | null = null;
+      if (visible.length > 0) {
+        const idx = visible.findIndex((c) => c.id === conversationId);
+        const ordered =
+          idx >= 0
+            ? [...visible.slice(idx + 1), ...visible.slice(0, idx)]
+            : visible;
+        next = ordered.find((c) => c.id !== conversationId) ?? null;
+      } else {
+        next =
+          conversations.find(
+            (c) => c.id !== conversationId && c.status !== 'closed'
+          ) ?? null;
       }
+      if (!next) {
+        setActiveConversation(null);
+        setActiveContact(null);
+        setMessages([]);
+        autoSelectedForDeepLinkRef.current = null;
+        router.replace('/inbox', { scroll: false });
+        return;
+      }
+      setActiveConversation(next);
+      setActiveContact(next.contact ?? null);
+      setMessages([]);
+      // Mesma baixa otimista do clique na lista: zera o badge sem
+      // esperar o round-trip do servidor.
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === next.id && c.unread_count > 0
+            ? { ...c, unread_count: 0 }
+            : c
+        )
+      );
+      autoSelectedForDeepLinkRef.current = next.id;
+      router.replace(`/inbox?c=${next.id}`, { scroll: false });
     },
-    [activeConversation]
+    [activeConversation?.id, conversations, router]
   );
 
   const handleAssignChange = useCallback(
@@ -681,6 +734,7 @@ function InboxPageInner() {
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
             onConversationCreated={handleNewConversation}
+            onVisibleConversationsChange={handleVisibleConversationsChange}
           />
         </div>
 
