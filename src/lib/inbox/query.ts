@@ -65,13 +65,15 @@ export function buildInboxQuery(
       .not('contact', 'is', null)
       .eq('contact.company', filters.company);
   }
-  if (filters.status === 'unread') query = query.gt('unread_count', 0);
+  if (filters.status === 'unread')
+    query = query.gt('unread_count', 0).neq('status', 'closed');
   else if (filters.status === 'awaitingReply')
     query =
       table === 'inbox_conversations'
-        ? query.eq('last_message_sender_type', 'customer')
+        ? query.eq('last_message_sender_type', 'customer').neq('status', 'closed')
         : query.neq('status', 'closed');
-  else if (filters.status !== 'all') query = query.eq('status', filters.status);
+  else if (filters.status === 'all') query = query.neq('status', 'closed');
+  else query = query.eq('status', filters.status);
   const oldestFirst = filters.sort === 'oldest';
   return query
     .order('last_message_at', { ascending: oldestFirst, nullsFirst: false })

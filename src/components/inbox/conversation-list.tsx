@@ -294,7 +294,7 @@ export function ConversationList({
     let result = loadedKey === queryKey ? conversations : [];
 
     if (filter === 'unread') {
-      result = result.filter((c) => c.unread_count > 0);
+      result = result.filter((c) => c.unread_count > 0 && c.status !== 'closed');
     } else if (filter === 'awaitingReply') {
       // Filter for conversations where the last message was from the
       // customer. If last_message_sender_type is available (from the
@@ -302,6 +302,7 @@ export function ConversationList({
       // to checking if the conversation has a last_message_at timestamp
       // and is not assigned to an agent (heuristic).
       result = result.filter((c) => {
+        if (c.status === 'closed') return false;
         // Primary: use the view-provided field if available
         if (c.last_message_sender_type !== undefined) {
           return c.last_message_sender_type === 'customer';
@@ -309,9 +310,13 @@ export function ConversationList({
         // Fallback: if the view doesn't exist, we can't determine this
         // reliably, so show all non-closed conversations as potentially
         // awaiting reply (the user will see the last message in the preview).
-        return c.status !== 'closed';
+        return true;
       });
-    } else if (filter !== 'all') {
+    } else if (filter === 'all') {
+      // "Todas" = todas exceto fechadas. Fechadas só aparecem no
+      // filtro explícito "closed".
+      result = result.filter((c) => c.status !== 'closed');
+    } else {
       result = result.filter((c) => c.status === filter);
     }
 
