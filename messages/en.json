@@ -253,7 +253,8 @@
       "micNoDevice": "No microphone was found on this device.",
       "micInUse": "The microphone is in use by another app. Close it and try again.",
       "micInsecure": "Voice recording needs a secure connection (HTTPS or localhost).",
-      "micUnavailable": "Microphone unavailable. Check the device microphone and try again."
+      "micUnavailable": "Microphone unavailable. Check the device microphone and try again.",
+      "micEncoderError": "Voice encoder failed to load. Reload the page and try again."
     },
     "bubble": {
       "photo": "Photo",

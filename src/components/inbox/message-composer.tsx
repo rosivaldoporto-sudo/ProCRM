@@ -468,6 +468,33 @@ export function MessageComposer({
       toast.error(t("micInsecure"));
       return;
     }
+    // The Ogg/Opus worklet must load from /public BEFORE touching the
+    // mic: if it 404s (subpath deploy, stale production build), the
+    // AudioWorklet import rejects and start() fails with an error that
+    // looks exactly like a microphone failure.
+    try {
+      const probe = await fetch(OPUS_ENCODER_PATH, { method: "HEAD" });
+      if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+    } catch {
+      toast.error(t("micEncoderError"));
+      return;
+    }
+    // A denial clicked in the past persists per-origin: every future
+    // start() rejects instantly with NotAllowedError and no prompt, so
+    // "it worked before" + "works in Meet" (different origin) fits.
+    // Detect it up front so the message says where to unblock.
+    try {
+      const status = await navigator.permissions?.query?.({
+        name: "microphone" as PermissionName,
+      });
+      if (status?.state === "denied") {
+        toast.error(t("micDenied"));
+        return;
+      }
+    } catch {
+      // Permissions API missing (Firefox/Safari) — proceed; the
+      // getUserMedia inside start() surfaces the real error.
+    }
     // No input hardware at all (typical on desktops without a mic):
     // fail fast with a clear message instead of a generic denial.
     // `kind` is exposed even before permission, so this check is safe.
@@ -479,7 +506,7 @@ export function MessageComposer({
       }
     } catch {
       // enumerateDevices failing must not block recording — the
-      // getUserMedia inside recorder.start() surfaces the real error.
+      // getUserMedia inside start() surfaces the real error.
     }
     try {
       // Lazy-load the encoder (≈400 KB worker) only when the user records,

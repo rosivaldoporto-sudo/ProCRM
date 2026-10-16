@@ -253,7 +253,8 @@
       "micNoDevice": "Nenhum microfone encontrado neste dispositivo.",
       "micInUse": "O microfone está em uso por outro app. Feche-o e tente de novo.",
       "micInsecure": "Gravação de voz exige conexão segura (HTTPS ou localhost).",
-      "micUnavailable": "Microfone indisponível. Verifique o microfone do dispositivo e tente de novo."
+      "micUnavailable": "Microfone indisponível. Verifique o microfone do dispositivo e tente de novo.",
+      "micEncoderError": "Codificador de voz falhou ao carregar. Recarregue a página e tente de novo."
     },
     "bubble": {
       "photo": "Foto",
