@@ -55,11 +55,11 @@ export function QuickReplyPicker({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:w-full max-sm:max-w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:pb-[env(safe-area-inset-bottom)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("quickReplies")}</DialogTitle>
         </DialogHeader>
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60dvh] overflow-y-auto overscroll-contain sm:max-h-[60vh]">
           {loading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -75,7 +75,7 @@ export function QuickReplyPicker({
                   <button
                     type="button"
                     onClick={() => onPick(qr)}
-                    className="flex w-full items-start gap-2 rounded-md border border-border bg-muted/40 p-2.5 text-left hover:border-primary/50 hover:bg-muted"
+                    className="flex min-h-[56px] w-full items-center gap-3 rounded-md border border-border bg-muted/40 p-3 text-left active:bg-muted hover:border-primary/50 hover:bg-muted"
                   >
                     {qr.kind === "interactive" ? (
                       <Zap className="mt-0.5 h-4 w-4 shrink-0 text-primary" />

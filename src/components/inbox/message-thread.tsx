@@ -20,6 +20,7 @@ import type {
 import {
   MessageSquare,
   ChevronDown,
+  ArrowDown,
   UserPlus,
   Check,
   Clock,
@@ -38,7 +39,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ContactSidebar } from './contact-sidebar';
 import { MessageBubble } from './message-bubble';
 import { MessageActions } from './message-actions';
 import {
@@ -477,13 +484,50 @@ export function MessageThread({
       });
   }, [conversationId, hasUnread]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages — but only when the agent
+  // is already near the bottom. Yanking a user who scrolled up to read
+  // history back down on every inbound message is the classic mobile
+  // chat annoyance; the scroll-to-bottom FAB (below) covers the rest.
+  const [showScrollFab, setShowScrollFab] = useState(false);
   useEffect(() => {
-    if (scrollRef.current) {
-      const el = scrollRef.current;
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    if (nearBottom) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
+  // First open: always land on the latest message.
+  useEffect(() => {
+    setShowScrollFab(false);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  const handleThreadScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setShowScrollFab(el.scrollHeight - el.scrollTop - el.clientHeight > 240);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    setShowScrollFab(false);
+  }, []);
+
+  // Mobile contact sheet — the right-rail ContactSidebar never renders
+  // below lg, so tapping the thread header's avatar/name opens the same
+  // panel as a bottom sheet instead.
+  const [contactSheetOpen, setContactSheetOpen] = useState(false);
+  const openContactSheet = useCallback(() => {
+    // Desktop already shows the sidebar; the sheet is mobile-only.
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) return;
+    setContactSheetOpen(true);
+  }, []);
 
   const handleSend = useCallback(
     async (text: string, replyToId?: string) => {
@@ -931,47 +975,69 @@ export function MessageThread({
     <div className={cn('flex min-w-0 flex-1 flex-col', DOODLE_BG_CLASSES)}>
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
-      <div className="border-border bg-card flex items-center justify-between gap-2 border-b px-3 py-3 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="flex min-h-[60px] items-center justify-between gap-1 border-b border-border bg-card px-2 py-2 sm:gap-2 sm:px-4 sm:py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
-              conversation list is always visible next to the thread. */}
+              conversation list is always visible next to the thread.
+              44px hit target per Apple HIG. */}
           {onBack && (
             <button
               type="button"
               onClick={onBack}
               aria-label={t('backToConversations')}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md lg:hidden"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted lg:hidden"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="bg-muted text-foreground flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-medium">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-foreground truncate text-sm font-semibold">
-              {displayName}
-            </h2>
-            <div className="flex items-center gap-1.5">
-              <p className="text-muted-foreground truncate text-xs">
-                {contact.phone}
-              </p>
-              {/* Channel indicator — click to toggle between WhatsApp / Uazapi */}
-              <button
-                type="button"
-                onClick={toggleChannel}
-                title={`Sending via ${effectiveChannel === 'uazapi' ? 'Uazapi' : 'WhatsApp'} — click to switch`}
-                className={cn(
-                  'inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors',
-                  effectiveChannel === 'uazapi'
-                    ? 'bg-violet-500/10 text-violet-400 hover:bg-violet-500/20'
-                    : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                )}
-              >
-                {effectiveChannel === 'uazapi' ? 'UZ' : 'WA'}
-              </button>
-            </div>
-          </div>
+          {/* Avatar + name double as the contact-sheet trigger on mobile,
+              where the right-rail sidebar never renders. Desktop keeps
+              the static display (sidebar is already visible / toggleable). */}
+          <button
+            type="button"
+            onClick={openContactSheet}
+            aria-label={t('viewContact')}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left active:bg-muted sm:gap-3 lg:cursor-default lg:active:bg-transparent"
+          >
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+              {displayName.charAt(0).toUpperCase()}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold text-foreground">
+                {displayName}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-xs text-muted-foreground">
+                  {contact.phone}
+                </span>
+                {/* Channel indicator — click to toggle between WhatsApp / Uazapi */}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleChannel();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      toggleChannel();
+                    }
+                  }}
+                  title={`Sending via ${effectiveChannel === 'uazapi' ? 'Uazapi' : 'WhatsApp'} — click to switch`}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors',
+                    effectiveChannel === 'uazapi'
+                      ? 'bg-violet-500/10 text-violet-400 hover:bg-violet-500/20'
+                      : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                  )}
+                >
+                  {effectiveChannel === 'uazapi' ? 'UZ' : 'WA'}
+                </span>
+              </span>
+            </span>
+          </button>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
           <Badge
@@ -992,7 +1058,7 @@ export function MessageThread({
           </Badge>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-2">
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
@@ -1033,7 +1099,7 @@ export function MessageThread({
               aria-label={t('refreshConversation')}
               title={t('refresh')}
               className={cn(
-                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-60'
+                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors disabled:opacity-60 sm:h-7 sm:w-7'
               )}
             >
               <RefreshCw
@@ -1046,7 +1112,7 @@ export function MessageThread({
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                'hover:bg-muted inline-flex h-9 items-center justify-center gap-1 rounded-md px-2 text-xs sm:h-7',
                 currentStatus?.color ?? 'text-muted-foreground'
               )}
             >
@@ -1073,11 +1139,11 @@ export function MessageThread({
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                'hover:bg-muted inline-flex h-9 items-center justify-center gap-1 rounded-md px-2 text-xs sm:h-7',
                 assignedAgentId ? 'text-primary' : 'text-muted-foreground'
               )}
             >
-              <UserPlus className="h-3 w-3" />
+              <UserPlus className="h-4 w-4 sm:h-3 sm:w-3" />
               <span className="hidden sm:inline">{assignLabel}</span>
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -1140,7 +1206,12 @@ export function MessageThread({
       </div>
 
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={handleThreadScroll}
+          className="flex-1 touch-pan-y overscroll-contain overflow-y-auto px-3 py-4 sm:px-4"
+        >
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -1215,6 +1286,19 @@ export function MessageThread({
             ))}
           </div>
         )}
+        </div>
+        {/* Scroll-to-bottom FAB — appears when the agent scrolled up;
+            standard chat-app pattern for long threads. */}
+        {showScrollFab && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label={t('scrollToBottom')}
+            className="absolute bottom-4 left-1/2 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg active:bg-muted"
+          >
+            <ArrowDown className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       {/* AI auto-reply banner — take over an active bot, or resume it
@@ -1250,6 +1334,23 @@ export function MessageThread({
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
       />
+
+      {/* Mobile contact sheet — bottom-sheet presentation of the same
+          panel desktop renders as a right rail. */}
+      <Dialog open={contactSheetOpen} onOpenChange={setContactSheetOpen}>
+        <DialogContent className="max-h-[85dvh] overflow-hidden border-border bg-card p-0 max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:w-full max-sm:max-w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl sm:max-w-md">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{displayName}</DialogTitle>
+          </DialogHeader>
+          {/* Drag handle */}
+          <div className="flex shrink-0 justify-center pt-2.5 sm:hidden" aria-hidden>
+            <span className="h-1 w-10 rounded-full bg-muted-foreground/40" />
+          </div>
+          <div className="min-h-0 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+            <ContactSidebar contact={contact} className="h-auto w-full border-l-0" />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

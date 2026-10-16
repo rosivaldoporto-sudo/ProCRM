@@ -30,6 +30,9 @@ import { useTranslations } from "next-intl";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  /** Extra classes merged into the root (e.g. the mobile bottom sheet
+      renders full-width without the desktop rail border). */
+  className?: string;
 }
 
 // Mirrors SPEC_DEFAULT_STAGES in the Pipelines page — used to seed a
@@ -43,7 +46,7 @@ const SIDEBAR_DEFAULT_STAGES = [
   { name: "Won", color: "#22c55e", position: 4 },
 ];
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, className }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
@@ -379,7 +382,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   if (!contact) {
     return (
-      <div className="flex h-full w-70 items-center justify-center border-l border-border bg-card">
+      <div className={cn("flex h-full w-70 items-center justify-center border-l border-border bg-card", className)}>
         <p className="text-sm text-muted-foreground">{tThread("selectConversation")}</p>
       </div>
     );
@@ -389,7 +392,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const initials = displayName.charAt(0).toUpperCase();
 
   return (
-    <div className="flex h-full w-70 flex-col border-l border-border bg-card">
+    <div className={cn("flex h-full w-70 flex-col border-l border-border bg-card", className)}>
       <ScrollArea className="flex-1">
         <div className="p-4">
           {/* Contact Info */}

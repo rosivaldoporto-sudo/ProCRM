@@ -185,7 +185,9 @@
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "scrollToBottom": "Scroll to latest messages",
+      "viewContact": "View contact info"
     },
     "newConversation": {
       "title": "New conversation",

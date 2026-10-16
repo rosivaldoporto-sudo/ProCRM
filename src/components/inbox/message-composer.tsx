@@ -539,7 +539,7 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-t border-border bg-card p-3">
+    <div className="border-t border-border bg-card p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:p-3 sm:pb-3">
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
@@ -654,7 +654,8 @@ export function MessageComposer({
                     ? undefined
                     : t("attachMedia")
               }
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={t("attachMedia")}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -698,7 +699,8 @@ export function MessageComposer({
                     ? undefined
                     : t("moreActions")
               }
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={t("moreActions")}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
             >
               <Plus className="h-4 w-4" />
             </DropdownMenuTrigger>
@@ -711,6 +713,23 @@ export function MessageComposer({
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
               </DropdownMenuItem>
+              {/* Template + AI actions live here on mobile, where the
+                  standalone icon buttons are hidden to keep the row
+                  compact. Harmless duplication on desktop. */}
+              <DropdownMenuItem
+                onClick={onOpenTemplates}
+                className="sm:hidden"
+              >
+                <LayoutTemplate className="mr-2 h-4 w-4" />
+                {t("sendTemplate")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleDraft}
+                className="sm:hidden"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {t("draftWithAI")}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -720,7 +739,7 @@ export function MessageComposer({
             canAct={!readOnly}
             gateReason="send messages"
             title={readOnly ? undefined : t("sendTemplate")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+            className="hidden h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground sm:inline-flex"
             onClick={onOpenTemplates}
           >
             <LayoutTemplate className="h-4 w-4" />
@@ -733,7 +752,7 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={drafting}
             title={readOnly ? undefined : t("draftWithAI")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary"
+            className="hidden h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary sm:inline-flex"
             onClick={handleDraft}
           >
             {drafting ? (
@@ -762,7 +781,9 @@ export function MessageComposer({
             // The placeholder text also surfaces the read-only state.
             title={readOnly ? t("readOnlyTitle") : undefined}
             className={cn(
-              "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
+              // 16px on mobile prevents the iOS Safari auto-zoom on focus;
+              // desktop keeps the denser 14px.
+              "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-base text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 sm:text-sm",
               (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
             )}
           />
@@ -773,29 +794,31 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={!text.trim() || sessionExpired || sending}
             onClick={handleSend}
-            className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
+            aria-label={t("send")}
+            className="h-11 w-11 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40 sm:h-9 sm:w-9"
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-5 w-5 sm:h-4 sm:w-4" />
           </GatedButton>
         </div>
       )}
 
       {/* Hint sits outside the flex row so its height doesn't push
           `items-end` buttons below the textarea. Indented to line up
-          under the textarea left edge. */}
+          under the textarea left edge. Hidden on mobile to save
+          vertical space above the keyboard. */}
       {!draft && !recording && (
-        <p className="mt-1 pl-[5.5rem] text-[10px] text-muted-foreground">
+        <p className="mt-1 hidden pl-[5.5rem] text-[10px] text-muted-foreground sm:block">
           {t("draftHint")}
         </p>
       )}
 
-      {/* Interactive-message builder dialog. */}
+      {/* Interactive-message builder dialog. Bottom sheet on mobile. */}
       <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:w-full max-sm:max-w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:pb-[env(safe-area-inset-bottom)] sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("interactiveMessage")}</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[70vh] overflow-y-auto">
+          <div className="max-h-[60dvh] overflow-y-auto overscroll-contain sm:max-h-[70vh]">
             <InteractiveBuilder
               value={interactivePayload}
               onChange={setInteractivePayload}

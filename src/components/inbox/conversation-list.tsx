@@ -417,8 +417,8 @@ export function ConversationList({
         onConversationCreated={(id) => onConversationCreated?.(id)}
       />
 
-      {/* Search + Filter */}
-      <div className="border-border space-y-2 border-b p-3">
+      {/* Search + Filter — sticky so it stays reachable on long lists. */}
+      <div className="border-border space-y-2 border-b bg-card p-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
@@ -426,23 +426,28 @@ export function ConversationList({
               value={search}
               onChange={handleSearchChange}
               placeholder={t('searchPlaceholder')}
-              className="border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 pl-9 text-sm"
+              enterKeyHint="search"
+              autoComplete="off"
+              className="border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 h-11 pl-9 text-base sm:h-9 sm:text-sm"
             />
           </div>
           <Button
             size="icon"
             variant="ghost"
             onClick={() => setNewConvOpen(true)}
-            className="text-muted-foreground hover:text-foreground hover:bg-muted h-9 w-9 shrink-0"
+            className="text-muted-foreground hover:text-foreground hover:bg-muted h-11 w-11 shrink-0 sm:h-9 sm:w-9"
             title="New conversation"
+            aria-label="New conversation"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
+        {/* Filter rail — single horizontal scroll row on mobile so the
+            list starts higher; wraps on desktop where width allows. */}
+        <div className="no-scrollbar -mx-3 flex items-center gap-1 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
           <DropdownMenu>
-            <DropdownMenuTrigger className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs">
+            <DropdownMenuTrigger className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs sm:h-7 sm:px-2">
               {activeFilter?.label ?? t('filterAll')}
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -496,7 +501,7 @@ export function ConversationList({
                 key={value}
                 onClick={() => setSourceFilter(value)}
                 className={cn(
-                  'inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs transition-colors',
+                  'inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs transition-colors sm:h-7 sm:px-2',
                   sourceFilter === value
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -511,7 +516,7 @@ export function ConversationList({
           {/* Sort order — newest / oldest by last message */}
           <DropdownMenu>
             <DropdownMenuTrigger
-              className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs sm:h-7 sm:px-2"
               aria-label={t('sortLabel')}
               title={t('sortLabel')}
             >
@@ -558,7 +563,7 @@ export function ConversationList({
             <DropdownMenu>
               <DropdownMenuTrigger
                 className={cn(
-                  'hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                  'hover:bg-muted inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs sm:h-7 sm:px-2',
                   selectedTagIds.length > 0
                     ? 'text-primary'
                     : 'text-muted-foreground hover:text-foreground'
@@ -603,7 +608,7 @@ export function ConversationList({
           >
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-7 max-w-40 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                'hover:bg-muted inline-flex h-9 max-w-40 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs sm:h-7 sm:px-2',
                 selectedCompany
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
@@ -698,7 +703,7 @@ export function ConversationList({
           every conversation instead of shrinking to the remaining
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1 overscroll-contain">
         {loading && offset === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -786,18 +791,18 @@ function ConversationItem({
     <button
       onClick={handleClick}
       className={cn(
-        'hover:bg-muted/50 flex w-full items-start gap-3 px-3 py-3 text-left transition-colors',
+        'hover:bg-muted/50 flex min-h-[68px] w-full items-start gap-3 px-4 py-3.5 text-left transition-colors active:bg-muted sm:px-3 sm:py-3',
         isActive && 'border-primary bg-muted/70 border-l-2'
       )}
     >
       {/* Avatar */}
-      <div className="bg-muted text-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-medium">
+      <div className="bg-muted text-foreground flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-medium sm:h-10 sm:w-10">
         {contact?.avatar_url ? (
           <img
             src={contact.avatar_url}
             alt={displayName}
             loading="lazy"
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-11 w-11 rounded-full object-cover sm:h-10 sm:w-10"
           />
         ) : (
           initials

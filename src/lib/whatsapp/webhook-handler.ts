@@ -898,6 +898,12 @@ async function processMessage(
     unread_count: (conversation.unread_count || 0) + 1,
     updated_at: new Date().toISOString(),
   };
+  // A customer reply reopens a closed conversation so it resurfaces in
+  // the agent's open queue instead of staying archived. Mirrors the
+  // Uazapi webhook, which already forces `status: 'open'` on inbound.
+  if (conversation.status === 'closed') {
+    convUpdate.status = 'open';
+  }
   if (
     !convResult.created &&
     conversation.source &&

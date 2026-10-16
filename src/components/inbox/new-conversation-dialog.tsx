@@ -130,7 +130,7 @@ export function NewConversationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-border bg-popover sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="border-border bg-popover max-h-[90vh] overflow-y-auto overscroll-contain max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:w-full max-sm:max-w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:pb-[env(safe-area-inset-bottom)] max-sm:max-h-[92dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">{t('title')}</DialogTitle>
           <DialogDescription className="text-muted-foreground">

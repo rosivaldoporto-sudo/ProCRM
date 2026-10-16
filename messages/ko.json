@@ -203,7 +203,9 @@
       "selectConversation": "대화를 선택하세요",
       "selectConversationHint": "왼쪽에서 대화를 선택해 메시지를 시작하세요",
       "today": "오늘",
-      "yesterday": "어제"
+      "yesterday": "어제",
+      "scrollToBottom": "최신 메시지로 스크롤",
+      "viewContact": "연락처 정보 보기"
     },
     "sessionTimer": {
       "expired": "만료됨",

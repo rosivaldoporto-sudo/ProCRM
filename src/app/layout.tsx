@@ -42,6 +42,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Cover the full display (notch / gesture bar areas) — components
+  // pad with env(safe-area-inset-*) where content meets the edges.
+  viewportFit: "cover",
+  // On Chrome/Android the keyboard resizes the layout instead of
+  // overlaying it, so the inbox composer stays visible while typing.
+  interactiveWidget: "resizes-content",
   themeColor: "#020617",
   colorScheme: "dark light",
 };

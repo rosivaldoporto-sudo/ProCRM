@@ -223,8 +223,28 @@ html[data-theme="rose"] {
   }
   body {
     @apply bg-background text-foreground;
+    /* iOS rubber-banding + stray horizontal drift on chat scrolls. */
+    overscroll-behavior-y: none;
   }
   html {
     @apply font-sans;
+    /* Remove the 300ms tap delay on buttons/links (modern browsers
+       mostly handle this via viewport, but explicit is bulletproof). */
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+}
+
+/* Horizontal chip rails (inbox filters) — scrollable without a
+   visible scrollbar, same treatment iOS/Android apps use. */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
