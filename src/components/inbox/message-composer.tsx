@@ -454,8 +454,32 @@ export function MessageComposer({
   const startRecording = useCallback(async () => {
     if (inputsDisabled || busy || recording) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
-      toast.error("Voice recording isn't supported in this browser.");
+      // `getUserMedia` is stripped on insecure origins (plain HTTP over
+      // LAN) — calling it "unsupported" alone sends users hunting for a
+      // new browser when the real fix is HTTPS/localhost.
+      toast.error(
+        typeof window !== "undefined" && window.isSecureContext === false
+          ? t("micInsecure")
+          : t("micUnsupported"),
+      );
       return;
+    }
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      toast.error(t("micInsecure"));
+      return;
+    }
+    // No input hardware at all (typical on desktops without a mic):
+    // fail fast with a clear message instead of a generic denial.
+    // `kind` is exposed even before permission, so this check is safe.
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (!devices.some((d) => d.kind === "audioinput")) {
+        toast.error(t("micNoDevice"));
+        return;
+      }
+    } catch {
+      // enumerateDevices failing must not block recording — the
+      // getUserMedia inside recorder.start() surfaces the real error.
     }
     try {
       // Lazy-load the encoder (≈400 KB worker) only when the user records,
@@ -478,12 +502,36 @@ export function MessageComposer({
       setRecording(true);
       setRecordSeconds(0);
       timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
-    } catch {
+    } catch (err) {
+      // Never swallow the raw error: the name (NotAllowedError vs
+      // NotFoundError vs SecurityError) is the only thing that tells
+      // apart "blocked in settings", "no hardware", and "needs HTTPS".
+      console.error("[composer] recorder.start() failed:", err);
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error("Microphone access denied or unavailable.");
+      const name =
+        err instanceof DOMException || err instanceof Error ? err.name : "";
+      switch (name) {
+        case "NotAllowedError":
+        case "PermissionDeniedError":
+          toast.error(t("micDenied"));
+          break;
+        case "NotFoundError":
+        case "OverconstrainedError":
+          toast.error(t("micNoDevice"));
+          break;
+        case "NotReadableError":
+        case "AbortError":
+          toast.error(t("micInUse"));
+          break;
+        case "SecurityError":
+          toast.error(t("micInsecure"));
+          break;
+        default:
+          toast.error(t("micUnavailable"));
+      }
     }
-  }, [inputsDisabled, busy, recording, finalizeRecording]);
+  }, [inputsDisabled, busy, recording, finalizeRecording, t]);
 
   const stopRecording = useCallback(() => {
     clearTimer();

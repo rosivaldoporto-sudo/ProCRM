@@ -16,6 +16,9 @@ import {
   Smartphone,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  RefreshCw,
+  ArrowDown,
+  Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useTranslations } from 'next-intl';
@@ -57,6 +60,14 @@ interface ConversationListProps {
    * busca/filtros/ordenação.
    */
   onVisibleConversationsChange?: (conversations: Conversation[]) => void;
+  /**
+   * Manual refresh (pull-to-refresh + header button). O pai normalmente
+   * conecta no mesmo `resyncToken` do reconnect/visibilidade, então o
+   * gesto passa pelo refetch existente — essencial no atalho de tela
+   * inicial do iPhone (modo standalone), onde não há barra de endereço
+   * nem pull-to-refresh nativo para recarregar.
+   */
+  onRefresh?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -77,6 +88,7 @@ export function ConversationList({
   resyncToken = 0,
   onConversationCreated,
   onVisibleConversationsChange,
+  onRefresh,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
 
@@ -405,6 +417,59 @@ export function ConversationList({
   const [newConvOpen, setNewConvOpen] = useState(false);
   const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
 
+  // ---- Pull-to-refresh (modo standalone / telas touch) --------------
+  // No atalho de tela inicial do iPhone não há pull-to-refresh nativo
+  // nem barra de endereço — este gesto customizado é a forma de
+  // recarregar. Só arma quando a lista está no topo (scrollTop <= 0);
+  // qualquer scroll no meio da lista continua normal.
+  const PULL_THRESHOLD = 72;
+  const PULL_MAX = 110;
+  const listScrollHostRef = useRef<HTMLDivElement>(null);
+  const pullStartYRef = useRef<number | null>(null);
+  const [pullY, setPullY] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const getListViewport = useCallback(() => {
+    return listScrollHostRef.current?.querySelector(
+      '[data-slot="scroll-area-viewport"]'
+    ) as HTMLElement | null;
+  }, []);
+
+  // O spinner do gesto apaga quando o refetch termina.
+  useEffect(() => {
+    if (refreshing && !loading) {
+      setRefreshing(false);
+      setPullY(0);
+    }
+  }, [refreshing, loading]);
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      const vp = getListViewport();
+      pullStartYRef.current =
+        vp && vp.scrollTop <= 0 ? e.touches[0].clientY : null;
+    },
+    [getListViewport]
+  );
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (pullStartYRef.current == null) return;
+    const dy = e.touches[0].clientY - pullStartYRef.current;
+    // Resistência: o indicador acompanha metade do dedo, até o teto.
+    setPullY(dy > 0 ? Math.min(dy * 0.5, PULL_MAX) : 0);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (pullStartYRef.current == null) return;
+    pullStartYRef.current = null;
+    if (pullY >= PULL_THRESHOLD && !refreshing) {
+      setRefreshing(true);
+      onRefresh?.();
+    } else if (!refreshing) {
+      setPullY(0);
+    }
+  }, [pullY, refreshing, onRefresh]);
+
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed 320px on desktop where it shares the
@@ -431,6 +496,22 @@ export function ConversationList({
               className="border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 h-11 pl-9 text-base sm:h-9 sm:text-sm"
             />
           </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onRefresh?.()}
+            disabled={!onRefresh || loading}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted h-11 w-11 shrink-0 disabled:opacity-60 sm:h-9 sm:w-9"
+            title={t('refresh')}
+            aria-label={t('refresh')}
+          >
+            <RefreshCw
+              className={cn(
+                'h-5 w-5 sm:h-4 sm:w-4',
+                loading && 'animate-spin'
+              )}
+            />
+          </Button>
           <Button
             size="icon"
             variant="ghost"
@@ -703,7 +784,46 @@ export function ConversationList({
           every conversation instead of shrinking to the remaining
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
-      <ScrollArea className="min-h-0 flex-1 overscroll-contain">
+      <div
+        ref={listScrollHostRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {/* Pull-to-refresh indicator — expands with the finger, fixed
+            while the refetch runs. */}
+        <div
+          aria-hidden={!(pullY > 0 || refreshing)}
+          className={cn(
+            'flex shrink-0 items-center justify-center gap-2 overflow-hidden text-muted-foreground',
+            refreshing && 'transition-[height] duration-200'
+          )}
+          style={{ height: refreshing ? 52 : pullY }}
+        >
+          {(pullY > 0 || refreshing) && (
+            <>
+              {refreshing || loading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              ) : (
+                <ArrowDown
+                  className={cn(
+                    'h-5 w-5 transition-transform',
+                    pullY >= PULL_THRESHOLD && 'rotate-180 text-primary'
+                  )}
+                />
+              )}
+              <span className="text-xs">
+                {refreshing || loading
+                  ? t('refreshing')
+                  : pullY >= PULL_THRESHOLD
+                    ? t('releaseToRefresh')
+                    : t('pullToRefresh')}
+              </span>
+            </>
+          )}
+        </div>
+        <ScrollArea className="min-h-0 flex-1 overscroll-contain">
         {loading && offset === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -755,7 +875,8 @@ export function ConversationList({
             {loading ? t('loadingMore') : t('loadMore')}
           </Button>
         )}
-      </ScrollArea>
+        </ScrollArea>
+      </div>
     </div>
   );
 }

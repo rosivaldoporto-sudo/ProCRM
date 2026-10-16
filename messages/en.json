@@ -161,7 +161,11 @@
       "retry": "Try again",
       "loadFailed": "Unable to load conversations. Please try again.",
       "accessDenied": "The server denied access (403). Check your session or contact your administrator.",
-      "noCompanies": "No companies available"
+      "noCompanies": "No companies available",
+      "refresh": "Refresh conversations",
+      "pullToRefresh": "Pull down to refresh",
+      "releaseToRefresh": "Release to refresh",
+      "refreshing": "Refreshing..."
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -243,7 +247,13 @@
       "send": "Send",
       "quickReplyNamePrompt": "Name this quick reply:",
       "quickReplySaved": "Saved as a quick reply.",
-      "quickReplySaveError": "Couldn't save the quick reply."
+      "quickReplySaveError": "Couldn't save the quick reply.",
+      "micUnsupported": "Voice recording isn't supported in this browser.",
+      "micDenied": "Microphone access was blocked. Allow microphone access for this site and try again.",
+      "micNoDevice": "No microphone was found on this device.",
+      "micInUse": "The microphone is in use by another app. Close it and try again.",
+      "micInsecure": "Voice recording needs a secure connection (HTTPS or localhost).",
+      "micUnavailable": "Microphone unavailable. Check the device microphone and try again."
     },
     "bubble": {
       "photo": "Photo",

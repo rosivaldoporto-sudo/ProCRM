@@ -735,6 +735,7 @@ function InboxPageInner() {
             resyncToken={resyncToken}
             onConversationCreated={handleNewConversation}
             onVisibleConversationsChange={handleVisibleConversationsChange}
+            onRefresh={handleManualRefresh}
           />
         </div>
 

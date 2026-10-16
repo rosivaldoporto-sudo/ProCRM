@@ -34,6 +34,15 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/icon" }],
   },
+  // Full-screen quando salvo na tela inicial do iPhone ("Adicionar à
+  // Tela de Início") — esconde o chrome do Safari para leitura como app.
+  // `default` mantém a status bar do sistema fora da área do conteúdo,
+  // então nenhum ajuste de safe-area no topo é necessário.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ProCRM",
+  },
   formatDetection: {
     email: false,
     address: false,

@@ -161,7 +161,11 @@
       "retry": "Tentar novamente",
       "loadFailed": "Não foi possível carregar as conversas. Tente novamente.",
       "accessDenied": "Acesso negado pelo servidor (403). Verifique sua sessão ou contate o administrador.",
-      "noCompanies": "Nenhuma empresa disponível"
+      "noCompanies": "Nenhuma empresa disponível",
+      "refresh": "Atualizar conversas",
+      "pullToRefresh": "Puxe para baixo para atualizar",
+      "releaseToRefresh": "Solte para atualizar",
+      "refreshing": "Atualizando..."
     },
     "messageThread": {
       "backToConversations": "Voltar para conversas",
@@ -243,7 +247,13 @@
       "send": "Enviar",
       "quickReplyNamePrompt": "Nomeie esta resposta rápida:",
       "quickReplySaved": "Salva como resposta rápida.",
-      "quickReplySaveError": "Não foi possível salvar a resposta rápida."
+      "quickReplySaveError": "Não foi possível salvar a resposta rápida.",
+      "micUnsupported": "Gravação de voz não é suportada neste navegador.",
+      "micDenied": "Acesso ao microfone bloqueado. Libere o microfone para este site nas configurações e tente de novo.",
+      "micNoDevice": "Nenhum microfone encontrado neste dispositivo.",
+      "micInUse": "O microfone está em uso por outro app. Feche-o e tente de novo.",
+      "micInsecure": "Gravação de voz exige conexão segura (HTTPS ou localhost).",
+      "micUnavailable": "Microfone indisponível. Verifique o microfone do dispositivo e tente de novo."
     },
     "bubble": {
       "photo": "Foto",
