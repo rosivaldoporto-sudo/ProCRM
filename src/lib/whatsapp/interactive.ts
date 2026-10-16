@@ -34,8 +34,15 @@ export interface InteractiveButtonsPayload {
   kind: 'buttons'
   /** Body text shown above the buttons (≤ 1024 chars). */
   body: string
-  /** Optional plain-text header (≤ 60 chars). */
+  /** Optional plain-text header (≤ 60 chars). Mutually exclusive with `header_media_url`. */
   header?: string
+  /**
+   * Optional image header (public https URL Meta fetches at send time).
+   * Buttons-only — Meta's list messages accept a text header only.
+   * Mutually exclusive with `header` (text). Persisted verbatim on
+   * messages + quick replies so a saved snippet round-trips the image.
+   */
+  header_media_url?: string
   /** Optional grey footer line (≤ 60 chars). */
   footer?: string
   /** 1–3 buttons. */
@@ -62,6 +69,13 @@ export interface InteractiveListPayload {
   body: string
   header?: string
   footer?: string
+  /**
+   * Accepted on the type for forward-compat (so a buttons → list kind
+   * switch doesn't silently drop an uploaded image), but validation
+   * always rejects a non-empty value — Meta's list messages accept a
+   * text header only.
+   */
+  header_media_url?: string
   /** Label of the tap-to-expand button on the message bubble (≤ 20 chars). */
   button_label: string
   /** 1–10 rows TOTAL across all sections. */
@@ -86,6 +100,8 @@ function fail(error: string): InteractiveValidation {
 function validateHeaderFooter(
   header: string | undefined,
   footer: string | undefined,
+  headerMediaUrl?: unknown,
+  allowMediaHeader?: boolean,
 ): InteractiveValidation {
   if (header && header.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
     return fail(
@@ -96,6 +112,28 @@ function validateHeaderFooter(
     return fail(
       `Footer exceeds the ${INTERACTIVE_LIMITS.footerMaxLength}-character limit.`,
     )
+  }
+  const media = typeof headerMediaUrl === 'string' ? headerMediaUrl.trim() : ''
+  if (media) {
+    if (!allowMediaHeader) {
+      return fail(
+        'List messages support a text header only — remove the image to save.',
+      )
+    }
+    if (typeof header === 'string' && header.trim() !== '') {
+      return fail('Use either a text header or an image header, not both.')
+    }
+    if (media.length > 2048) {
+      return fail('Header image URL is too long (max 2048 chars).')
+    }
+    try {
+      const u = new URL(media)
+      if (u.protocol !== 'https:') {
+        return fail('Header image URL must be an https URL.')
+      }
+    } catch {
+      return fail('Header image URL must be a valid https URL.')
+    }
   }
   return ok()
 }
@@ -125,10 +163,11 @@ export function validateInteractivePayload(
       `Body text exceeds the ${INTERACTIVE_LIMITS.bodyMaxLength}-character limit.`,
     )
   }
-  const hf = validateHeaderFooter(p.header, p.footer)
-  if (!hf.ok) return hf
 
   if (p.kind === 'buttons') {
+    const bp = p as Partial<InteractiveButtonsPayload>
+    const hf = validateHeaderFooter(p.header, p.footer, bp.header_media_url, true)
+    if (!hf.ok) return hf
     const buttons = (p as InteractiveButtonsPayload).buttons
     if (!Array.isArray(buttons) || buttons.length < 1) {
       return fail('Add at least one reply button.')
@@ -161,6 +200,8 @@ export function validateInteractivePayload(
 
   if (p.kind === 'list') {
     const list = p as InteractiveListPayload
+    const hf = validateHeaderFooter(p.header, p.footer, list.header_media_url, false)
+    if (!hf.ok) return hf
     if (
       typeof list.button_label !== 'string' ||
       list.button_label.trim() === ''

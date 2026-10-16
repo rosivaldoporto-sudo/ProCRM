@@ -87,6 +87,7 @@ export async function engineSendInteractive(
       ...common,
       bodyText: payload.body,
       headerText: payload.header,
+      headerImageUrl: payload.header_media_url?.trim() || undefined,
       footerText: payload.footer,
       buttons: payload.buttons,
     })

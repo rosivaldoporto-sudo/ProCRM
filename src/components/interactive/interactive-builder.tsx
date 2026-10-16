@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { ImagePlus, Loader2, Plus, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,18 @@ import {
   type InteractiveListPayload,
   type InteractiveMessagePayload,
 } from "@/lib/whatsapp/interactive";
+import {
+  deleteAccountMedia,
+  MEDIA_MAX_BYTES_BY_KIND,
+  uploadAccountMedia,
+} from "@/lib/storage/upload-media";
 import { InteractivePreview } from "./interactive-preview";
+
+/** Account-scoped public bucket Meta fetches header images from (migration 023).
+ *  Defined locally (not imported from the inbox composer) to avoid a
+ *  composer ↔ builder import cycle — both must stay on the same bucket
+ *  so a quick reply saved in the inbox renders everywhere. */
+const INTERACTIVE_MEDIA_BUCKET = "chat-media";
 
 // ------------------------------------------------------------
 // Blank payload factories — used to seed a fresh builder and to
@@ -79,13 +91,24 @@ export function InteractiveBuilder({
 
   const switchKind = (kind: "buttons" | "list") => {
     if (kind === value.kind) return;
-    const shared = { body: value.body, header: value.header, footer: value.footer };
+    // Preserve the shared text fields + header image across the toggle so
+    // an uploaded image isn't silently dropped. List validation rejects a
+    // non-empty `header_media_url` (Meta allows text headers only), so the
+    // list editor surfaces an explicit "remove the image" affordance.
+    const shared = {
+      body: value.body,
+      header: value.header,
+      header_media_url: (value as unknown as { header_media_url?: string }).header_media_url,
+      footer: value.footer,
+    };
     onChange(
       kind === "buttons"
         ? { ...blankButtonsPayload(), ...shared }
         : { ...blankListPayload(), ...shared },
     );
   };
+
+  const headerMediaUrl = ((value as unknown as { header_media_url?: string }).header_media_url ?? "").trim();
 
   return (
     <div className="flex flex-col gap-4 md:flex-row">
@@ -123,7 +146,18 @@ export function InteractiveBuilder({
               value={value.header ?? ""}
               maxLength={INTERACTIVE_LIMITS.headerTextMaxLength}
               onChange={(e) => setField({ header: e.target.value })}
-              className="bg-muted text-foreground"
+              disabled={headerMediaUrl !== ""}
+              title={
+                headerMediaUrl !== ""
+                  ? "Remove the header image to use a text header"
+                  : undefined
+              }
+              placeholder={
+                headerMediaUrl !== ""
+                  ? "Disabled while an image header is set"
+                  : undefined
+              }
+              className="bg-muted text-foreground disabled:opacity-50"
             />
           </Field>
           <Field
@@ -138,6 +172,26 @@ export function InteractiveBuilder({
             />
           </Field>
         </div>
+
+        {value.kind === "buttons" ? (
+          <HeaderImageEditor value={value} onChange={onChange} />
+        ) : headerMediaUrl ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+            <p>
+              List messages support a text header only — remove the image to
+              save or switch back to Reply buttons to keep it.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setField({ header_media_url: "" } as Partial<InteractiveMessagePayload>)}
+              className="mt-1.5 h-7 text-amber-200 hover:bg-amber-500/20 hover:text-amber-100"
+            >
+              <X className="mr-1 h-3.5 w-3.5" />
+              Remove image
+            </Button>
+          </div>
+        ) : null}
 
         {value.kind === "buttons" ? (
           <ButtonsEditor value={value} onChange={onChange} advanced={advanced} />
@@ -168,6 +222,142 @@ export function InteractiveBuilder({
           <div className="rounded-lg bg-muted/40 p-3">
             <InteractivePreview payload={value} />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Header image (buttons-only)
+// ------------------------------------------------------------
+
+function HeaderImageEditor({
+  value,
+  onChange,
+}: {
+  value: InteractiveButtonsPayload;
+  onChange: (p: InteractiveMessagePayload) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  // Storage path of an image uploaded in this builder session, so a
+  // remove-before-save can GC the orphan. Images restored from a saved
+  // quick reply have no tracked path — clearing them just drops the URL.
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const imageUrl = (value.header_media_url ?? "").trim();
+  const hasTextHeader = (value.header ?? "").trim() !== "";
+  const disabledByText = hasTextHeader && !imageUrl;
+
+  const setUrl = (url: string) =>
+    onChange({ ...value, header_media_url: url } as InteractiveMessagePayload);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > MEDIA_MAX_BYTES_BY_KIND.image) {
+      toast.error(
+        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — image header limit is ${Math.round(
+          MEDIA_MAX_BYTES_BY_KIND.image / 1024 / 1024,
+        )} MB.`,
+      );
+      return;
+    }
+    setUploading(true);
+    try {
+      const { publicUrl, path } = await uploadAccountMedia(INTERACTIVE_MEDIA_BUCKET, file);
+      // Replacing a session upload? GC the previous object first.
+      if (uploadedPath && uploadedPath !== path) {
+        void deleteAccountMedia(INTERACTIVE_MEDIA_BUCKET, uploadedPath).catch(() => {});
+      }
+      setUploadedPath(path);
+      setUrl(publicUrl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemove = () => {
+    if (uploadedPath) {
+      void deleteAccountMedia(INTERACTIVE_MEDIA_BUCKET, uploadedPath).catch(() => {});
+      setUploadedPath(null);
+    }
+    setUrl("");
+  };
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <label className="text-xs text-muted-foreground">Header image (optional)</label>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          void handleFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {imageUrl ? (
+        <div className="rounded-md border border-border bg-muted/40 p-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt="Header preview"
+            className="max-h-40 w-full rounded object-cover"
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+              {imageUrl}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRemove}
+              className="h-7 shrink-0 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Remove
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={uploading || disabledByText}
+              onClick={() => fileRef.current?.click()}
+              title={disabledByText ? "Clear the text header to add an image" : undefined}
+              className="shrink-0"
+            >
+              {uploading ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ImagePlus className="mr-1 h-3.5 w-3.5" />
+              )}
+              {uploading ? "Uploading…" : "Attach image"}
+            </Button>
+            <Input
+              value={value.header_media_url ?? ""}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={uploading || disabledByText}
+              title={disabledByText ? "Clear the text header to add an image" : undefined}
+              placeholder="…or paste an https image URL"
+              className="flex-1 bg-muted font-mono text-xs disabled:opacity-50"
+            />
+          </div>
+          {disabledByText && (
+            <p className="text-[11px] text-muted-foreground">
+              Clear the text header above to attach an image — Meta allows one
+              header only.
+            </p>
+          )}
         </div>
       )}
     </div>

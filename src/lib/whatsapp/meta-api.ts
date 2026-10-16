@@ -748,8 +748,13 @@ export interface SendInteractiveButtonsArgs {
   to: string
   /** The body text — what the customer reads above the buttons. */
   bodyText: string
-  /** Optional plain-text header (≤ 60 chars). */
+  /** Optional plain-text header (≤ 60 chars). Mutually exclusive with `headerImageUrl`. */
   headerText?: string
+  /**
+   * Optional image header (public https URL Meta fetches at send time).
+   * Mutually exclusive with `headerText` — Meta allows one header only.
+   */
+  headerImageUrl?: string
   /** Optional grey footer line under the buttons (≤ 60 chars). */
   footerText?: string
   /** 1–3 buttons. Validated against Meta's limits before sending. */
@@ -771,10 +776,10 @@ export async function sendInteractiveButtons(
 ): Promise<MetaSendResult> {
   const {
     phoneNumberId, accessToken, to,
-    bodyText, headerText, footerText, buttons, contextMessageId,
+    bodyText, headerText, headerImageUrl, footerText, buttons, contextMessageId,
   } = args
   validateInteractiveBody(bodyText)
-  validateInteractiveHeaderFooter(headerText, footerText)
+  validateInteractiveHeaderFooter(headerText, footerText, headerImageUrl)
   if (buttons.length < 1 || buttons.length > INTERACTIVE_LIMITS.maxButtons) {
     throw new Error(
       `Interactive button message requires 1-${INTERACTIVE_LIMITS.maxButtons} buttons (got ${buttons.length}).`
@@ -808,7 +813,11 @@ export async function sendInteractiveButtons(
       })),
     },
   }
-  if (headerText) interactive.header = { type: 'text', text: headerText }
+  if (headerImageUrl) {
+    interactive.header = { type: 'image', image: { link: headerImageUrl } }
+  } else if (headerText) {
+    interactive.header = { type: 'text', text: headerText }
+  }
   if (footerText) interactive.footer = { text: footerText }
 
   const body: Record<string, unknown> = {
@@ -980,6 +989,7 @@ function validateInteractiveBody(bodyText: string): void {
 function validateInteractiveHeaderFooter(
   headerText: string | undefined,
   footerText: string | undefined,
+  headerImageUrl?: string | undefined,
 ): void {
   if (headerText && headerText.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
     throw new Error(
@@ -990,6 +1000,24 @@ function validateInteractiveHeaderFooter(
     throw new Error(
       `Interactive footerText exceeds ${INTERACTIVE_LIMITS.footerMaxLength} chars.`
     )
+  }
+  const media = typeof headerImageUrl === 'string' ? headerImageUrl.trim() : ''
+  if (media) {
+    if (headerText?.trim()) {
+      throw new Error('Use either a text header or an image header, not both.')
+    }
+    if (media.length > 2048) {
+      throw new Error('Interactive header image URL exceeds 2048 chars.')
+    }
+    try {
+      const u = new URL(media)
+      if (u.protocol !== 'https:') {
+        throw new Error('Interactive header image URL must be an https URL.')
+      }
+    } catch (e) {
+      if (e instanceof Error && /https/.test(e.message)) throw e
+      throw new Error('Interactive header image URL must be a valid https URL.')
+    }
   }
 }
 

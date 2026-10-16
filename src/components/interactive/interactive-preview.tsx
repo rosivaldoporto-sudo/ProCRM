@@ -21,6 +21,7 @@ export function InteractivePreview({
   payload: InteractiveMessagePayload;
   className?: string;
 }) {
+  const headerImage = ((payload as { header_media_url?: string }).header_media_url ?? "").trim();
   return (
     <div
       className={cn(
@@ -28,6 +29,10 @@ export function InteractivePreview({
         className,
       )}
     >
+      {headerImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={headerImage} alt="" className="max-h-48 w-full object-cover" />
+      ) : null}
       <div className="px-3 py-2">
         {payload.header ? (
           <p className="mb-1 break-words text-sm font-semibold">
