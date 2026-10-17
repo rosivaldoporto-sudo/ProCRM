@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import { resolveMetaMediaId } from '@/lib/whatsapp/media-id-resolver'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { persistBroadcastMessageIfConversationExists } from '@/lib/whatsapp/broadcast-inbox'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
@@ -224,6 +225,49 @@ export async function POST(request: Request) {
     }
     const templateRow = rawTemplateRow ?? null
 
+    // ============================================================
+    // Media-header sends: resolve each public media URL to a Meta
+    // media id ONCE per request. Sending by `link` makes Meta download
+    // the file from our storage for EVERY recipient — the Storage
+    // egress blow-up on the Oct-15 video broadcast. Any failure here
+    // leaves the send on the existing link path.
+    // ============================================================
+    const headerType = templateRow?.header_type as string | undefined
+    const mediaHeaderKind =
+      headerType === 'image' ||
+      headerType === 'video' ||
+      headerType === 'document'
+        ? headerType
+        : null
+    const templateMediaUrl = (
+      templateRow?.header_media_url as string | null | undefined
+    )?.trim()
+
+    const mediaIdByUrl = new Map<string, string>()
+    if (mediaHeaderKind) {
+      const urls = new Set<string>()
+      for (const recipient of recipients) {
+        // A caller-supplied id already avoids the per-recipient
+        // download — leave it alone.
+        if (recipient.messageParams?.headerMediaId) continue
+        const url =
+          recipient.messageParams?.headerMediaUrl?.trim() || templateMediaUrl
+        if (url) urls.add(url)
+      }
+      const admin = supabaseAdmin()
+      for (const url of urls) {
+        const mediaId = await resolveMetaMediaId({
+          db: admin,
+          accountId,
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          sourceUrl: url,
+          kind: mediaHeaderKind,
+        })
+        if (mediaId) mediaIdByUrl.set(url, mediaId)
+      }
+    }
+
     const results: BroadcastResult[] = []
     let sentCount = 0
     let failedCount = 0
@@ -244,6 +288,17 @@ export async function POST(request: Request) {
       // Retry with phone variants on "not in allowed list" so numbers
       // that differ only in a trunk-prefix 0 still reach recipients.
       const variants = phoneVariants(sanitized)
+      // Swap the public URL for the pre-resolved Meta media id when we
+      // have one — the send builder emits `{ id }` instead of `{ link }`,
+      // so Meta never re-downloads the file per recipient.
+      let messageParams = recipient.messageParams
+      if (mediaHeaderKind && !messageParams?.headerMediaId) {
+        const url = messageParams?.headerMediaUrl?.trim() || templateMediaUrl
+        const mediaId = url ? mediaIdByUrl.get(url) : undefined
+        if (mediaId) {
+          messageParams = { ...messageParams, headerMediaId: mediaId }
+        }
+      }
       let sentMessageId: string | null = null
       let lastError: string | null = null
 
@@ -256,7 +311,7 @@ export async function POST(request: Request) {
             templateName: template_name,
             language: template_language || 'en_US',
             template: templateRow ?? undefined,
-            messageParams: recipient.messageParams,
+            messageParams,
             params: recipient.params ?? [],
           })
           sentMessageId = result.messageId

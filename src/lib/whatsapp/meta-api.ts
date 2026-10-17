@@ -1137,3 +1137,73 @@ export async function downloadMedia(
   const buffer = Buffer.from(await response.arrayBuffer())
   return { buffer, contentType }
 }
+
+export interface UploadMediaToMetaArgs {
+  phoneNumberId: string
+  accessToken: string
+  /** MIME type of the file — sent as the multipart `type` field. */
+  mimeType: string
+  /** File name Meta records for the upload. Cosmetic for image/video. */
+  fileName?: string
+  bytes: Uint8Array
+}
+
+export interface UploadMediaToMetaResult {
+  /** Meta media id, reusable as `headerMediaId` on template sends. */
+  mediaId: string
+}
+
+/**
+ * Upload a file to Meta (POST /{phone_number_id}/media) and return the
+ * reusable media id.
+ *
+ * This is the documented alternative to sending media by public link:
+ * instead of Meta downloading the file from our storage on EVERY send
+ * (Storage-egress blow-up on broadcasts), we upload it ONCE and
+ * reference `{ id }` in subsequent template sends.
+ *
+ * Meta media ids expire after 30 days — callers cache and refresh them
+ * (see media-id-resolver.ts).
+ */
+export async function uploadMediaToMeta(
+  args: UploadMediaToMetaArgs
+): Promise<UploadMediaToMetaResult> {
+  const {
+    phoneNumberId,
+    accessToken,
+    mimeType,
+    fileName = 'media',
+    bytes,
+  } = args
+
+  const form = new FormData()
+  form.append('messaging_product', 'whatsapp')
+  form.append('type', mimeType)
+  // Uint8Array is a valid BlobPart at runtime; cast around the
+  // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch (same as
+  // uploadResumableMedia above).
+  form.append(
+    'file',
+    new Blob([bytes as unknown as BlobPart], { type: mimeType }),
+    fileName
+  )
+
+  const response = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+    method: 'POST',
+    // NOTE: no Content-Type header — fetch derives the multipart
+    // boundary from the FormData body.
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  if (!response.ok) {
+    await throwMetaError(
+      response,
+      `Meta media upload failed: ${response.status}`
+    )
+  }
+  const data = (await response.json()) as { id?: string }
+  if (!data?.id) {
+    throw new Error('Meta media upload returned no id.')
+  }
+  return { mediaId: String(data.id) }
+}

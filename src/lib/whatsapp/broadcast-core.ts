@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
+import { resolveMetaMediaId } from '@/lib/whatsapp/media-id-resolver';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   sanitizePhoneForMeta,
@@ -270,6 +271,29 @@ export async function deliverBroadcast(
 ): Promise<void> {
   let sentCount = 0;
 
+  // Media-header templates: resolve the public media URL to a Meta
+  // media id ONCE for the whole fan-out. Sending by `link` makes Meta
+  // download the file from our storage for EVERY recipient — the
+  // Storage egress blow-up on the Oct-15 video broadcast. Null (no
+  // media header, or any resolution failure) keeps the link path.
+  const headerType = plan.templateRow?.header_type;
+  const mediaHeaderKind =
+    headerType === 'image' || headerType === 'video' || headerType === 'document'
+      ? headerType
+      : null;
+  const mediaUrl = plan.templateRow?.header_media_url?.trim();
+  const headerMediaId =
+    mediaHeaderKind && mediaUrl
+      ? await resolveMetaMediaId({
+          db,
+          accountId: plan.accountId,
+          phoneNumberId: plan.phoneNumberId,
+          accessToken: plan.accessToken,
+          sourceUrl: mediaUrl,
+          kind: mediaHeaderKind,
+        })
+      : null;
+
   for (const recipient of plan.planned) {
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
@@ -285,6 +309,7 @@ export async function deliverBroadcast(
           language: plan.templateLanguage,
           template: plan.templateRow ?? undefined,
           params: recipient.params,
+          ...(headerMediaId ? { messageParams: { headerMediaId } } : {}),
         });
         sentMessageId = result.messageId;
         lastError = null;
