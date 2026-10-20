@@ -353,7 +353,7 @@ export function LeadFormEditor({ formId }: Props) {
         {/* ---------- DESIGN ---------- */}
         <TabsContent value="design">
           <Card><CardHeader><CardTitle>Personalização</CardTitle>
-            <CardDescription>Cores, avatar, logo e textos. Pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
+            <CardDescription>Cores, avatar, logo e marca. Pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2"><Label>Cor primária</Label>
                 <div className="flex gap-2"><Input type="color" value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} className="h-10 w-16" />
@@ -361,9 +361,6 @@ export function LeadFormEditor({ formId }: Props) {
               <div className="space-y-2"><Label>Fundo</Label>
                 <div className="flex gap-2"><Input type="color" value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} className="h-10 w-16" />
                   <Input value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} /></div></div>
-              <div className="space-y-2"><Label>Título de boas-vindas</Label><Input value={form.theme_config.welcome_title} onChange={(e) => updateForm("theme_config", { ...form.theme_config, welcome_title: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Subtítulo</Label><Input value={form.theme_config.welcome_subtitle} onChange={(e) => updateForm("theme_config", { ...form.theme_config, welcome_subtitle: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Texto do botão</Label><Input value={form.theme_config.button_text} onChange={(e) => updateForm("theme_config", { ...form.theme_config, button_text: e.target.value })} /></div>
               <div className="space-y-2"><Label>Avatar (URL)</Label><Input value={form.theme_config.avatar_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, avatar_url: e.target.value || null })} placeholder="https://..." /></div>
               <div className="space-y-2"><Label>Logo (URL)</Label><Input value={form.theme_config.logo_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, logo_url: e.target.value || null })} placeholder="https://..." /></div>
               <div className="space-y-2"><Label>Balão do visitante</Label><Input type="color" value={form.theme_config.bubble_user} onChange={(e) => updateForm("theme_config", { ...form.theme_config, bubble_user: e.target.value })} className="h-10 w-16" /></div>

@@ -68,7 +68,6 @@ const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
 export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const [data, setData] = useState<PublicFormData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [started, setStarted] = useState(false);
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [input, setInput] = useState("");
@@ -153,8 +152,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       }
     }, 120);
     return () => clearTimeout(t);
+    // `current` entra nas dependências para focar o primeiro campo assim
+    // que as perguntas chegam da API (step ainda é 0 nesse momento).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, started]);
+  }, [step, current]);
 
   function validateCurrent(value: unknown): string | null {
     const b = blocks[step];
@@ -307,7 +308,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
 
   // Atalhos de teclado: Enter avança (texto), A–C escolhem opção.
   useEffect(() => {
-    if (!started || done || !current) return;
+    if (done || !current) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Enter" && !busy) {
         const tag = (document.activeElement?.tagName ?? "").toLowerCase();
@@ -336,7 +337,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [started, done, current, busy, input, multi, advance]);
+  }, [done, current, busy, input, multi, advance]);
 
   const grouped = groupByDay(slots);
   const availDays = useMemo(() => new Set(grouped.map((g) => g.day)), [grouped]);
@@ -389,11 +390,19 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       <div className="fixed inset-x-0 top-0 z-10 h-[3px] bg-stone-200/70">
         <div
           className="h-full transition-[width] duration-500 ease-out"
-          style={{ width: `${started ? progress : 0}%`, background: accent }}
+          style={{ width: `${progress}%`, background: accent }}
         />
       </div>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-6 py-16 sm:px-10">
+        {theme.logo_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={theme.logo_url}
+            alt=""
+            className="mb-10 h-9 w-auto self-start object-contain object-left"
+          />
+        )}
         {/* Honeypot anti-bot: campo invisível que humanos nunca preenchem. */}
         <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, height: 1, width: 1, overflow: "hidden" }}>
           <input
@@ -405,30 +414,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
             tabIndex={-1}
           />
         </div>
-        {!started ? (
-          <div key="welcome" className="animate-rise">
-            {theme.logo_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={theme.logo_url} alt="" className="mb-10 h-10 object-contain object-left" />
-            )}
-            <h1 className="text-3xl font-medium leading-tight tracking-tight text-stone-900 sm:text-4xl">
-              {theme.welcome_title}
-            </h1>
-            <p className="mt-4 max-w-md text-lg leading-relaxed text-stone-500">
-              {theme.welcome_subtitle}
-            </p>
-            <div className="mt-10 flex flex-wrap items-center gap-4">
-              <button
-                onClick={() => setStarted(true)}
-                className="rounded-lg px-7 py-3.5 text-base font-medium text-white shadow-sm transition-transform duration-150 hover:brightness-105 active:scale-[0.98]"
-                style={{ background: accent }}
-              >
-                {theme.button_text}
-              </button>
-              <span className="text-sm text-stone-400">Leva menos de 1 minuto</span>
-            </div>
-          </div>
-        ) : done ? (
+        {done ? (
           <div key="done" className="animate-rise">
             <div
               className="flex h-12 w-12 items-center justify-center rounded-full"
@@ -567,6 +553,15 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
             </h2>
             <p className="mt-4 max-w-md text-lg leading-relaxed text-stone-500">
               Só um instante, já estamos processando.
+            </p>
+          </div>
+        ) : blocks.length === 0 ? (
+          <div key="empty" className="animate-rise">
+            <h2 className="text-3xl font-medium leading-tight tracking-tight text-stone-900 sm:text-4xl">
+              Formulário em preparação
+            </h2>
+            <p className="mt-4 max-w-md text-lg leading-relaxed text-stone-500">
+              Este formulário ainda não tem perguntas. Tente novamente em instantes.
             </p>
           </div>
         ) : current ? (
@@ -769,7 +764,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       {/* Navegação discreta */}
       <footer className="mx-auto flex w-full max-w-2xl items-center justify-between px-6 pb-8 sm:px-10">
         <div>
-          {started && !done && step > 0 && (
+          {!done && step > 0 && (
             <button
               onClick={goBack}
               className="inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-sm text-stone-400 transition-colors hover:text-stone-600"
