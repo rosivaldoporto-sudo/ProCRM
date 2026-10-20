@@ -17,6 +17,7 @@ import {
 import { resolveAuditUserId } from '@/lib/api/v1/contacts';
 import { refreshContactProfilePhoto } from '@/lib/uazapi/profile-photo';
 import { ensureLeadDeal } from '@/lib/deals/auto-create';
+import { messagePreview, notifyInboundMessage } from '@/lib/push/send';
 import {
   readWebhookBody,
   verifyUazapiWebhookCredential,
@@ -505,6 +506,17 @@ export async function handleWebhook(request: Request, accountId?: string) {
               contactId: contact.id,
               configOwnerUserId: config.user_id,
             }),
+            // PWA alert for every device in the account that opted in.
+            // The helper never throws, so a dead push endpoint cannot
+            // break the automation / AI fan-out above.
+            notifyInboundMessage({
+              db,
+              accountId: config.account_id,
+              conversationId: conversation.id,
+              assignedAgentId: conversation.assigned_agent_id,
+              contactName: contact.name || contact.phone,
+              preview: messagePreview(contentType, contentText),
+            }),
           ]);
         } catch (err) {
           console.error('[uazapi-webhook] async dispatch error:', err);
@@ -926,7 +938,12 @@ async function findOrCreateContact(
 }
 
 interface ConversationResult {
-  conversation: { id: string; unread_count?: number; source?: string | null };
+  conversation: {
+    id: string;
+    unread_count?: number;
+    source?: string | null;
+    assigned_agent_id?: string | null;
+  };
   created: boolean;
 }
 

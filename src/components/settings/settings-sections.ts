@@ -1,4 +1,5 @@
 import {
+  BellRing,
   Coins,
   FileText,
   KeyRound,
@@ -29,6 +30,7 @@ export const SETTINGS_SECTIONS = [
   'profile',
   'security',
   'appearance',
+  'notifications',
   'whatsapp',
   'whatsapp-qr',
   'meta-ads',
@@ -59,6 +61,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   profile: { id: 'profile', label: 'Your profile', icon: User, group: 'account' },
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
+  notifications: { id: 'notifications', label: 'Notifications', icon: BellRing, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace', adminOnly: true },
   'whatsapp-qr': { id: 'whatsapp-qr', label: 'WhatsApp QR Code', icon: QrCode, group: 'workspace', adminOnly: true },
   'meta-ads': { id: 'meta-ads', label: 'Meta Ads', icon: Target, group: 'workspace', adminOnly: true },

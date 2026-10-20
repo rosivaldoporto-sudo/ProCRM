@@ -41,6 +41,13 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   /**
+   * Web Push signing lives in Node (`web-push` → crypto / https).
+   * Keep it out of the server bundle so Next doesn't try to trace
+   * `jwa` / `jws` internals as ESM.
+   */
+  serverExternalPackages: ['web-push'],
+
+  /**
    * Cross-origin dev access (Next.js 16).
    *
    * Next 16 blocks requests to dev-only resources (`/_next/*` internals,

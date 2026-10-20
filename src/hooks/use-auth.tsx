@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { disablePushNotifications } from '@/lib/push/client';
 import type { User } from '@supabase/supabase-js';
 import { DEFAULT_CURRENCY } from '@/lib/currency';
 import {
@@ -367,6 +368,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
+    // Detach this browser from push before the session disappears —
+    // the DELETE route needs auth. Remembered opt-out stays untouched
+    // so the next user on this device still gets the opt-in prompt.
+    await disablePushNotifications({ remember: false }).catch(() => undefined);
     const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);

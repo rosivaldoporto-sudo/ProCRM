@@ -20,6 +20,7 @@ import {
 } from '@/lib/whatsapp/template-webhook';
 import { sendCapiEvents } from '@/lib/facebook/conversions-api';
 import { ensureLeadDeal } from '@/lib/deals/auto-create';
+import { messagePreview, notifyInboundMessage } from '@/lib/push/send';
 import {
   readWebhookBody,
   WebhookPayloadTooLargeError,
@@ -1063,6 +1064,19 @@ async function processMessage(
     whatsapp_message_id: message.id,
     content_type: contentType,
     text: contentText,
+  });
+
+  // Push alert for the installed PWA. Awaited for the same reason as
+  // the webhook dispatch above (this whole function runs inside the
+  // route's `after()` block); the helper swallows every error so a dead
+  // push endpoint can never fail message processing.
+  await notifyInboundMessage({
+    db: supabaseAdmin(),
+    accountId,
+    conversationId: conversation.id,
+    assignedAgentId: conversation.assigned_agent_id,
+    contactName: contactRecord.name || senderPhone,
+    preview: messagePreview(contentType, contentText),
   });
 }
 

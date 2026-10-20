@@ -17,6 +17,7 @@ import { appendInboxPage } from "@/lib/inbox/query";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { UazapiSyncBar } from "@/components/inbox/uazapi-sync-bar";
+import { PushEnableBanner } from "@/components/push/push-enable-banner";
 import { cn } from "@/lib/utils";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
@@ -713,6 +714,10 @@ function InboxPageInner() {
           </p>
         </div>
       )}
+
+      {/* Push opt-in nudge — only renders while the browser permission
+          is still "default" and the user hasn't snoozed it. */}
+      <PushEnableBanner />
 
       {/* Sync Uazapi conversations button */}
       {uazapiConnected === true && <UazapiSyncBar />}

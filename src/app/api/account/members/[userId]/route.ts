@@ -19,6 +19,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { isAccountRole } from "@/lib/auth/roles";
+import { supabaseAdmin } from "@/lib/flows/admin-client";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -114,6 +115,22 @@ export async function DELETE(
     });
 
     if (error) return rpcErrorToResponse(error);
+
+    // The member is out of the account immediately; drop their PWA
+    // subscriptions so a removed teammate stops receiving inbox
+    // previews while they still have the app installed. Best-effort —
+    // the removal itself already succeeded.
+    const { error: pushCleanupError } = await supabaseAdmin()
+      .from("push_subscriptions")
+      .delete()
+      .eq("user_id", userId)
+      .eq("account_id", ctx.accountId);
+    if (pushCleanupError) {
+      console.warn(
+        "[members route] failed to clean up push subscriptions:",
+        pushCleanupError.message,
+      );
+    }
 
     return NextResponse.json({ ok: true, newPersonalAccountId: data });
   } catch (err) {
