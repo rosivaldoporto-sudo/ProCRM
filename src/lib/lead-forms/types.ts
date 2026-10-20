@@ -88,12 +88,31 @@ export interface LeadFormQualification {
 export interface LeadFormScheduling {
   enabled: boolean;
   duration_min: number;
+  /** @deprecated Compatibilidade: espelha buffer_after_min em configs antigas. */
   buffer_min: number;
   timezone: string;
   availability: Record<string, Array<[string, string]>>;
   owner_name: string | null;
   meeting_title: string;
   meeting_link: string | null;
+  /** Antecedência mínima para o primeiro horário, em minutos. */
+  min_notice_min: number;
+  /** Quantos dias à frente a agenda fica aberta (inclui hoje). */
+  max_days_ahead: number;
+  /** De quanto em quanto tempo os horários são oferecidos, em minutos. */
+  slot_interval_min: number;
+  /** Espaço livre antes da reunião, em minutos. */
+  buffer_before_min: number;
+  /** Espaço livre depois da reunião, em minutos. */
+  buffer_after_min: number;
+  /** Limite de reuniões por dia. null = ilimitado. */
+  max_bookings_per_day: number | null;
+  /**
+   * Exceções por data no fuso da agenda (YYYY-MM-DD).
+   * Uma lista vazia bloqueia o dia; uma lista preenchida substitui a grade
+   * semanal daquela data.
+   */
+  date_overrides: Record<string, Array<[string, string]>>;
 }
 
 export interface LeadFormMeta {
@@ -177,6 +196,13 @@ export const DEFAULT_SCHEDULING: LeadFormScheduling = {
   owner_name: null,
   meeting_title: 'Reunião de diagnóstico',
   meeting_link: null,
+  min_notice_min: 30,
+  max_days_ahead: 60,
+  slot_interval_min: 40,
+  buffer_before_min: 10,
+  buffer_after_min: 10,
+  max_bookings_per_day: null,
+  date_overrides: {},
 };
 
 export const DEFAULT_META: LeadFormMeta = {

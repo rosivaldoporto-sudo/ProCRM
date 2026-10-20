@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { requireOwnership } from '@/lib/lead-forms/ownership';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { normalizeScheduling } from '@/lib/lead-forms/availability';
+import { isValidTimeZone } from '@/lib/lead-forms/timezone';
 import { slugify, BLOCK_TYPE_LABELS } from '@/lib/lead-forms/types';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
@@ -28,7 +30,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     guard.supabase.from('lead_form_blocks').select('*').eq('form_id', id).order('position'),
   ]);
   if (!form) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  return NextResponse.json({ form, blocks: blocks ?? [] });
+  // Preenche defaults novos em configs antigas para o editor não exibir
+  // campos vazios e para o próximo save persistir a configuração completa.
+  const normalizedForm = { ...form, scheduling_config: normalizeScheduling(form.scheduling_config) };
+  return NextResponse.json({ form: normalizedForm, blocks: blocks ?? [] });
 }
 
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -68,6 +73,20 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   }
   if (patch.status && !['draft', 'published', 'archived'].includes(patch.status as string)) {
     return NextResponse.json({ error: 'status inválido' }, { status: 400 });
+  }
+  if (patch.scheduling_config !== undefined) {
+    const rawSchedule = patch.scheduling_config;
+    const rawTimeZone = rawSchedule && typeof rawSchedule === 'object'
+      ? (rawSchedule as { timezone?: unknown }).timezone
+      : undefined;
+    if (
+      typeof rawTimeZone === 'string' &&
+      rawTimeZone.trim() &&
+      !isValidTimeZone(rawTimeZone.trim())
+    ) {
+      return bad('Fuso horário inválido');
+    }
+    patch.scheduling_config = normalizeScheduling(rawSchedule);
   }
 
   const { error: updErr } = await admin.from('lead_forms').update(patch).eq('id', id).eq('account_id', guard.accountId);

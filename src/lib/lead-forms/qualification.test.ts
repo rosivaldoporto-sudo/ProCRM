@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateQualification } from './types';
-import { generateSlots as genSlots } from './availability';
+import { generateSlots as genSlots, normalizeScheduling } from './availability';
 import type { LeadFormBlock } from './types';
 
 const blocks: LeadFormBlock[] = [
@@ -65,16 +65,17 @@ describe('evaluateQualification', () => {
 
 describe('generateSlots', () => {
   it('generates slots within windows and skips busy', () => {
-    const scheduling = {
+    const scheduling = normalizeScheduling({
       enabled: true,
       duration_min: 30,
       buffer_min: 0,
       timezone: 'America/Sao_Paulo',
-      availability: { mon: [['09:00', '10:00']] as Array<[string, string]>, tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+      availability: { mon: [['09:00', '10:00']], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
       owner_name: null,
       meeting_title: 'Call',
       meeting_link: null,
-    };
+      min_notice_min: 0,
+    });
     // Uma segunda-feira conhecida: 2026-10-12 é segunda
     const slots = genSlots(scheduling, [], { daysAhead: 7, now: new Date('2026-10-11T12:00:00') });
     expect(slots.length).toBeGreaterThan(0);

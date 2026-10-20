@@ -13,12 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import type {
-  LeadForm, LeadFormBlock, LeadFormBlockType, LeadFormScheduling,
+  LeadForm, LeadFormBlock, LeadFormBlockType,
 } from "@/lib/lead-forms/types";
 import { BLOCK_TYPE_LABELS } from "@/lib/lead-forms/types";
 import { LeadFormMetaTab } from "./lead-form-meta-tab";
 import { LeadFormShareTab } from "./lead-form-share-tab";
 import { LeadFormResponsesTab } from "./lead-form-responses-tab";
+import { ScheduleEditor } from "./lead-form-schedule-editor";
 
 interface Props {
   formId: string;
@@ -476,48 +477,5 @@ function OptionsEditor({ block, onChange }: { block: LeadFormBlock; onChange: (c
         <Plus className="h-3.5 w-3.5" /> Opção
       </Button>
     </div>
-  );
-}
-
-const DOWS = [
-  ["mon", "Seg"], ["tue", "Ter"], ["wed", "Qua"], ["thu", "Qui"], ["fri", "Sex"], ["sat", "Sáb"], ["sun", "Dom"],
-] as const;
-
-function ScheduleEditor({ value, onChange }: { value: LeadFormScheduling; onChange: (v: LeadFormScheduling) => void }) {
-  return (
-    <Card><CardHeader><CardTitle>Agendamento de reunião</CardTitle>
-      <CardDescription>Qualificados veem os horários livres e agendam direto no formulário.</CardDescription></CardHeader>
-      <CardContent className="space-y-3">
-        <label className="flex items-center gap-2 text-sm"><Switch checked={value.enabled} onCheckedChange={(v) => onChange({ ...value, enabled: v })} /> Ativar agendamento para qualificados</label>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="space-y-1"><Label>Duração (min)</Label><Input type="number" value={value.duration_min} onChange={(e) => onChange({ ...value, duration_min: Number(e.target.value) })} /></div>
-          <div className="space-y-1"><Label>Intervalo (min)</Label><Input type="number" value={value.buffer_min} onChange={(e) => onChange({ ...value, buffer_min: Number(e.target.value) })} /></div>
-          <div className="space-y-1"><Label>Fuso</Label><Input value={value.timezone} onChange={(e) => onChange({ ...value, timezone: e.target.value })} /></div>
-          <div className="space-y-1"><Label>Responsável</Label><Input value={value.owner_name ?? ""} onChange={(e) => onChange({ ...value, owner_name: e.target.value || null })} placeholder="Ex: Ana (SDR)" /></div>
-        </div>
-        <div className="space-y-1"><Label>Título da reunião</Label><Input value={value.meeting_title} onChange={(e) => onChange({ ...value, meeting_title: e.target.value })} /></div>
-        <div className="space-y-2">
-          <Label>Grade semanal (início/fim, um por linha: 09:00-18:00)</Label>
-          {DOWS.map(([k, label]) => (
-            <div key={k} className="flex items-start gap-2">
-              <span className="w-10 pt-2 text-xs text-muted-foreground">{label}</span>
-              <Textarea
-                value={(value.availability?.[k] ?? []).map(([a, b]) => `${a}-${b}`).join("\n")}
-                placeholder="Ex: 09:00-18:00"
-                className="min-h-9"
-                onChange={(e) => {
-                  const lines = e.target.value.split("\n").map((l) => l.trim()).filter(Boolean);
-                  const parsed: Array<[string, string]> = [];
-                  for (const ln of lines) {
-                    const m = ln.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
-                    if (m) parsed.push([m[1], m[2]]);
-                  }
-                  onChange({ ...value, availability: { ...value.availability, [k]: parsed } });
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      </CardContent></Card>
   );
 }

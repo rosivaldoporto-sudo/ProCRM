@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { trackFormPixel } from "@/lib/lead-forms/meta-pixel";
 import { collectTracking } from "@/lib/lead-forms/attribution";
+import { zonedDayKey } from "@/lib/lead-forms/timezone";
 
 /**
  * Meta Pixel via <Script nonce> — o padrão do guia oficial de CSP
@@ -119,11 +120,14 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const accent = theme?.primary_color && /^#[0-9a-fA-F]{6}$/.test(theme.primary_color)
     ? theme.primary_color
     : "#4f46e5";
+  // Fuso em que a agenda foi configurada. Todas as datas/horas da tela
+  // são formatadas nele, não no fuso do visitante.
+  const scheduleTz = data?.form.scheduling?.timezone || "America/Sao_Paulo";
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/public/forms/${slug}`);
+        const res = await fetch(`/api/public/forms/${slug}`, { cache: "no-store" });
         if (!res.ok) throw new Error("not found");
         const json = (await res.json()) as PublicFormData;
         setData(json);
@@ -356,20 +360,26 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   async function loadSlots() {
     setSlotsLoading(true);
     try {
-      const res = await fetch(`/api/public/forms/${slug}/slots`);
+      const res = await fetch(`/api/public/forms/${slug}/slots`, { cache: "no-store" });
       if (res.ok) {
         const json = await res.json() as { slots: Array<{ start: string; end: string }> };
         const list = json.slots ?? [];
         setSlots(list);
+        // Depois de um refresh, um dia/horário pode ter sido ocupado.
+        setPicked((prev) => (prev && list.some((s) => s.start === prev) ? prev : null));
         // Pré-seleciona o primeiro dia com disponibilidade.
         if (list.length > 0) {
-          const firstDay = new Date(list[0].start).toISOString().slice(0, 10);
-          setSelectedDay((prev) => prev ?? firstDay);
+          const firstDay = zonedDayKey(list[0].start, scheduleTz);
+          setSelectedDay((prev) => {
+            if (prev && list.some((s) => zonedDayKey(s.start, scheduleTz) === prev)) return prev;
+            return firstDay || null;
+          });
           setViewMonth((prev) => {
             if (prev) return prev;
-            const d = new Date(`${firstDay}T12:00:00`);
-            return { y: d.getFullYear(), m: d.getMonth() };
+            return monthFromDayKey(firstDay);
           });
+        } else {
+          setSelectedDay(null);
         }
       }
     } finally {
@@ -405,6 +415,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       if (pixelId && json.booking?.id) trackFormPixel(pixelId, "Schedule", { content_name: slug }, `booking_${json.booking.id}`);
     } catch (err) {
       setFieldError(err instanceof Error ? err.message : "Horário indisponível.");
+      setPicked(null);
       void loadSlots();
     } finally {
       setBusy(false);
@@ -444,7 +455,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [done, current, busy, input, multi, advance]);
 
-  const grouped = groupByDay(slots);
+  const grouped = useMemo(() => groupByDay(slots, scheduleTz), [slots, scheduleTz]);
   const availDays = useMemo(() => new Set(grouped.map((g) => g.day)), [grouped]);
   const selectedDaySlots = useMemo(
     () => grouped.find((g) => g.day === selectedDay)?.slots ?? [],
@@ -454,8 +465,8 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     const keys = [...availDays].map((d) => d.slice(0, 7)).sort();
     return { min: keys[0] ?? null, max: keys[keys.length - 1] ?? null };
   }, [availDays]);
-  const now = new Date();
-  const activeView = viewMonth ?? { y: now.getFullYear(), m: now.getMonth() };
+  const todayKey = zonedDayKey(new Date(), scheduleTz);
+  const activeView = viewMonth ?? monthFromDayKey(todayKey);
   const scheduling = data?.form.scheduling;
 
   if (error) {
@@ -540,12 +551,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                     {booking.meeting_title || scheduling?.meeting_title || "Reunião"}
                   </p>
                   <p className="mt-2 text-xl font-medium text-stone-900">
-                    {fmtLongDay(booking.starts_at)}
+                    {fmtLongDay(booking.starts_at, scheduleTz)}
                   </p>
                   <div className="mt-4 space-y-2 text-base text-stone-600">
                     <p className="flex items-center gap-2.5">
                       <Clock className="h-4 w-4 shrink-0" style={{ color: accent }} />
-                      {fmtTime(booking.starts_at)} às {fmtTime(booking.ends_at)}
+                      {fmtTime(booking.starts_at, scheduleTz)} às {fmtTime(booking.ends_at, scheduleTz)}
                     </p>
                     <p className="flex items-center gap-2.5">
                       <Globe className="h-4 w-4 shrink-0" style={{ color: accent }} />
@@ -598,6 +609,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                             view={activeView}
                             minMonth={monthRange.min}
                             maxMonth={monthRange.max}
+                            todayKey={todayKey}
                             accent={accent}
                             onView={setViewMonth}
                             onSelect={(day) => { setSelectedDay(day); setPicked(null); }}
@@ -625,7 +637,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                                       ? { background: accent, borderColor: accent, color: "#fff" }
                                       : { borderColor: "#e7e5e4", color: "#44403c", background: "#fff" }}
                                   >
-                                    {fmtTime(s.start)}
+                                    {fmtTime(s.start, scheduleTz)}
                                   </button>
                                 );
                               })}
@@ -886,54 +898,70 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   );
 }
 
-function groupByDay(slots: Array<{ start: string; end: string }>) {
+function groupByDay(
+  slots: Array<{ start: string; end: string }>,
+  timeZone: string,
+) {
   const map = new Map<string, { day: string; label: string; slots: Array<{ start: string; end: string }> }>();
   for (const s of slots) {
-    const key = new Date(s.start).toISOString().slice(0, 10);
+    const key = zonedDayKey(s.start, timeZone);
+    if (!key) continue;
     if (!map.has(key)) {
-      map.set(key, {
-        day: key,
-        label: new Date(`${key}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }),
-        slots: [],
-      });
+      map.set(key, { day: key, label: fmtShortDay(key), slots: [] });
     }
     map.get(key)!.slots.push(s);
   }
-  return [...map.values()];
+  return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+function monthFromDayKey(dayKey: string): { y: number; m: number } {
+  const [y, m] = dayKey.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) {
+    const now = new Date();
+    return { y: now.getFullYear(), m: now.getMonth() };
+  }
+  return { y, m: m - 1 };
 }
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function fmtLongDay(iso: string) {
+function fmtLongDay(iso: string, timeZone: string) {
   const s = new Date(iso).toLocaleDateString("pt-BR", {
     weekday: "long",
     day: "numeric",
     month: "long",
+    timeZone,
   });
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function fmtShortDay(dayKey: string) {
-  return new Date(`${dayKey}T12:00:00`).toLocaleDateString("pt-BR", {
+  // A chave já é a data local da agenda; formatar em UTC evita deslocar
+  // o dia ao passar por fusos negativos.
+  return new Date(`${dayKey}T12:00:00Z`).toLocaleDateString("pt-BR", {
     weekday: "short",
     day: "2-digit",
     month: "short",
+    timeZone: "UTC",
   });
 }
 
-function fmtTime(iso: string) {
+function fmtTime(iso: string, timeZone: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone,
   });
 }
 
 function tzLabel(tz?: string | null) {
   if (!tz) return "";
   if (tz === "America/Sao_Paulo") return "Horário de Brasília";
-  return tz.replace("_", " ");
+  if (tz === "America/Manaus") return "Horário de Manaus";
+  if (tz === "America/Rio_Branco") return "Horário do Acre";
+  return tz.replace(/_/g, " ");
 }
 
 /**
@@ -946,6 +974,7 @@ function MonthCalendar({
   view,
   minMonth,
   maxMonth,
+  todayKey,
   accent,
   onView,
   onSelect,
@@ -955,6 +984,8 @@ function MonthCalendar({
   view: { y: number; m: number };
   minMonth: string | null;
   maxMonth: string | null;
+  /** "Hoje" no fuso da agenda, não no fuso do visitante. */
+  todayKey: string;
   accent: string;
   onView: (v: { y: number; m: number }) => void;
   onSelect: (day: string) => void;
@@ -966,8 +997,6 @@ function MonthCalendar({
     .replace(/^./, (c) => c.toUpperCase());
   const startOffset = new Date(y, m, 1).getDay();
   const daysInMonth = new Date(y, m + 1, 0).getDate();
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
 
   function shift(dir: 1 | -1) {
     const d = new Date(y, m + dir, 1);

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { normalizeScheduling } from '@/lib/lead-forms/availability';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/request-ip';
@@ -29,12 +30,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   // Conta view (fire-and-forget, com log em caso de falha)
   void bumpFormCounter(db, (form as { id: string }).id, 'view');
   const meta = (f.meta_config ?? {}) as { pixel_id?: string | null };
+  const scheduling = normalizeScheduling(f.scheduling_config);
   return NextResponse.json({
     form: {
       id: f.id,
       name: f.name,
       theme: f.theme_config,
-      scheduling: f.scheduling_config,
+      // Só o necessário para montar a tela. A grade de horários fica no
+      // endpoint /slots, que aplica as regras no servidor.
+      scheduling: {
+        enabled: scheduling.enabled,
+        duration_min: scheduling.duration_min,
+        timezone: scheduling.timezone,
+        meeting_title: scheduling.meeting_title,
+        owner_name: scheduling.owner_name,
+        meeting_link: scheduling.meeting_link,
+        max_days_ahead: scheduling.max_days_ahead,
+        min_notice_min: scheduling.min_notice_min,
+      },
       pixel_id: meta.pixel_id ?? null,
     },
     blocks: (blocks ?? []).map((b) => {

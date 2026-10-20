@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { generateSlots } from '@/lib/lead-forms/availability';
+import {
+  findAvailableSlot,
+  normalizeScheduling,
+  type BookingInterval,
+} from '@/lib/lead-forms/availability';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
@@ -38,10 +42,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const { data: formRow } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
   const form = formRow as {
     id: string; account_id: string; status: string; name: string;
-    scheduling_config: { enabled: boolean; duration_min: number; timezone: string; meeting_title: string };
+    scheduling_config: unknown;
     meta_config: { fire_schedule?: boolean };
   } | null;
-  if (!form || form.status !== 'published' || !form.scheduling_config?.enabled) {
+  if (!form || form.status !== 'published') {
+    return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
+  }
+  const config = normalizeScheduling(form.scheduling_config);
+  if (!config.enabled) {
     return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
   }
   const { data: respRow } = await db.from('lead_form_responses').select('*').eq('id', body.response_id).eq('form_id', form.id).maybeSingle();
@@ -66,21 +74,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     return NextResponse.json({ error: 'Esta resposta já possui um agendamento ativo' }, { status: 409 });
   }
 
-  // Valida slot ainda livre
+  // Valida slot ainda livre usando exatamente as mesmas regras da listagem.
+  const now = new Date();
+  const rangeStart = new Date(now.getTime() - 48 * 60 * 60_000);
+  const rangeEnd = new Date(
+    now.getTime() + (config.max_days_ahead + 2) * 24 * 60 * 60_000,
+  );
   const { data: bookings } = await db
     .from('lead_form_bookings')
     .select('starts_at, ends_at, status')
     .eq('form_id', form.id)
-    .gte('starts_at', new Date().toISOString())
-    .limit(500);
-  const slots = generateSlots(
-    form.scheduling_config as never,
-    (bookings ?? []) as Array<{ starts_at: string; ends_at: string; status: string }>,
-    { daysAhead: 30 },
+    .gte('starts_at', rangeStart.toISOString())
+    .lt('starts_at', rangeEnd.toISOString())
+    .limit(5_000);
+  const match = findAvailableSlot(
+    config,
+    (bookings ?? []) as BookingInterval[],
+    body.starts_at,
+    { now },
   );
-  const wanted = new Date(body.starts_at).getTime();
-  const match = slots.find((s) => new Date(s.start).getTime() === wanted);
-  if (!match) return NextResponse.json({ error: 'Horário indisponível. Escolha outro.' }, { status: 409 });
+  if (!match) {
+    return NextResponse.json({ error: 'Horário indisponível. Escolha outro.' }, { status: 409 });
+  }
 
   const { data: booking, error } = await db.from('lead_form_bookings').insert({
     form_id: form.id,
@@ -91,11 +106,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     attendee_phone: phone || resp.respondent_phone,
     starts_at: match.start,
     ends_at: match.end,
-    timezone: form.scheduling_config.timezone,
-    meeting_title: form.scheduling_config.meeting_title,
+    timezone: config.timezone,
+    meeting_title: config.meeting_title,
     notes: notes ?? null,
   }).select().single();
-  if (error || !booking) return NextResponse.json({ error: 'Falha ao agendar' }, { status: 500 });
+  if (error || !booking) {
+    // Índice único parcial (migration 060) protege contra duas pessoas
+    // confirmando o mesmo horário ao mesmo tempo.
+    if ((error as { code?: string } | null)?.code === '23505') {
+      return NextResponse.json({ error: 'Horário indisponível. Escolha outro.' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Falha ao agendar' }, { status: 500 });
+  }
 
   await db.from('lead_form_responses').update({ status: 'booked' }).eq('id', resp.id);
   void bumpFormCounter(db, form.id, 'booked');
