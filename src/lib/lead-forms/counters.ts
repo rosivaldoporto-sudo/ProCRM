@@ -58,7 +58,10 @@ export async function recountFormCounters(
       db
         .from('lead_form_responses')
         .select('id', { count: 'exact', head: true })
-        .eq('form_id', formId),
+        .eq('form_id', formId)
+        // Respostas em preenchimento (salvas no WhatsApp) não entram
+        // nos cards: só contam quando o formulário é concluído.
+        .neq('status', 'started'),
       db
         .from('lead_form_responses')
         .select('id', { count: 'exact', head: true })

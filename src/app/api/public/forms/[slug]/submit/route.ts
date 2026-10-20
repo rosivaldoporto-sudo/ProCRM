@@ -5,7 +5,16 @@ import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
 import { normalizeAttribution, sanitizeTracking, type TrackingBag } from '@/lib/lead-forms/attribution';
 import { getClientIp } from '@/lib/request-ip';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
+import { syncLeadRecords, type LeadSyncSettings } from '@/lib/lead-forms/contact-sync';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { isUuid } from '@/lib/api-validate';
+
+interface LeadFormResponseRow {
+  id: string;
+  status: string;
+  contact_id: string | null;
+  deal_id: string | null;
+}
 
 /** POST público — recebe answers, avalia qualificação, cria contato/deal,
  *  dispara Meta CAPI (Lead + CompleteRegistration/QualifiedLead) e webhook.
@@ -25,6 +34,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     website?: string;
     /** Epoch ms de quando o formulário foi aberto (bots respondem em ms). */
     started_at?: number;
+    /**
+     * Salvamento antecipado: cria o lead no CRM assim que o WhatsApp é
+     * respondido, sem exigir as demais perguntas obrigatórias. O envio
+     * final reaproveita a mesma resposta via `response_id`.
+     */
+    partial?: boolean;
+    /** Resposta já iniciada (parcial) que o envio final deve atualizar. */
+    response_id?: string;
   } | null;
   if (!body?.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) {
     return NextResponse.json({ error: 'answers é obrigatório' }, { status: 400 });
@@ -98,6 +115,117 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     score_weight: b.score_weight,
   }));
 
+  const isPartial = body.partial === true;
+  const requestedResponseId = isUuid(body.response_id) ? body.response_id : null;
+
+  // ---------- Salvamento antecipado (WhatsApp respondido) ----------
+  // Cria a resposta como `started`, já com contato e deal, para que o
+  // time consiga abordar quem abandonou o formulário. Não dispara
+  // Meta CAPI, webhook nem contadores: isso é papel do envio final.
+  if (isPartial) {
+    const contact = extractContactFields(blocks, body.answers);
+    if (!contact.phone) {
+      return NextResponse.json({ error: 'Telefone é obrigatório' }, { status: 400 });
+    }
+
+    const rawTracking = sanitizeTracking(body.tracking);
+    const attribution = normalizeAttribution(rawTracking);
+    const tracking: Record<string, unknown> = { ...rawTracking, attribution };
+    const { score } = evaluateQualification(blocks, body.answers, form.qualification_config);
+
+    let existing: LeadFormResponseRow | null = null;
+
+    if (requestedResponseId) {
+      const { data } = await db
+        .from('lead_form_responses')
+        .select('id, status, contact_id, deal_id')
+        .eq('id', requestedResponseId)
+        .eq('form_id', form.id)
+        .maybeSingle();
+      const row = data as LeadFormResponseRow | null;
+      if (row?.status === 'started') existing = row;
+    }
+
+    // Recarregou a página / perdeu o id local: reaproveita a resposta em
+    // andamento do mesmo telefone nas últimas 24h em vez de duplicar.
+    if (!existing) {
+      const { data: recent } = await db
+        .from('lead_form_responses')
+        .select('id, status, contact_id, deal_id')
+        .eq('form_id', form.id)
+        .eq('status', 'started')
+        .eq('respondent_phone', contact.phone)
+        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      existing = (recent as LeadFormResponseRow | null) ?? null;
+    }
+
+    const responsePatch = {
+      answers: body.answers,
+      score,
+      is_qualified: false,
+      status: 'started',
+      respondent_name: contact.name ?? null,
+      respondent_email: contact.email ?? null,
+      respondent_phone: contact.phone,
+      tracking,
+      ip: getClientIp(req),
+      user_agent: req.headers.get('user-agent')?.slice(0, 500) ?? null,
+    };
+
+    let responseId = existing?.id ?? null;
+    if (responseId) {
+      const { error } = await db
+        .from('lead_form_responses')
+        .update(responsePatch)
+        .eq('id', responseId);
+      if (error) {
+        return NextResponse.json({ error: 'Falha ao salvar o lead' }, { status: 500 });
+      }
+    } else {
+      const { data: inserted, error } = await db
+        .from('lead_form_responses')
+        .insert({
+          form_id: form.id,
+          account_id: form.account_id,
+          ...responsePatch,
+          completed_at: null,
+        })
+        .select('id')
+        .single();
+      if (error || !inserted) {
+        return NextResponse.json({ error: 'Falha ao salvar o lead' }, { status: 500 });
+      }
+      responseId = (inserted as { id: string }).id;
+    }
+
+    try {
+      const { contactId, dealId } = await syncLeadRecords(db, {
+        accountId: form.account_id,
+        ownerId: form.user_id,
+        formName: form.name,
+        contact,
+        company: typeof body.answers.empresa === 'string' ? body.answers.empresa : null,
+        tracking,
+        settings: form.settings as LeadSyncSettings,
+        existingContactId: existing?.contact_id ?? null,
+        existingDealId: existing?.deal_id ?? null,
+      });
+      if (contactId || dealId) {
+        await db
+          .from('lead_form_responses')
+          .update({ contact_id: contactId, deal_id: dealId })
+          .eq('id', responseId);
+      }
+    } catch (err) {
+      console.error('[lead-forms] partial contact/deal:', err instanceof Error ? err.message : err);
+    }
+
+    return NextResponse.json({ response_id: responseId, partial: true });
+  }
+
   // Validação de obrigatórios
   for (const b of blocks) {
     const cfg = b.config as { required?: boolean; label?: string };
@@ -116,111 +244,104 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   // tracking da resposta para a UI ler sem migração de banco.
   const attribution = normalizeAttribution(rawTracking);
   const tracking: Record<string, unknown> = { ...rawTracking, attribution };
-  const status = isQualified ? 'qualified' : 'disqualified';
 
-  const { data: response, error: respErr } = await db
-    .from('lead_form_responses')
-    .insert({
-      form_id: form.id,
-      account_id: form.account_id,
-      answers: body.answers,
-      score,
-      is_qualified: isQualified,
-      status,
-      respondent_name: contact.name ?? null,
-      respondent_email: contact.email ?? null,
-      respondent_phone: contact.phone ?? null,
-      tracking,
-      ip: getClientIp(req),
-      user_agent: req.headers.get('user-agent')?.slice(0, 500) ?? null,
-      completed_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (respErr || !response) {
-    return NextResponse.json({ error: 'Falha ao salvar resposta' }, { status: 500 });
+  // Envio final pode concluir a resposta criada no salvamento parcial
+  // (status `started`). Sem `response_id` válido, cria uma nova.
+  let existingResponse: LeadFormResponseRow | null = null;
+  if (requestedResponseId) {
+    const { data } = await db
+      .from('lead_form_responses')
+      .select('id, status, contact_id, deal_id')
+      .eq('id', requestedResponseId)
+      .eq('form_id', form.id)
+      .maybeSingle();
+    existingResponse = (data as LeadFormResponseRow | null) ?? null;
   }
-  const responseId = (response as { id: string }).id;
+  // Sem id (reload em outra aba, storage limpo): adota a resposta em
+  // andamento do mesmo telefone para não duplicar resposta/negócio.
+  if (!existingResponse && contact.phone) {
+    const { data: recent } = await db
+      .from('lead_form_responses')
+      .select('id, status, contact_id, deal_id')
+      .eq('form_id', form.id)
+      .eq('status', 'started')
+      .eq('respondent_phone', contact.phone)
+      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    existingResponse = (recent as LeadFormResponseRow | null) ?? null;
+  }
+  const isFirstCompletion = !existingResponse || existingResponse.status === 'started';
+  const finalStatus = isQualified
+    ? (existingResponse?.status === 'booked' ? 'booked' : 'qualified')
+    : (existingResponse?.status === 'booked' ? 'booked' : 'disqualified');
 
-  // Contadores (com log em caso de falha — ver counters.ts)
-  void bumpFormCounter(db, form.id, 'response');
-  if (isQualified) void bumpFormCounter(db, form.id, 'qualified');
+  const responseFields = {
+    answers: body.answers,
+    score,
+    is_qualified: isQualified,
+    status: finalStatus,
+    respondent_name: contact.name ?? null,
+    respondent_email: contact.email ?? null,
+    respondent_phone: contact.phone ?? null,
+    tracking,
+    ip: getClientIp(req),
+    user_agent: req.headers.get('user-agent')?.slice(0, 500) ?? null,
+    completed_at: new Date().toISOString(),
+  };
 
-  // Cria/atualiza contato + deal (fire-and-forget com await tolerante)
-  let contactId: string | null = null;
-  let dealId: string | null = null;
+  let responseId: string;
+  if (existingResponse) {
+    const { error: respErr } = await db
+      .from('lead_form_responses')
+      .update(responseFields)
+      .eq('id', existingResponse.id);
+    if (respErr) {
+      return NextResponse.json({ error: 'Falha ao salvar resposta' }, { status: 500 });
+    }
+    responseId = existingResponse.id;
+  } else {
+    const { data: response, error: respErr } = await db
+      .from('lead_form_responses')
+      .insert({
+        form_id: form.id,
+        account_id: form.account_id,
+        ...responseFields,
+      })
+      .select()
+      .single();
+    if (respErr || !response) {
+      return NextResponse.json({ error: 'Falha ao salvar resposta' }, { status: 500 });
+    }
+    responseId = (response as { id: string }).id;
+  }
+
+  // Contadores só na primeira conclusão — um retry do envio final não
+  // pode inflar "Respostas". O salvamento parcial também não conta.
+  if (isFirstCompletion) {
+    void bumpFormCounter(db, form.id, 'response');
+    if (isQualified) void bumpFormCounter(db, form.id, 'qualified');
+  }
+
+  // Cria/atualiza contato + deal reaproveitando o que o salvamento
+  // parcial já criou (sem duplicar contato nem card no pipeline).
+  let contactId: string | null = existingResponse?.contact_id ?? null;
+  let dealId: string | null = existingResponse?.deal_id ?? null;
   try {
-    const settings = form.settings as { create_contact?: boolean; create_deal?: boolean; qualified_pipeline_stage_id?: string | null };
-    if (settings.create_contact !== false && (contact.phone || contact.email)) {
-      // Dedup por telefone ou email dentro da conta
-      let existing: { id: string } | null = null;
-      if (contact.phone) {
-        const { data } = await db.from('contacts').select('id').eq('account_id', form.account_id).eq('phone', contact.phone).maybeSingle();
-        existing = (data as { id: string } | null) ?? null;
-      }
-      if (!existing && contact.email) {
-        const { data } = await db.from('contacts').select('id').eq('account_id', form.account_id).eq('email', contact.email).maybeSingle();
-        existing = (data as { id: string } | null) ?? null;
-      }
-      if (existing) {
-        contactId = existing.id;
-        await db.from('contacts').update({
-          name: contact.name ?? undefined,
-          email: contact.email ?? undefined,
-          utm_source: (tracking as Record<string, string>).utm_source ?? undefined,
-          utm_campaign: (tracking as Record<string, string>).utm_campaign ?? undefined,
-          utm_medium: (tracking as Record<string, string>).utm_medium ?? undefined,
-          utm_term: (tracking as Record<string, string>).utm_term ?? undefined,
-          utm_content: (tracking as Record<string, string>).utm_content ?? undefined,
-        }).eq('id', contactId);
-      } else {
-        const { data: created } = await db.from('contacts').insert({
-          account_id: form.account_id,
-          user_id: form.user_id,
-          name: contact.name ?? 'Lead via formulário',
-          phone: contact.phone ?? null,
-          email: contact.email ?? null,
-          company: typeof body.answers.empresa === 'string' ? (body.answers.empresa as string) : null,
-          utm_source: (tracking as Record<string, string>).utm_source ?? null,
-          utm_campaign: (tracking as Record<string, string>).utm_campaign ?? null,
-          utm_medium: (tracking as Record<string, string>).utm_medium ?? null,
-          utm_term: (tracking as Record<string, string>).utm_term ?? null,
-          utm_content: (tracking as Record<string, string>).utm_content ?? null,
-        }).select('id').single();
-        contactId = ((created as { id: string } | null)?.id) ?? null;
-      }
-    }
-    if (settings.create_deal !== false && contactId) {
-      // Pipeline: usa stage qualificado se definido, senão primeiro stage do pipeline default
-      let stageId = (settings.qualified_pipeline_stage_id as string | null) ?? null;
-      let pipelineId: string | null = null;
-      if (stageId) {
-        const { data: st } = await db.from('pipeline_stages').select('id, pipeline_id').eq('id', stageId).maybeSingle();
-        if (st) pipelineId = (st as { pipeline_id: string }).pipeline_id;
-        else stageId = null;
-      }
-      if (!stageId) {
-        const { data: pipes } = await db.from('pipelines').select('id').eq('account_id', form.account_id).order('created_at').limit(1);
-        pipelineId = ((pipes?.[0] as { id: string } | undefined)?.id) ?? null;
-        if (pipelineId) {
-          const { data: stages } = await db.from('pipeline_stages').select('id').eq('pipeline_id', pipelineId).order('position').limit(1);
-          stageId = ((stages?.[0] as { id: string } | undefined)?.id) ?? null;
-        }
-      }
-      if (stageId && pipelineId) {
-        const { data: deal } = await db.from('deals').insert({
-          account_id: form.account_id,
-          user_id: form.user_id,
-          pipeline_id: pipelineId,
-          stage_id: stageId,
-          contact_id: contactId,
-          title: `${contact.name ?? 'Lead'} — ${form.name}`,
-          value: 0,
-          status: 'open',
-        }).select('id').single();
-        dealId = ((deal as { id: string } | null)?.id) ?? null;
-      }
-    }
+    const synced = await syncLeadRecords(db, {
+      accountId: form.account_id,
+      ownerId: form.user_id,
+      formName: form.name,
+      contact,
+      company: typeof body.answers.empresa === 'string' ? body.answers.empresa : null,
+      tracking,
+      settings: form.settings as LeadSyncSettings,
+      existingContactId: contactId,
+      existingDealId: dealId,
+    });
+    contactId = synced.contactId;
+    dealId = synced.dealId;
     if (contactId || dealId) {
       await db.from('lead_form_responses').update({ contact_id: contactId, deal_id: dealId }).eq('id', responseId);
     }
@@ -254,7 +375,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     clientIp: getClientIp(req), clientUa: req.headers.get('user-agent')?.slice(0, 500) ?? undefined,
   };
   const capiSends: Array<Promise<{ key: string; eid: string | null }>> = [];
-  if (metaCfg.fire_lead !== false) {
+  if (isFirstCompletion && metaCfg.fire_lead !== false) {
     capiSends.push(
       fireFormCapiEvent({
         accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
@@ -263,7 +384,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       }).then((eid) => ({ key: 'lead', eid }))
     );
   }
-  if (isQualified && metaCfg.fire_complete_registration !== false) {
+  if (isFirstCompletion && isQualified && metaCfg.fire_complete_registration !== false) {
     capiSends.push(
       fireFormCapiEvent({
         accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
@@ -272,7 +393,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       }).then((eid) => ({ key: 'complete_registration', eid }))
     );
   }
-  if (isQualified && metaCfg.fire_qualified !== false) {
+  if (isFirstCompletion && isQualified && metaCfg.fire_qualified !== false) {
     capiSends.push(
       fireFormCapiEvent({
         accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
@@ -288,9 +409,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     await db.from('lead_form_responses').update({ meta_event_ids: metaIds }).eq('id', responseId);
   }
 
-  // Webhook externo (fire-and-forget)
+  // Webhook externo (fire-and-forget) — só na primeira conclusão.
   const webhook = (form.settings as { webhook_url?: string | null }).webhook_url;
-  if (webhook) {
+  if (isFirstCompletion && webhook) {
     fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

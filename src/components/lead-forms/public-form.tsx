@@ -65,6 +65,17 @@ function getTracking() {
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
 
+/** Chave por formulário: sobrevive a reload na mesma aba. */
+function partialStorageKey(slug: string): string {
+  return `wacrm:lead-form:${slug}:response_id`;
+}
+
+/** Bloco que representa o WhatsApp/telefone do lead. */
+function isPhoneBlock(block: { key: string; type: string }, value: unknown): boolean {
+  if (typeof value !== "string" || !value.trim()) return false;
+  return block.type === "phone" || /^(whatsapp|phone|telefone|celular)$/i.test(block.key);
+}
+
 export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const [data, setData] = useState<PublicFormData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +108,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const [honeypot, setHoneypot] = useState("");
   const openedAt = useRef(0);
   if (openedAt.current === 0) openedAt.current = Date.now();
+  // Salvamento parcial: id da resposta criada quando o WhatsApp é
+  // respondido + promise em voo (o envio final aguarda e reaproveita).
+  const partialResponseId = useRef<string | null>(null);
+  const partialRequest = useRef<Promise<string | null> | null>(null);
 
   const blocks = useMemo(() => (data?.blocks ?? []).filter((b) => b.type !== "meeting"), [data]);
   const theme = data?.form.theme;
@@ -125,6 +140,17 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     const t = setTimeout(() => trackFormPixel(pixelId, "ViewContent", { content_name: slug }), 800);
     return () => clearTimeout(t);
   }, [pixelId, slug]);
+
+  // Recupera o id do salvamento parcial após um reload (mesma aba), para
+  // que o envio final atualize a mesma resposta em vez de duplicar.
+  useEffect(() => {
+    try {
+      partialResponseId.current = sessionStorage.getItem(partialStorageKey(slug));
+    } catch {
+      partialResponseId.current = null;
+    }
+    partialRequest.current = null;
+  }, [slug]);
 
   const current = blocks[step];
 
@@ -186,6 +212,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     setAnswers(next);
     setInput("");
     setMulti([]);
+    // Assim que o WhatsApp é respondido (e ainda restam perguntas),
+    // envia o lead para o CRM. Não bloqueia o avanço; o envio final
+    // aguarda esta requisição e reaproveita a mesma resposta.
+    if (step + 1 < blocks.length && isPhoneBlock(b, value)) {
+      void savePartialLead(next);
+    }
     if (step + 1 < blocks.length) {
       setStep(step + 1);
     } else {
@@ -210,6 +242,67 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     return `evt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   }
 
+  function rememberPartialResponse(id: string) {
+    partialResponseId.current = id;
+    try {
+      sessionStorage.setItem(partialStorageKey(slug), id);
+    } catch {
+      // Storage indisponível (modo privado): mantém só em memória.
+    }
+  }
+
+  function forgetPartialResponse() {
+    partialResponseId.current = null;
+    try {
+      sessionStorage.removeItem(partialStorageKey(slug));
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /**
+   * Salva o lead no CRM antes do fim do formulário. Idempotente: uma
+   * única requisição por visita — respostas seguintes apenas atualizam
+   * o mesmo `response_id` no envio final.
+   */
+  function savePartialLead(answersSoFar: Record<string, unknown>): Promise<string | null> {
+    if (partialRequest.current) return partialRequest.current;
+
+    const request = (async () => {
+      // Timeout próprio: se a rede travar, o envio final não fica preso.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(`/api/public/forms/${slug}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: answersSoFar,
+            tracking: getTracking(),
+            partial: true,
+            response_id: partialResponseId.current ?? undefined,
+            website: honeypot || undefined,
+            started_at: openedAt.current,
+          }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as { response_id?: string };
+        if (!json.response_id) return null;
+        rememberPartialResponse(json.response_id);
+        return json.response_id;
+      } catch {
+        // Best-effort: o envio final ainda salva o lead completo.
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+
+    partialRequest.current = request;
+    return request;
+  }
+
   async function submit(finalAnswers: Record<string, unknown>) {
     setBusy(true);
     setSending(true);
@@ -217,6 +310,15 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     // (redundant setup recomendado na doc do Conversions API).
     const clientEventId = newClientEventId();
     try {
+      // Espera o salvamento parcial (se houver) para atualizar a mesma
+      // resposta em vez de criar um segundo lead/negócio.
+      if (partialRequest.current) {
+        try {
+          await partialRequest.current;
+        } catch {
+          // Best-effort.
+        }
+      }
       const res = await fetch(`/api/public/forms/${slug}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -226,11 +328,14 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
           event_id: clientEventId,
           website: honeypot || undefined,
           started_at: openedAt.current,
+          response_id: partialResponseId.current ?? undefined,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error((json as { error?: string }).error ?? "submit failed");
       const r = json as { is_qualified: boolean; message: string; response_id: string; scheduling_enabled: boolean };
+      forgetPartialResponse();
+      partialRequest.current = null;
       setDone({ is_qualified: r.is_qualified, message: r.message, response_id: r.response_id });
       if (pixelId) {
         trackFormPixel(pixelId, "Lead", { content_name: slug }, clientEventId);

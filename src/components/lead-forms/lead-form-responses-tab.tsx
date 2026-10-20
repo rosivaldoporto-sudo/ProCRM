@@ -108,8 +108,9 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
         const key = r.attribution.campaign ?? "(sem campanha)";
         if (key !== campaignFilter) return false;
       }
-      if (qualifiedFilter === "qualified" && !r.is_qualified) return false;
-      if (qualifiedFilter === "disqualified" && r.is_qualified) return false;
+      if (qualifiedFilter === "incomplete" && r.status !== "started") return false;
+      if (qualifiedFilter === "qualified" && (!r.is_qualified || r.status === "started")) return false;
+      if (qualifiedFilter === "disqualified" && (r.is_qualified || r.status === "started")) return false;
       if (qualifiedFilter === "booked" && !r.booked) return false;
       if (!q) return true;
       return [r.respondent_name, r.respondent_email, r.respondent_phone, r.attribution.campaign, r.attribution.ad]
@@ -217,6 +218,7 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
               <SelectTrigger className="w-40"><SelectValue placeholder="Situação" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="incomplete">Em preenchimento</SelectItem>
                 <SelectItem value="qualified">Qualificados</SelectItem>
                 <SelectItem value="disqualified">Desqualificados</SelectItem>
                 <SelectItem value="booked">Agendaram</SelectItem>
@@ -251,9 +253,15 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
                       <strong className="truncate text-sm text-foreground">
                         {String(row.respondent_name ?? "Anônimo")}
                       </strong>
-                      <Badge variant="outline" className="text-[10px]">
-                        {row.is_qualified ? `Qualificado · ${row.score}` : `Pontuação ${row.score}`}
-                      </Badge>
+                      {row.status === "started" ? (
+                        <Badge variant="outline" className="border-amber-600/40 bg-amber-500/10 text-[10px] text-amber-300">
+                          Em preenchimento
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">
+                          {row.is_qualified ? `Qualificado · ${row.score}` : `Pontuação ${row.score}`}
+                        </Badge>
+                      )}
                       {row.booked && (
                         <Badge variant="outline" className="border-emerald-600/40 bg-emerald-500/10 text-[10px] text-emerald-300">
                           <CalendarCheck className="mr-1 h-3 w-3" /> Agendou
@@ -266,6 +274,9 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
                         {row.attribution.sourceLabel}
                       </span>
                       <span className="truncate">· {attributionLabel(row.attribution)}</span>
+                      {row.respondent_phone && (
+                        <span className="truncate">· {row.respondent_phone}</span>
+                      )}
                       <span>· {new Date(row.created_at).toLocaleString("pt-BR")}</span>
                     </div>
                   </div>

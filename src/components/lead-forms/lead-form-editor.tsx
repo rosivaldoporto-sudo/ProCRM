@@ -396,6 +396,11 @@ export function LeadFormEditor({ formId }: Props) {
             <CardContent className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_contact} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_contact: v })} /> Criar contato</label>
               <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_deal} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_deal: v })} /> Criar negócio</label>
+              {blocks.some((b) => b.block_type === "phone") && (
+                <p className="w-full text-xs text-muted-foreground">
+                  Com &quot;Criar contato&quot; ligado, o lead entra no CRM assim que a pergunta de WhatsApp é respondida — mesmo que a pessoa não conclua o formulário. As respostas finais atualizam o mesmo contato e negócio, sem duplicar.
+                </p>
+              )}
               <div className="w-full space-y-2"><Label>Webhook externo (POST JSON, opcional)</Label>
                 <Input value={form.settings.webhook_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, webhook_url: e.target.value || null })} placeholder="https://..." /></div>
               <div className="w-full space-y-2"><Label>Redirecionar após concluir (opcional)</Label>

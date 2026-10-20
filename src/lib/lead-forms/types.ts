@@ -416,8 +416,8 @@ export function extractContactFields(
   // fallback: chaves nomeadas
   if (!out.name && typeof answers['nome'] === 'string') out.name = (answers['nome'] as string).trim();
   if (!out.email && typeof answers['email'] === 'string') out.email = (answers['email'] as string).trim();
-  if (!out.phone && (typeof answers['whatsapp'] === 'string' || typeof answers['phone'] === 'string' || typeof answers['telefone'] === 'string')) {
-    out.phone = String(answers['whatsapp'] ?? answers['phone'] ?? answers['telefone']).trim();
+  if (!out.phone && (typeof answers['whatsapp'] === 'string' || typeof answers['phone'] === 'string' || typeof answers['telefone'] === 'string' || typeof answers['celular'] === 'string')) {
+    out.phone = String(answers['whatsapp'] ?? answers['phone'] ?? answers['telefone'] ?? answers['celular']).trim();
   }
   return out;
 }
