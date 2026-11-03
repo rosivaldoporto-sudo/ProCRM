@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { NextIntlClientProvider, type AbstractIntlMessages } from "next-intl";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -91,10 +92,25 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+// O catálogo completo entra aqui, e não em layout.tsx: o Next agrupa o layout
+// de um route group com o layout raiz, então usar o mesmo provider nos dois faz
+// toda página pública (/entrar, /f/<slug>) baixar o JS do painel inteiro.
+export function DashboardShell({
+  children,
+  messages,
+}: {
+  children: React.ReactNode;
+  messages: AbstractIntlMessages;
+}) {
   return (
-    <AuthProvider>
-      <DashboardShellInner>{children}</DashboardShellInner>
-    </AuthProvider>
+    <NextIntlClientProvider
+      locale="pt-BR"
+      timeZone="America/Sao_Paulo"
+      messages={messages}
+    >
+      <AuthProvider>
+        <DashboardShellInner>{children}</DashboardShellInner>
+      </AuthProvider>
+    </NextIntlClientProvider>
   );
 }

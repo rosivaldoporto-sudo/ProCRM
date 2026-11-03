@@ -24,6 +24,7 @@ import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { WAIT_UNIT_LABELS } from './validate'
 
 // ------------------------------------------------------------
 // Public API
@@ -289,7 +290,7 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         step_id: step.id,
         step_type: step.step_type,
         status: 'success',
-        detail: `waiting ${cfg.amount} ${cfg.unit}`,
+        detail: `aguardando ${cfg.amount} ${WAIT_UNIT_LABELS[cfg.unit] ?? cfg.unit}`,
       })
       status = 'partial'
       await appendResults(args.logId, results, status, errorMessage)

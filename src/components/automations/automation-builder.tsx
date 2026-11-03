@@ -63,6 +63,7 @@ import {
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { WAIT_UNIT_LABELS } from "@/lib/automations/validate"
 
 // ------------------------------------------------------------
 // Types (builder-local — mirror the flattened rows we POST)
@@ -1516,7 +1517,7 @@ function previewFor(step: BuilderStep, t: ReturnType<typeof useTranslations>): s
     case "send_template":
       return (step.step_config.template_name as string) || t("previewPickTemplate")
     case "wait":
-      return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
+      return `${step.step_config.amount ?? "?"} ${WAIT_UNIT_LABELS[step.step_config.unit as string] ?? ""}`
     case "condition":
       return `${t("previewWhen")} ${step.step_config.subject ?? "?"}`
     case "send_webhook":

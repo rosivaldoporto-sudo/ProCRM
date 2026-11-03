@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { DashboardShell } from "./dashboard-shell";
 
@@ -27,9 +26,5 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const messages = await getMessages();
-  return (
-    <NextIntlClientProvider messages={messages}>
-      <DashboardShell>{children}</DashboardShell>
-    </NextIntlClientProvider>
-  );
+  return <DashboardShell messages={messages}>{children}</DashboardShell>;
 }

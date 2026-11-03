@@ -15,6 +15,13 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 // surface at save time.
 // ------------------------------------------------------------
 
+/** Unidades da etapa "aguardar" como aparecem no builder e nos registros. */
+export const WAIT_UNIT_LABELS: Record<string, string> = {
+  minutes: 'minutos',
+  hours: 'horas',
+  days: 'dias',
+}
+
 export interface ValidationIssue {
   /** Dot-path for the UI to highlight; stable enough to build a table. */
   path: string
