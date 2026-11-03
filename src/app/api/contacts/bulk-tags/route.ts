@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     if (!body?.contact_ids?.length || !body?.tag_id) {
       return NextResponse.json(
-        { error: 'contact_ids and tag_id are required' },
+        { error: 'Informe os contatos e a etiqueta' },
         { status: 400 }
       );
     }
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return bad('contact_ids must be an array of 1-500 UUIDs');
     }
     if (!isUuid(body.tag_id)) {
-      return bad('tag_id must be a UUID');
+      return bad('Etiqueta inválida');
     }
 
     const { contact_ids, tag_id, action = 'add' } = body;
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, removed: removedCount });
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
   } catch (error) {
     return toErrorResponse(error);
   }

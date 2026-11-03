@@ -353,9 +353,9 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
   switch (step.step_type) {
     case 'send_message': {
       const cfg = step.step_config as SendMessageStepConfig
-      if (!args.contactId) throw new Error('send_message needs a contact')
+      if (!args.contactId) throw new Error('Enviar mensagem precisa de um contato')
       const text = interpolate(cfg.text, args)
-      if (!text.trim()) throw new Error('send_message has empty text')
+      if (!text.trim()) throw new Error('Enviar mensagem está com o texto vazio')
       const conversationId = await resolveConversationId(args)
       const { whatsapp_message_id } = await engineSendText({
         accountId: args.automation.account_id,
@@ -364,13 +364,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         text,
       })
-      return `sent via Meta (${whatsapp_message_id})`
+      return `enviada pela Meta (${whatsapp_message_id})`
     }
 
     case 'send_buttons':
     case 'send_list': {
       const payload = step.step_config as SendButtonsStepConfig | SendListStepConfig
-      if (!args.contactId) throw new Error(`${step.step_type} needs a contact`)
+      if (!args.contactId) throw new Error(`${step.step_type} precisa de um contato`)
       // Validate against Meta's limits before the network call so a bad
       // payload surfaces as a clear failed-step detail rather than a raw
       // Meta 400 mid-conversation.
@@ -384,13 +384,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         payload,
       })
-      return `interactive sent via Meta (${whatsapp_message_id})`
+      return `interativa enviada pela Meta (${whatsapp_message_id})`
     }
 
     case 'send_template': {
       const cfg = step.step_config as SendTemplateStepConfig
-      if (!args.contactId) throw new Error('send_template needs a contact')
-      if (!cfg.template_name) throw new Error('send_template needs template_name')
+      if (!args.contactId) throw new Error('Enviar modelo precisa de um contato')
+      if (!cfg.template_name) throw new Error('Enviar modelo precisa do nome do modelo')
       const conversationId = await resolveConversationId(args)
       // Meta templates use positional {{1}}, {{2}}, … placeholders, so
       // we MUST emit params in strict numeric order. Lexicographic sort
@@ -419,18 +419,18 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         language: cfg.language,
         params,
       })
-      return `template sent via Meta (${whatsapp_message_id})`
+      return `modelo enviado pela Meta (${whatsapp_message_id})`
     }
 
     case 'add_tag': {
       const cfg = step.step_config as TagStepConfig
-      if (!args.contactId || !cfg.tag_id) throw new Error('add_tag needs contact + tag_id')
+      if (!args.contactId || !cfg.tag_id) throw new Error('Adicionar etiqueta precisa de contato e etiqueta')
       const added = await addContactTagIfAbsent(db, {
         accountId: args.automation.account_id,
         contactId: args.contactId,
         tagId: cfg.tag_id,
       })
-      if (!added) return `tag ${cfg.tag_id} already present`
+      if (!added) return `etiqueta ${cfg.tag_id} já presente`
 
       const depth = getTagChainDepth(args.context)
       if (depth >= MAX_TAG_CHAIN_DEPTH) {
@@ -440,7 +440,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           tagId: cfg.tag_id,
           depth,
         })
-        return `tag ${cfg.tag_id} added; tag_added dispatch skipped at depth ${depth}`
+        return `etiqueta ${cfg.tag_id} adicionada; gatilho tag_added ignorado na profundidade ${depth}`
       }
 
       await runAutomationsForTrigger({
@@ -456,25 +456,25 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           },
         },
       })
-      return `tag ${cfg.tag_id} added and tag_added dispatched`
+      return `etiqueta ${cfg.tag_id} adicionada e gatilho tag_added disparado`
     }
 
     case 'remove_tag': {
       // See add_tag: tenant scoping relies on the runAutomationsForTrigger
       // ownership guard, since contact_tags carries no account_id.
       const cfg = step.step_config as TagStepConfig
-      if (!args.contactId || !cfg.tag_id) throw new Error('remove_tag needs contact + tag_id')
+      if (!args.contactId || !cfg.tag_id) throw new Error('Remover etiqueta precisa de contato e etiqueta')
       await db
         .from('contact_tags')
         .delete()
         .eq('contact_id', args.contactId)
         .eq('tag_id', cfg.tag_id)
-      return `tag ${cfg.tag_id} removed`
+      return `etiqueta ${cfg.tag_id} removida`
     }
 
     case 'assign_conversation': {
       const cfg = step.step_config as AssignConversationStepConfig
-      if (!args.contactId) throw new Error('assign_conversation needs a contact')
+      if (!args.contactId) throw new Error('Atribuir conversa precisa de um contato')
       let agentId = cfg.agent_id
       if (cfg.mode === 'round_robin') {
         // Pick any member of the account. The existing implementation
@@ -493,12 +493,12 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
-      return `assigned to ${agentId}`
+      return `atribuída a ${agentId}`
     }
 
     case 'update_contact_field': {
       const cfg = step.step_config as UpdateContactFieldStepConfig
-      if (!args.contactId) throw new Error('update_contact_field needs a contact')
+      if (!args.contactId) throw new Error('Atualizar campo precisa de um contato')
       // Resolve workflow variables ({{ vars.* }}, {{ message.text }}) so custom
       // values can be populated dynamically from the triggering context.
       const value = interpolate(cfg.value, args)
@@ -508,7 +508,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (cfg.field.startsWith('custom:')) {
         const customFieldId = cfg.field.slice('custom:'.length)
         if (!customFieldId) {
-          return `field ${cfg.field} not writable from automations`
+          return `o campo ${cfg.field} não pode ser alterado por automações`
         }
         // Defense in depth: the service-role client bypasses RLS, so confirm
         // the field definition belongs to this account before writing.
@@ -519,7 +519,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           .eq('account_id', args.automation.account_id)
           .maybeSingle()
         if (!field) {
-          return `field ${cfg.field} not writable from automations`
+          return `o campo ${cfg.field} não pode ser alterado por automações`
         }
         // Upsert on the table's UNIQUE(contact_id, custom_field_id) so repeated
         // runs overwrite rather than duplicate. Tenancy is enforced above and,
@@ -530,12 +530,12 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
             { contact_id: args.contactId, custom_field_id: customFieldId, value },
             { onConflict: 'contact_id,custom_field_id' },
           )
-        return `custom field updated`
+        return `campo personalizado atualizado`
       }
 
       const allowed = new Set(['name', 'email', 'company'])
       if (!allowed.has(cfg.field)) {
-        return `field ${cfg.field} not writable from automations`
+        return `o campo ${cfg.field} não pode ser alterado por automações`
       }
       // Defense in depth: scope the service-role write to the account so
       // a future caller that skips the entry-point ownership guard still
@@ -550,7 +550,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
 
     case 'create_deal': {
       const cfg = step.step_config as CreateDealStepConfig
-      if (!cfg.pipeline_id || !cfg.stage_id) throw new Error('create_deal needs pipeline + stage')
+      if (!cfg.pipeline_id || !cfg.stage_id) throw new Error('Criar negócio precisa de funil e etapa')
       // Match the account's configured default currency rather than
       // the static `deals.currency` DB default — keeps automation-
       // created deals consistent with the one-currency-per-account
@@ -573,18 +573,18 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         currency: acct?.default_currency ?? 'BRL',
         status: 'open',
       })
-      return 'deal created'
+      return 'negócio criado'
     }
 
     case 'send_webhook': {
       const cfg = step.step_config as SendWebhookStepConfig
-      if (!cfg.url) throw new Error('send_webhook needs url')
+      if (!cfg.url) throw new Error('Webhook precisa de uma URL')
       // SSRF guard: the URL and headers are account-controlled and the
       // server makes the request, so refuse any destination that resolves
       // to a private / loopback / link-local / reserved address. Mirrors
       // the webhook_endpoints delivery path (see lib/webhooks/deliver.ts).
       if (!(await isDeliverableUrl(cfg.url))) {
-        throw new Error('send_webhook: destination not allowed')
+        throw new Error('Webhook: destino não permitido')
       }
       const body = cfg.body_template ? interpolate(cfg.body_template, args) : JSON.stringify(args.context)
       const res = await fetch(cfg.url, {
@@ -602,17 +602,17 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
     }
 
     case 'close_conversation': {
-      if (!args.contactId) throw new Error('close_conversation needs a contact')
+      if (!args.contactId) throw new Error('Encerrar conversa precisa de um contato')
       await db
         .from('conversations')
         .update({ status: 'closed', updated_at: new Date().toISOString() })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
-      return 'conversation closed'
+      return 'conversa encerrada'
     }
 
     default:
-      return `unknown step: ${step.step_type}`
+      return `etapa desconhecida: ${step.step_type}`
   }
 }
 
@@ -630,19 +630,19 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
 async function resolveConversationId(args: ExecuteArgs): Promise<string> {
   const fromCtx = args.context.conversation_id
   if (fromCtx) return fromCtx
-  if (!args.contactId) throw new Error('cannot resolve conversation: no contact')
+  if (!args.contactId) throw new Error('não foi possível resolver a conversa: sem contato')
   const { data, error } = await supabaseAdmin()
     .from('conversations')
     .select('id')
     .eq('account_id', args.automation.account_id)
     .eq('contact_id', args.contactId)
     .maybeSingle()
-  if (error) throw new Error(`conversation lookup failed: ${error.message}`)
+  if (error) throw new Error(`falha ao buscar a conversa: ${error.message}`)
   if (!data?.id) {
     const prefix = args.triggerEvent === 'tag_added'
-      ? 'tag_added automation cannot send'
-      : 'cannot send'
-    throw new Error(`${prefix}: contact has no existing conversation`)
+      ? 'automação tag_added não pode enviar'
+      : 'não pode enviar'
+    throw new Error(`${prefix}: o contato não tem conversa existente`)
   }
   return data.id as string
 }

@@ -99,7 +99,7 @@ export async function instanceConnect(args: {
   if (!response.ok) {
     await throwUazapiError(
       response,
-      `Uazapi connect failed: ${response.status}`
+      `Falha ao conectar na Uazapi: ${response.status}`
     );
   }
   const data = (await response.json()) as Record<string, unknown>;
@@ -156,7 +156,7 @@ export async function instanceDisconnect(args: {
   if (!response.ok) {
     await throwUazapiError(
       response,
-      `Uazapi disconnect failed: ${response.status}`
+      `Falha ao desconectar da Uazapi: ${response.status}`
     );
   }
 }
@@ -188,7 +188,7 @@ export async function instanceStatus(args: {
   if (!response.ok) {
     await throwUazapiError(
       response,
-      `Uazapi status failed: ${response.status}`
+      `Falha ao consultar a Uazapi: ${response.status}`
     );
   }
   const data = (await response.json()) as Record<string, unknown>;
@@ -260,7 +260,7 @@ export async function instanceInit(args: {
       if (!response.ok) {
         await throwUazapiError(
           response,
-          `Uazapi instance init failed: ${response.status}`
+          `Falha ao iniciar a instância da Uazapi: ${response.status}`
         );
       }
       const data = (await response.json()) as Record<string, unknown>;
@@ -290,7 +290,7 @@ export async function instanceInit(args: {
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error('Uazapi instance init failed');
+  throw lastError ?? new Error('Falha ao iniciar a instância da Uazapi');
 }
 
 /**
@@ -386,13 +386,13 @@ export async function setInstanceWebhook(args: {
       if (response.ok) return;
       await throwUazapiError(
         response,
-        `Uazapi webhook set failed: ${response.status}`
+        `Falha ao configurar o webhook da Uazapi: ${response.status}`
       );
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error('Uazapi webhook set failed');
+  throw lastError ?? new Error('Falha ao configurar o webhook da Uazapi');
 }
 
 // ============================================================
@@ -434,7 +434,7 @@ export async function sendTextMessage(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send text failed');
+    await throwUazapiError(response, 'Falha ao enviar texto pela Uazapi');
   }
   const data = await response.json();
   return { messageId: data.id || data.message_id || data.key?.id || '' };
@@ -488,7 +488,7 @@ export async function sendMediaMessage(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send media failed');
+    await throwUazapiError(response, 'Falha ao enviar mídia pela Uazapi');
   }
   const data = await response.json();
   return { messageId: data.id || data.message_id || data.key?.id || '' };
@@ -661,7 +661,7 @@ export async function fetchMessages(args: {
   } catch (err) {
     return {
       messages: [],
-      error: err instanceof Error ? err.message : 'network error',
+      error: err instanceof Error ? err.message : 'erro de rede',
     };
   }
 }
@@ -780,7 +780,7 @@ export async function sendMenu(args: SendMenuArgs): Promise<UazapiSendResult> {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    await throwUazapiError(response, 'Uazapi send menu failed');
+    await throwUazapiError(response, 'Falha ao enviar menu pela Uazapi');
   }
   const data = await response.json();
   return { messageId: data.id || data.message_id || data.key?.id || '' };

@@ -112,7 +112,7 @@ export function NewConversationDialog({
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error(data.error || 'Failed to start conversation');
+        toast.error(data.error || 'Falha ao iniciar a conversa');
         return;
       }
 
@@ -120,7 +120,7 @@ export function NewConversationDialog({
       onOpenChange(false);
       onConversationCreated(data.conversation_id);
     } catch {
-      toast.error('Network error');
+      toast.error('Erro de rede');
     } finally {
       setSending(false);
     }

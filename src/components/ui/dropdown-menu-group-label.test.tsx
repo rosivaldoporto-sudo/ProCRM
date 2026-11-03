@@ -17,7 +17,7 @@ describe('DropdownMenuLabel requires a DropdownMenuGroup ancestor', () => {
   it('throws when rendered without a group (the #336 crash)', () => {
     expect(() =>
       renderToStaticMarkup(
-        React.createElement(DropdownMenuLabel, null, 'Messaging'),
+        React.createElement(DropdownMenuLabel, null, 'Mensagens'),
       ),
     ).toThrow()
   })
@@ -28,7 +28,7 @@ describe('DropdownMenuLabel requires a DropdownMenuGroup ancestor', () => {
         React.createElement(
           DropdownMenuGroup,
           null,
-          React.createElement(DropdownMenuLabel, null, 'Messaging'),
+          React.createElement(DropdownMenuLabel, null, 'Mensagens'),
         ),
       ),
     ).not.toThrow()

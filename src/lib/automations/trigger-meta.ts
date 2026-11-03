@@ -67,5 +67,5 @@ export function formatRelative(
   if (diffSec < 3600) return t('relativeMinutesAgo', { count: Math.floor(diffSec / 60) })
   if (diffSec < 86400) return t('relativeHoursAgo', { count: Math.floor(diffSec / 3600) })
   if (diffSec < 2_592_000) return t('relativeDaysAgo', { count: Math.floor(diffSec / 86400) })
-  return new Date(iso).toLocaleDateString()
+  return new Date(iso).toLocaleDateString('pt-BR')
 }

@@ -851,7 +851,7 @@ function TriggerCard({
             {type === "tag_added" && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Tag
+                  Etiqueta
                 </label>
                 <TagSelect
                   value={(config.tag_id as string) ?? ""}

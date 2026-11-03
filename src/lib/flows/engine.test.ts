@@ -25,7 +25,7 @@ describe("matchReplyId", () => {
       config: {
         text: "Pick one",
         buttons: [
-          { reply_id: "yes", title: "Yes", next_node_key: "confirmed" },
+          { reply_id: "yes", title: "Sim", next_node_key: "confirmed" },
           { reply_id: "no", title: "No", next_node_key: "declined" },
         ],
       },

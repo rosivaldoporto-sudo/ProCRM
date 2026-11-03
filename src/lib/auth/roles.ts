@@ -17,6 +17,14 @@
 
 export type AccountRole = "owner" | "admin" | "agent" | "viewer";
 
+/** Role names as shown to the user. */
+export const ROLE_NAMES: Record<AccountRole, string> = {
+  owner: "Proprietário",
+  admin: "Administrador",
+  agent: "Agente",
+  viewer: "Visualizador",
+};
+
 /** Ordered list of every valid role, lowest privilege first. */
 export const ACCOUNT_ROLES: readonly AccountRole[] = [
   "viewer",

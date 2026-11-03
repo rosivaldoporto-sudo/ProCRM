@@ -23,7 +23,7 @@ export async function POST(
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const limit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction)
   if (!limit.success) return rateLimitResponse(limit)
@@ -37,9 +37,9 @@ export async function POST(
     .maybeSingle()
   if (origErr) {
     console.error('[api:automations] load original failed:', origErr)
-    return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
+    return NextResponse.json({ error: 'Falha ao duplicar a automação' }, { status: 500 })
   }
-  if (!original) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!original) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
 
   const { data: copy, error: copyErr } = await admin
     .from('automations')
@@ -58,7 +58,7 @@ export async function POST(
     .single()
   if (copyErr || !copy) {
     console.error('[api:automations] copy failed:', copyErr)
-    return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
+    return NextResponse.json({ error: 'Falha ao duplicar a automação' }, { status: 500 })
   }
 
   const { data: steps } = await admin
@@ -89,7 +89,7 @@ export async function POST(
     const { error: insErr } = await admin.from('automation_steps').insert(rows)
     if (insErr) {
       console.error('[api:automations] copy steps failed:', insErr)
-      return NextResponse.json({ error: 'Failed to duplicate automation' }, { status: 500 })
+      return NextResponse.json({ error: 'Falha ao duplicar a automação' }, { status: 500 })
     }
   }
 

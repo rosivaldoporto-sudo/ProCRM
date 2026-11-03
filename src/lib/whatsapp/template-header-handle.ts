@@ -32,7 +32,7 @@ export async function ensureImageHeaderHandle(
   const appId = process.env.META_APP_ID
   if (!appId) {
     throw new Error(
-      'Image-header templates need META_APP_ID set (used for Meta’s Resumable Upload). Add it to your environment, or remove the image header.',
+      'Modelos com imagem no cabeçalho precisam de META_APP_ID definida no ambiente. Defina a variável ou remova a imagem do cabeçalho.',
     )
   }
 
@@ -40,7 +40,7 @@ export async function ensureImageHeaderHandle(
   // guard against SSRF: public destinations only, no redirects (a 3xx could
   // bounce to an internal address after this check), bounded in time and size.
   if (!(await isDeliverableUrl(payload.header_media_url))) {
-    throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
+    throw new Error('Não foi possível baixar a imagem do cabeçalho. Confirme que a URL é pública.')
   }
 
   // Fetch the sample image bytes (works for our uploaded chat-media URL
@@ -52,24 +52,24 @@ export async function ensureImageHeaderHandle(
       signal: AbortSignal.timeout(HEADER_FETCH_TIMEOUT_MS),
     })
   } catch {
-    throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
+    throw new Error('Não foi possível baixar a imagem do cabeçalho. Confirme que a URL é pública.')
   }
   if (!res.ok) {
-    throw new Error(`Header image URL returned ${res.status}. It must be publicly reachable.`)
+    throw new Error(`A URL da imagem do cabeçalho retornou ${res.status}. Ela precisa ser pública.`)
   }
 
   const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
   if (contentType && !ALLOWED_IMAGE_TYPES.includes(contentType)) {
-    throw new Error(`Header image must be JPEG or PNG (got ${contentType}).`)
+    throw new Error(`A imagem do cabeçalho deve ser JPEG ou PNG (recebido: ${contentType}).`)
   }
 
   const body = await readBodyWithLimit(res, IMAGE_MAX_BYTES)
   if (!body) {
-    throw new Error("Header image is larger than Meta's limit of 5 MB.")
+    throw new Error("A imagem do cabeçalho passa do limite de 5 MB da Meta.")
   }
   const bytes = new Uint8Array(body)
   if (bytes.byteLength === 0) {
-    throw new Error('Header image is empty.')
+    throw new Error('A imagem do cabeçalho está vazia.')
   }
 
   const mimeType = ALLOWED_IMAGE_TYPES.includes(contentType) ? contentType : 'image/jpeg'

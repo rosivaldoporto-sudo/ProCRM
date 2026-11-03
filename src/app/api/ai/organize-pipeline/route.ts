@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
     if (!pipelineId) {
       return NextResponse.json(
-        { error: 'pipeline_id is required' },
+        { error: 'Informe o funil' },
         { status: 400 }
       )
     }
@@ -49,13 +49,13 @@ export async function POST(request: Request) {
     if (pipeErr) {
       console.error('[ai/organize-pipeline] pipeline lookup error:', pipeErr)
       return NextResponse.json(
-        { error: 'Failed to load pipeline' },
+        { error: 'Falha ao carregar o funil' },
         { status: 500 }
       )
     }
     if (!pipeline) {
       return NextResponse.json(
-        { error: 'Pipeline not found' },
+        { error: 'Funil não encontrado' },
         { status: 404 }
       )
     }
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     if (!stages || stages.length < 2) {
       return NextResponse.json(
-        { error: 'Pipeline needs at least 2 stages to organize' },
+        { error: 'O funil precisa de pelo menos 2 etapas para ser organizado' },
         { status: 400 }
       )
     }
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     const config = await loadAiConfig(supabaseAdmin(), accountId).catch(
       (err) => {
         console.error('[ai/organize-pipeline] loadAiConfig error:', err)
-        throw new AiError('Stored API key could not be decrypted.', {
+        throw new AiError('A chave de API salva não pode ser descriptografada.', {
           code: 'key_decrypt_failed',
           status: 400,
         })
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'AI assistant is not set up. Enable it in Settings → AI Assistant.',
+            'O assistente de IA não está configurado. Ative em Configurações → Assistente de IA.',
           code: 'ai_not_configured',
         },
         { status: 400 }
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         recommendations: [],
         moved: 0,
-        message: 'No open deals with conversations found in this pipeline.',
+        message: 'Nenhum negócio aberto com conversa neste funil.',
       })
     }
 

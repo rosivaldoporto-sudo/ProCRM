@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => null);
-    if (!body || typeof body !== 'object') return bad('Invalid request body');
+    if (!body || typeof body !== 'object') return bad('Requisição inválida');
 
     const rawEvent =
       typeof body.event_name === 'string' ? body.event_name.trim() : 'Lead';

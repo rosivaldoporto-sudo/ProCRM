@@ -116,7 +116,7 @@ export async function generateDeepSeek(args: ProviderArgs): Promise<ProviderResu
 
   const text = message?.content ?? ''
   if (!text.trim() && toolCalls.length === 0) {
-    throw new AiError('DeepSeek returned an empty response.', {
+    throw new AiError('A DeepSeek retornou uma resposta vazia.', {
       code: 'empty_response',
     })
   }

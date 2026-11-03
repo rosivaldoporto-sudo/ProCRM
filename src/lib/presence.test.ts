@@ -45,20 +45,20 @@ describe("derivePresence", () => {
 describe("formatLastSeen", () => {
   it("describes recent activity coarsely", () => {
     expect(formatLastSeen(ago(10_000), NOW)).toBe("just now");
-    expect(formatLastSeen(ago(60_000), NOW)).toBe("1 minute ago");
-    expect(formatLastSeen(ago(5 * 60_000), NOW)).toBe("5 minutes ago");
+    expect(formatLastSeen(ago(60_000), NOW)).toBe("há 1 minuto");
+    expect(formatLastSeen(ago(5 * 60_000), NOW)).toBe("há 5 minutos");
   });
 
   it("rolls up into hours and days", () => {
-    expect(formatLastSeen(ago(60 * 60_000), NOW)).toBe("1 hour ago");
-    expect(formatLastSeen(ago(2 * 60 * 60_000), NOW)).toBe("2 hours ago");
-    expect(formatLastSeen(ago(24 * 60 * 60_000), NOW)).toBe("1 day ago");
-    expect(formatLastSeen(ago(3 * 24 * 60 * 60_000), NOW)).toBe("3 days ago");
+    expect(formatLastSeen(ago(60 * 60_000), NOW)).toBe("há 1 hora");
+    expect(formatLastSeen(ago(2 * 60 * 60_000), NOW)).toBe("há 2 horas");
+    expect(formatLastSeen(ago(24 * 60 * 60_000), NOW)).toBe("há 1 dia");
+    expect(formatLastSeen(ago(3 * 24 * 60 * 60_000), NOW)).toBe("há 3 dias");
   });
 
   it("falls back gracefully on missing/invalid input", () => {
-    expect(formatLastSeen(null, NOW)).toBe("a while ago");
-    expect(formatLastSeen("nonsense", NOW)).toBe("a while ago");
+    expect(formatLastSeen(null, NOW)).toBe("há algum tempo");
+    expect(formatLastSeen("nonsense", NOW)).toBe("há algum tempo");
   });
 });
 
@@ -69,7 +69,7 @@ describe("presenceLabel", () => {
     );
     expect(presenceLabel("away", ago(1_000), NOW)).toBe("Away — idle");
     expect(presenceLabel("offline", ago(2 * 60 * 60_000), NOW)).toBe(
-      "Offline — last seen 2 hours ago",
+      "Offline — last seen há 2 horas",
     );
   });
 });

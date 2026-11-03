@@ -26,7 +26,7 @@ export async function GET() {
     if (error) {
       console.error('[ai/knowledge GET] error:', error)
       return NextResponse.json(
-        { error: 'Failed to load knowledge base' },
+        { error: 'Falha ao carregar a base de conhecimento' },
         { status: 500 },
       )
     }
@@ -53,13 +53,13 @@ export async function POST(request: Request) {
     const content = typeof body?.content === 'string' ? body.content.trim() : ''
     if (!title || !content) {
       return NextResponse.json(
-        { error: 'title and content are required' },
+        { error: 'Título e conteúdo são obrigatórios' },
         { status: 400 },
       )
     }
     if (content.length > 100000) {
       return NextResponse.json(
-        { error: 'content is too large' },
+        { error: 'O conteúdo é grande demais' },
         { status: 413 },
       )
     }
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     if (error || !doc) {
       console.error('[ai/knowledge POST] insert error:', error)
       return NextResponse.json(
-        { error: 'Failed to save document' },
+        { error: 'Falha ao salvar o documento' },
         { status: 500 },
       )
     }
@@ -90,13 +90,13 @@ export async function POST(request: Request) {
         content,
       )
     } catch (err) {
-      const message = err instanceof AiError ? err.message : 'indexing failed'
+      const message = err instanceof AiError ? err.message : 'falha na indexação'
       console.error('[ai/knowledge POST] ingest error:', err)
       return NextResponse.json(
         {
           success: true,
           id: doc.id,
-          warning: `Saved, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+          warning: `Salvo, mas a indexação semântica falhou (${message}). A busca por palavras segue funcionando; use Reindexar para tentar de novo.`,
         },
         { status: 200 },
       )
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
         success: true,
         id: doc.id,
         warning:
-          'Saved with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key).',
+          'Salvo só com busca por palavras: sua chave de embeddings não pode ser descriptografada (confira ENCRYPTION_KEY e informe a chave de novo).',
       })
     }
     return NextResponse.json({ success: true, id: doc.id })

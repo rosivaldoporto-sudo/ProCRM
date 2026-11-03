@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
     if (!dealId || !newStageId) {
       return NextResponse.json(
-        { error: 'dealId and newStageId are required' },
+        { error: 'Informe o negócio e a nova etapa' },
         { status: 400 }
       );
     }
@@ -56,12 +56,12 @@ export async function POST(request: Request) {
 
     const deal = rawDeal as DealRow | null;
     if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Negócio não encontrado' }, { status: 404 });
     }
 
     if (deal.stage_id !== newStageId) {
       return NextResponse.json(
-        { error: 'Deal is not currently in the supplied stage' },
+        { error: 'O negócio não está na etapa informada' },
         { status: 409 }
       );
     }
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (!stage) {
       return NextResponse.json(
-        { error: 'Invalid pipeline stage' },
+        { error: 'Etapa de funil inválida' },
         { status: 400 }
       );
     }
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     if (authResponse.status !== 500) return authResponse;
     console.error('[capi] qualified-lead endpoint error:', err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Erro interno do servidor' },
       { status: 500 }
     );
   }

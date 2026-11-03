@@ -103,7 +103,7 @@ export async function fetchInboxPage(
     ).abortSignal(signal);
   }
   if (response.error) {
-    throw Object.assign(new Error('Inbox request failed'), {
+    throw Object.assign(new Error('Falha ao carregar a caixa de entrada'), {
       status: response.status,
       code: response.error.code,
     });

@@ -168,7 +168,7 @@ export async function sendPendingRecipients(
   } = await supabase.auth.getSession();
   const user = session?.user;
   if (!user) {
-    throw new Error('You are not signed in.');
+    throw new Error('Você não está conectado.');
   }
 
   const { data: broadcast, error: bErr } = await supabase
@@ -177,7 +177,7 @@ export async function sendPendingRecipients(
     .eq('id', broadcastId)
     .single();
   if (bErr || !broadcast) {
-    throw new Error('Failed to load broadcast');
+    throw new Error('Falha ao carregar a transmissão');
   }
 
   // Template row — used to detect media headers and to fall back to the
@@ -207,7 +207,7 @@ export async function sendPendingRecipients(
     .eq('broadcast_id', broadcastId)
     .eq('status', 'pending');
   if (rErr) {
-    throw new Error('Failed to fetch pending recipients');
+    throw new Error('Falha ao buscar os destinatários pendentes');
   }
   if (!recipients || recipients.length === 0) {
     return { sent: 0, failed: 0, pendingRemaining: 0 };
@@ -252,7 +252,7 @@ export async function sendPendingRecipients(
           .from('broadcast_recipients')
           .update({
             status: 'failed',
-            error_message: 'No phone number on contact',
+            error_message: 'Contato sem telefone',
           })
           .eq('id', recipient.id);
       }
@@ -273,7 +273,7 @@ export async function sendPendingRecipients(
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Broadcast API request failed');
+        throw new Error(data.error || 'Falha na requisição da transmissão');
       }
 
       const resultsByPhone = new Map<string, BroadcastApiResult>();
@@ -291,7 +291,7 @@ export async function sendPendingRecipients(
             .from('broadcast_recipients')
             .update({
               status: 'failed',
-              error_message: 'No phone number on contact',
+              error_message: 'Contato sem telefone',
             })
             .eq('id', recipient.id);
           continue;
@@ -314,7 +314,7 @@ export async function sendPendingRecipients(
             .from('broadcast_recipients')
             .update({
               status: 'failed',
-              error_message: result.error ?? 'Unknown error',
+              error_message: result.error ?? 'Erro desconhecido',
             })
             .eq('id', recipient.id);
         }
@@ -326,7 +326,7 @@ export async function sendPendingRecipients(
           .from('broadcast_recipients')
           .update({
             status: 'failed',
-            error_message: err instanceof Error ? err.message : 'Unknown error',
+            error_message: err instanceof Error ? err.message : 'Erro desconhecido',
           })
           .eq('id', recipient.id);
       }

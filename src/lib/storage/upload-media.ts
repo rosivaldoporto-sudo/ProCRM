@@ -56,7 +56,7 @@ export function buildMediaPath(
   const ext = /^[a-z0-9]{1,10}$/.test(rawExt) ? rawExt : 'bin';
   const safeRandomId = randomId.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
   if (!safeRandomId)
-    throw new Error('Could not generate a safe media identifier');
+    throw new Error('Não foi possível gerar um identificador seguro para a mídia');
   return `account-${accountId}/${now}-${safeRandomId}.${ext}`;
 }
 
@@ -86,7 +86,7 @@ export async function uploadAccountMedia(
     error: userErr,
   } = await supabase.auth.getUser();
   if (userErr || !user) {
-    throw new Error('Not signed in.');
+    throw new Error('Você não está conectado.');
   }
 
   // Resolve account_id so the path is account-scoped (matches the
@@ -98,7 +98,7 @@ export async function uploadAccountMedia(
     .eq('user_id', user.id)
     .maybeSingle();
   if (profileErr || !profile?.account_id) {
-    throw new Error('Could not resolve your account.');
+    throw new Error('Não foi possível identificar sua conta.');
   }
 
   const path = buildMediaPath(profile.account_id as string, file.name);

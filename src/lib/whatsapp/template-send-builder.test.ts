@@ -198,9 +198,9 @@ describe('buildSendComponents — buttons', () => {
     const components = buildSendComponents(
       row({
         buttons: [
-          { type: 'QUICK_REPLY', text: 'Yes' },
+          { type: 'QUICK_REPLY', text: 'Sim' },
           { type: 'QUICK_REPLY', text: 'No' },
-          { type: 'URL', text: 'Open', url: 'https://x.com/{{1}}' },
+          { type: 'URL', text: 'Aberta', url: 'https://x.com/{{1}}' },
         ],
       }),
       { buttonParams: { 2: 'ORD-42' } },
@@ -263,7 +263,7 @@ describe('buildSendComponents — end-to-end mix', () => {
         header_media_url: 'https://x.com/img.jpg',
         body_text: 'Hi {{1}}',
         buttons: [
-          { type: 'QUICK_REPLY', text: 'Yes' },
+          { type: 'QUICK_REPLY', text: 'Sim' },
           { type: 'URL', text: 'Track', url: 'https://x.com/{{1}}' },
         ],
       }),

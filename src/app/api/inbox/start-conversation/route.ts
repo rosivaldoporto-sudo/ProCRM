@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Não autorizado' },
         { status: 401 }
       )
     }
@@ -45,14 +45,14 @@ export async function POST(request: Request) {
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
     // Viewers are read-only: the role is enforced here, not only in the UI.
     if (!canWriteWithRole(profile?.account_role)) {
       return NextResponse.json(
-        { error: "This action requires the 'agent' role or higher" },
+        { error: "Esta ação exige o papel de agente ou superior" },
         { status: 403 },
       )
     }
@@ -69,14 +69,14 @@ export async function POST(request: Request) {
 
     if (!phone) {
       return NextResponse.json(
-        { error: 'Phone is required' },
+        { error: 'O telefone é obrigatório' },
         { status: 400 }
       )
     }
 
     if (typeof name === 'string' && name.length > 200) {
       return NextResponse.json(
-        { error: 'Name exceeds the 200-character limit' },
+        { error: 'O nome excede o limite de 200 caracteres' },
         { status: 400 }
       )
     }
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       const sanitized = sanitizePhoneForMeta(phone)
       if (!isValidE164(sanitized)) {
         return NextResponse.json(
-          { error: 'Phone must be in E.164 format (e.g. +5511999999999)' },
+          { error: 'O telefone deve estar no formato internacional (ex.: +5511999999999)' },
           { status: 400 }
         )
       }
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
         if (createErr || !created) {
           if (isUniqueViolation(createErr)) {
             const raced = await findExistingContact(supabase, accountId, sanitized)
-            if (raced) { contactId = raced.id } else { throw new Error('Failed to create contact') }
+            if (raced) { contactId = raced.id } else { throw new Error('Falha ao criar o contato') }
           } else {
             throw createErr
           }
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
     // Default (whatsapp): existing behavior — validate template, resolve, send
     if (!template_name) {
       return NextResponse.json(
-        { error: 'Phone and template_name are required' },
+        { error: 'Telefone e modelo são obrigatórios' },
         { status: 400 }
       )
     }
@@ -195,7 +195,7 @@ export async function POST(request: Request) {
     }
     console.error('Error in start-conversation POST:', err)
     return NextResponse.json(
-      { error: 'Failed to start conversation' },
+      { error: 'Falha ao iniciar a conversa' },
       { status: 500 }
     )
   }
@@ -242,7 +242,7 @@ async function findOrCreateConversationUazapi(
       if (raced && raced.length > 0) return raced[0].id
     }
     console.error('[start-conversation] uazapi conversation create error:', convErr)
-    throw new Error('Failed to create conversation')
+    throw new Error('Falha ao criar a conversa')
   }
 
   return newConv.id

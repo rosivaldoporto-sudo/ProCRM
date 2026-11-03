@@ -79,7 +79,7 @@ export function MetaAdsConfig() {
         setTriggerStageIds([]);
       }
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Unknown error');
+      setLoadError(err instanceof Error ? err.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
@@ -151,7 +151,7 @@ export function MetaAdsConfig() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok)
-        throw new Error(result.error || 'Failed to save configuration');
+        throw new Error(result.error || 'Falha ao salvar a configuração');
 
       toast.success(t('saved'));
       await fetchConfig();

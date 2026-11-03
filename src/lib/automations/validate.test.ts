@@ -7,12 +7,12 @@ import {
 describe("validateStepsForActivation", () => {
   it("rejects empty or missing step lists", () => {
     expect(validateStepsForActivation([])).toEqual([
-      { path: "steps", message: "active automations need at least one step" },
+      { path: "steps", message: "automações ativas precisam de pelo menos uma etapa" },
     ]);
     expect(
       validateStepsForActivation(undefined as unknown as never[]),
     ).toEqual([
-      { path: "steps", message: "active automations need at least one step" },
+      { path: "steps", message: "automações ativas precisam de pelo menos uma etapa" },
     ]);
   });
 
@@ -72,7 +72,7 @@ describe("validateStepsForActivation", () => {
     const noUrl = validateStepsForActivation([
       { step_type: "send_webhook", step_config: {} },
     ]);
-    expect(noUrl.map((i) => i.message)).toContain("webhook URL is required");
+    expect(noUrl.map((i) => i.message)).toContain("a URL do webhook é obrigatória");
 
     const wrongProtocol = validateStepsForActivation([
       {
@@ -81,14 +81,14 @@ describe("validateStepsForActivation", () => {
       },
     ]);
     expect(wrongProtocol.map((i) => i.message)).toContain(
-      "webhook URL must use http or https",
+      "a URL do webhook deve usar http ou https",
     );
 
     const garbage = validateStepsForActivation([
       { step_type: "send_webhook", step_config: { url: "not a url" } },
     ]);
     expect(garbage.map((i) => i.message)).toContain(
-      "webhook URL is not a valid URL",
+      "a URL do webhook é inválida",
     );
   });
 
@@ -127,7 +127,7 @@ describe("validateStepsForActivation", () => {
         step_config: {
           kind: "buttons",
           body: "Pick one",
-          buttons: [{ id: "yes", title: "Yes" }],
+          buttons: [{ id: "yes", title: "Sim" }],
         },
       },
     ]);
@@ -231,7 +231,7 @@ describe("validateTriggerForActivation", () => {
       match_type: "contains",
     });
     expect(issues.map((i) => i.message)).toContain(
-      "keywords cannot be empty strings",
+      "as palavras-chave não podem ficar vazias",
     );
   });
 
@@ -251,7 +251,7 @@ describe("validateTriggerForActivation", () => {
 
   it("requires schedule on time_based triggers", () => {
     expect(validateTriggerForActivation("time_based", {})).toEqual([
-      { path: "trigger.schedule", message: "schedule is required" },
+      { path: "trigger.schedule", message: "o agendamento é obrigatório" },
     ]);
     expect(
       validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
@@ -260,7 +260,7 @@ describe("validateTriggerForActivation", () => {
 
   it("requires tag_id on tag_added triggers", () => {
     expect(validateTriggerForActivation("tag_added", {})).toEqual([
-      { path: "trigger.tag_id", message: "tag is required" },
+      { path: "trigger.tag_id", message: "a etiqueta é obrigatória" },
     ]);
     expect(
       validateTriggerForActivation("tag_added", { tag_id: "tag-uuid" }),
@@ -269,7 +269,7 @@ describe("validateTriggerForActivation", () => {
 
   it("requires reply_ids on interactive_reply triggers", () => {
     expect(validateTriggerForActivation("interactive_reply", {})).toEqual([
-      { path: "trigger.reply_ids", message: "at least one reply id is required" },
+      { path: "trigger.reply_ids", message: "informe pelo menos um ID de resposta" },
     ]);
     expect(
       validateTriggerForActivation("interactive_reply", { reply_ids: ["yes", "no"] }),
@@ -278,7 +278,7 @@ describe("validateTriggerForActivation", () => {
       reply_ids: ["yes", "  "],
     });
     expect(empties.map((i) => i.message)).toContain(
-      "reply ids cannot be empty strings",
+      "os IDs de resposta não podem ficar vazios",
     );
   });
 

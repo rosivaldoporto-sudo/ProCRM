@@ -27,7 +27,7 @@ export async function GET(
 
     if (!messageId) {
       return NextResponse.json(
-        { error: 'Message ID is required' },
+        { error: 'Informe o ID da mensagem' },
         { status: 400 }
       );
     }
@@ -40,7 +40,7 @@ export async function GET(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const limit = checkRateLimit(`media:${user.id}`, RATE_LIMITS.send);
@@ -57,7 +57,7 @@ export async function GET(
     const accountId = profile?.account_id as string | undefined;
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 }
       );
     }
@@ -75,7 +75,7 @@ export async function GET(
 
     if (!messageRow) {
       return NextResponse.json(
-        { error: 'Message not found in your inbox' },
+        { error: 'Mensagem não encontrada na sua caixa de entrada' },
         { status: 404 }
       );
     }
@@ -83,7 +83,7 @@ export async function GET(
     const env = uazapiEnvConfig();
     if (!env.serverUrl) {
       return NextResponse.json(
-        { error: 'UAZAPI_SERVER_URL is not set in the environment' },
+        { error: 'UAZAPI_SERVER_URL não está definida no ambiente' },
         { status: 400 }
       );
     }
@@ -93,7 +93,7 @@ export async function GET(
     const apiToken = await getCachedInstanceToken(supabaseAdmin(), accountId);
     if (!apiToken) {
       return NextResponse.json(
-        { error: 'Uazapi instance token unavailable' },
+        { error: 'Token da instância Uazapi indisponível' },
         { status: 400 }
       );
     }
@@ -106,7 +106,7 @@ export async function GET(
 
     if (!file) {
       return NextResponse.json(
-        { error: 'Failed to fetch media from Uazapi' },
+        { error: 'Falha ao buscar a mídia na Uazapi' },
         { status: 502 }
       );
     }
@@ -118,7 +118,7 @@ export async function GET(
   } catch (error) {
     console.error('Error in Uazapi media GET:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch media' },
+      { error: 'Falha ao buscar a mídia' },
       { status: 500 }
     );
   }

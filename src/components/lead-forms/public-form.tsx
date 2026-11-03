@@ -186,7 +186,7 @@ export function PublicForm({ slug, nonce, preview }: {
     (async () => {
       try {
         const res = await fetch(`/api/public/forms/${slug}`, { cache: "no-store" });
-        if (!res.ok) throw new Error("not found");
+        if (!res.ok) throw new Error("Formulário não encontrado");
         const json = (await res.json()) as PublicFormData;
         try {
           const draft = JSON.parse(sessionStorage.getItem(draftStorageKey(slug)) ?? "null") as { answers?: Record<string, unknown>; step?: number } | null;
@@ -527,7 +527,7 @@ export function PublicForm({ slug, nonce, preview }: {
         booking?: { id: string; starts_at: string; ends_at: string; meeting_title?: string | null; attendee_name?: string | null; meeting_link?: string | null };
         error?: string;
       };
-      if (!res.ok) throw new Error(json.error ?? "book failed");
+      if (!res.ok) throw new Error(json.error ?? "Falha ao agendar");
       setBooking({
         starts_at: json.booking!.starts_at,
         ends_at: json.booking!.ends_at,

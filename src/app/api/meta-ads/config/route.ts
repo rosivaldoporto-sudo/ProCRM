@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     );
     if (!limit.success) return rateLimitResponse(limit);
     const body = await request.json().catch(() => null);
-    if (!body || typeof body !== 'object') return bad('Invalid request body');
+    if (!body || typeof body !== 'object') return bad('Requisição inválida');
 
     const pixelId =
       typeof body.pixel_id === 'string' ? body.pixel_id.trim() : '';
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       testEventCode.length > 200 ||
       stageIds.length > 100
     ) {
-      return bad('Configuration value exceeds its allowed size');
+      return bad('Um valor da configuração excede o tamanho permitido');
     }
 
     if (stageIds.length) {
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
         .eq('pipelines.account_id', accountId);
       if (stagesError) throw stagesError;
       if (!stages || stages.length !== stageIds.length) {
-        return bad('Every trigger stage must belong to this account');
+        return bad('Todas as etapas de gatilho devem ser desta conta');
       }
     }
 
@@ -147,7 +147,7 @@ export async function POST(request: Request) {
     if (existingError) throw existingError;
 
     if (!rawToken && !existing?.access_token && pixelId) {
-      return bad('access_token is required');
+      return bad('O token de acesso é obrigatório');
     }
 
     const values: Record<string, unknown> = {

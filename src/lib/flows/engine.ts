@@ -558,7 +558,7 @@ async function advanceFromNodeKey(
   for (let safety = 0; safety < 64; safety += 1) {
     if (!currentKey) {
       await logEvent(db, run.id, "error", null, {
-        reason: "next_node_key was null mid-advance",
+        reason: "próximo nó ausente durante o avanço",
       });
       await endRun(db, run.id, "failed", "missing_next_node");
       return { outcome: "completed" };

@@ -26,7 +26,7 @@ export async function POST() {
     if (error) {
       console.error('[ai/knowledge/reindex] fetch error:', error)
       return NextResponse.json(
-        { error: 'Failed to load documents' },
+        { error: 'Falha ao carregar os documentos' },
         { status: 500 },
       )
     }
@@ -44,7 +44,7 @@ export async function POST() {
           success: false,
           reindexed: 0,
           error:
-            'Your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key in Settings → AI Assistant). Nothing was reindexed.',
+            'Sua chave de embeddings não pode ser descriptografada (confira ENCRYPTION_KEY e informe a chave de novo em Configurações → Assistente de IA). Nada foi reindexado.',
         },
         { status: 200 },
       )
@@ -65,7 +65,7 @@ export async function POST() {
             success: false,
             reindexed,
             total: (docs ?? []).length,
-            error: `Reindexed ${reindexed}, then hit an error: ${message}`,
+            error: `${reindexed} reindexados, depois ocorreu um erro: ${message}`,
           },
           { status: 200 },
         )

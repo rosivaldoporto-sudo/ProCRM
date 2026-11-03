@@ -241,7 +241,7 @@ export function TemplatePicker({
     const max = MEDIA_MAX_BYTES_BY_KIND[kind];
     if (file.size > max) {
       toast.error(
-        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${kind} limit is ${Math.round(
+        `O arquivo tem ${(file.size / 1024 / 1024).toFixed(1)} MB: o limite para ${kind} é ${Math.round(
           max / 1024 / 1024,
         )} MB.`,
       );
@@ -258,7 +258,7 @@ export function TemplatePicker({
       setMediaUrl(publicUrl);
       setMediaPath(path);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed.");
+      toast.error(err instanceof Error ? err.message : "Falha no envio.");
     } finally {
       setMediaUploading(false);
     }
@@ -492,7 +492,7 @@ export function TemplatePicker({
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
-                  {`URL button "${slot.text}" — value for `}{`{{1}}`}
+                  {`Botão de URL "${slot.text}": valor de `}{`{{1}}`}
                 </Label>
                 <Input
                   value={buttonParams[slot.index] ?? ""}

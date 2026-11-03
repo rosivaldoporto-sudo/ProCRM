@@ -49,7 +49,7 @@ export function normalizeUsage(raw: {
 /** Map a fetch rejection (timeout / DNS / offline) to a typed AiError. */
 export function toNetworkError(err: unknown): AiError {
   if (err instanceof DOMException && err.name === 'TimeoutError') {
-    return new AiError('The AI provider took too long to respond.', {
+    return new AiError('O provedor de IA demorou demais para responder.', {
       code: 'timeout',
       status: 504,
     })

@@ -17,7 +17,7 @@ export function bad(message: string, status = 400) {
 /** 500 genérico — o detalhe vai só para o log do servidor. */
 export function fail(op: string, err: unknown) {
   console.error(`[api:${op}]`, err);
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
 }
 
 const UUID_RE =

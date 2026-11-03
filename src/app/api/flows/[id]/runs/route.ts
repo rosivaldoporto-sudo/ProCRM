@@ -27,7 +27,7 @@ export async function GET(
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
   // Confirm flow exists + caller owns it (RLS does this) before doing
@@ -38,7 +38,7 @@ export async function GET(
     .eq('id', id)
     .maybeSingle()
   if (!flow) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
   }
 
   // Pull runs + each run's contact name + each run's events. Two
@@ -54,7 +54,7 @@ export async function GET(
     .limit(50)
   if (runsErr) {
     console.error('[api:flows-runs] fetch failed:', runsErr)
-    return NextResponse.json({ error: 'Failed to load flow runs' }, { status: 500 })
+    return NextResponse.json({ error: 'Falha ao carregar as execuções do fluxo' }, { status: 500 })
   }
 
   const runIds = (runs ?? []).map((r) => (r as { id: string }).id)

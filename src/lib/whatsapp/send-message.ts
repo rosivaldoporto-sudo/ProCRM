@@ -132,7 +132,7 @@ export function validateSendMessageParams(params: {
   } = params;
 
   if (!messageType) {
-    throw new SendMessageError('bad_request', 'message_type is required', 400);
+    throw new SendMessageError('bad_request', 'Informe o tipo da mensagem', 400);
   }
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
@@ -149,7 +149,7 @@ export function validateSendMessageParams(params: {
     if (!contentText) {
       throw new SendMessageError(
         'bad_request',
-        'content_text is required for text messages',
+        'O texto é obrigatório em mensagens de texto',
         400
       );
     }
@@ -157,7 +157,7 @@ export function validateSendMessageParams(params: {
     if (contentText.length > 4096) {
       throw new SendMessageError(
         'bad_request',
-        'content_text exceeds the 4096-character limit',
+        'O texto excede o limite de 4096 caracteres',
         400
       );
     }
@@ -167,14 +167,14 @@ export function validateSendMessageParams(params: {
     if (!templateName) {
       throw new SendMessageError(
         'bad_request',
-        'template_name is required for template messages',
+        'O nome do modelo é obrigatório em mensagens de modelo',
         400
       );
     }
     if (templateName.length > 512 || !/^[a-z0-9_]+$/i.test(templateName)) {
       throw new SendMessageError(
         'bad_request',
-        'Invalid template_name (letters, numbers and underscores, max 512)',
+        'Nome de modelo inválido (letras, números e sublinhado, até 512 caracteres)',
         400
       );
     }
@@ -200,7 +200,7 @@ export function validateSendMessageParams(params: {
       ) {
         throw new SendMessageError(
           'bad_request',
-          'Invalid template_params (max 20 texts of 1024 chars)',
+          'Parâmetros de modelo inválidos (até 20 textos de 1024 caracteres)',
           400
         );
       }
@@ -212,7 +212,7 @@ export function validateSendMessageParams(params: {
     ) {
       throw new SendMessageError(
         'bad_request',
-        'template_message_params exceeds the size limit',
+        'Os parâmetros do modelo excedem o limite de tamanho',
         400
       );
     }
@@ -228,7 +228,7 @@ export function validateSendMessageParams(params: {
     if (JSON.stringify(interactivePayload).length > 20_000) {
       throw new SendMessageError(
         'bad_request',
-        'interactive_payload exceeds the size limit',
+        'O conteúdo interativo excede o limite de tamanho',
         400
       );
     }
@@ -238,7 +238,7 @@ export function validateSendMessageParams(params: {
     if (!mediaUrl) {
       throw new SendMessageError(
         'bad_request',
-        `media_url is required for ${messageType} messages`,
+        `A URL da mídia é obrigatória em mensagens do tipo ${messageType}`,
         400
       );
     }
@@ -252,14 +252,14 @@ export function validateSendMessageParams(params: {
     } catch {
       throw new SendMessageError(
         'bad_request',
-        'media_url must be an https URL (max 2048 chars)',
+        'A URL da mídia deve ser https (até 2048 caracteres)',
         400
       );
     }
     if (filename !== undefined && filename !== null && filename.length > 255) {
       throw new SendMessageError(
         'bad_request',
-        'filename exceeds the 255-character limit',
+        'O nome do arquivo excede o limite de 255 caracteres',
         400
       );
     }
@@ -274,7 +274,7 @@ export function validateSendMessageParams(params: {
   ) {
     throw new SendMessageError(
       'bad_request',
-      'Caption exceeds the 1024-character limit',
+      'A legenda excede o limite de 1024 caracteres',
       400
     );
   }
@@ -326,14 +326,14 @@ export async function sendMessageToConversation(
     .single();
 
   if (convError || !conversation) {
-    throw new SendMessageError('not_found', 'Conversation not found', 404);
+    throw new SendMessageError('not_found', 'Conversa não encontrada', 404);
   }
 
   const contact = conversation.contact;
   if (!contact?.phone) {
     throw new SendMessageError(
       'bad_request',
-      'Contact phone number not found',
+      'Telefone do contato não encontrado',
       400
     );
   }
@@ -342,7 +342,7 @@ export async function sendMessageToConversation(
   if (!isValidE164(sanitizedPhone)) {
     throw new SendMessageError(
       'bad_request',
-      'Invalid phone number format',
+      'Formato de telefone inválido',
       400
     );
   }
@@ -358,7 +358,7 @@ export async function sendMessageToConversation(
   if (configError || !config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
+      'WhatsApp não configurado. Configure sua integração com o WhatsApp primeiro.',
       400
     );
   }
@@ -423,7 +423,7 @@ export async function sendMessageToConversation(
     if (data && !isMessageTemplate(data)) {
       throw new SendMessageError(
         'template_malformed',
-        'Template row is malformed locally — run "Sync from Meta" in Settings to repair it.',
+        'O modelo está inconsistente: execute "Sincronizar com a Meta" em Configurações.',
         500
       );
     }
@@ -527,9 +527,9 @@ export async function sendMessageToConversation(
     if (lastError) throw lastError;
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
+      err instanceof Error ? err.message : 'Erro desconhecido na API da Meta';
     console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    throw new SendMessageError('meta_error', `Erro na API da Meta: ${message}`, 502);
   }
 
   if (workingPhone !== sanitizedPhone) {
@@ -572,7 +572,7 @@ export async function sendMessageToConversation(
     console.error('[send-message] error inserting sent message:', msgError);
     throw new SendMessageError(
       'db_error',
-      `Message sent to Meta but failed to save to DB: ${msgError.message}`,
+      `Mensagem enviada à Meta, mas falhou ao salvar: ${msgError.message}`,
       500
     );
   }

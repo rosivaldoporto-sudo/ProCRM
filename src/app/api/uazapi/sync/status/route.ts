@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const jobId = searchParams.get('jobId');
 
     if (!jobId) {
-      return NextResponse.json({ error: 'jobId is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Informe o ID do job' }, { status: 400 });
     }
 
     const { data: job, error } = await supabaseAdmin()
@@ -22,11 +22,11 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('[uazapi-sync-status] fetch error:', error);
-      return NextResponse.json({ error: 'Failed to fetch job status' }, { status: 500 });
+      return NextResponse.json({ error: 'Falha ao consultar o job' }, { status: 500 });
     }
 
     if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Job não encontrado' }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -45,6 +45,6 @@ export async function GET(request: Request) {
     console.error('[uazapi-sync-status] error:', error);
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
   }
 }

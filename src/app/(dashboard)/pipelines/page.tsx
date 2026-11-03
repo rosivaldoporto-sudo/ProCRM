@@ -127,7 +127,7 @@ export default function PipelinesPage() {
         .insert({
           user_id: user.id,
           account_id: accountId,
-          name: 'Sales Pipeline',
+          name: 'Funil de Vendas',
         })
         .select()
         .single();
@@ -430,7 +430,7 @@ export default function PipelinesPage() {
           <GatedButton
             variant="outline"
             canAct={canEditSettings}
-            gateReason="create pipelines"
+            gateReason="criar funis"
             onClick={() => setNewPipelineOpen(true)}
             className="border-border bg-card text-foreground hover:bg-muted"
           >
@@ -439,7 +439,7 @@ export default function PipelinesPage() {
           </GatedButton>
           <GatedButton
             canAct={canCreateDeals}
-            gateReason="create deals"
+            gateReason="criar negócios"
             disabled={!selectedPipelineId || stages.length === 0}
             onClick={() => handleAddDeal()}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
@@ -462,7 +462,7 @@ export default function PipelinesPage() {
           </p>
           <GatedButton
             canAct={canEditSettings}
-            gateReason="create pipelines"
+            gateReason="criar funis"
             onClick={() => setNewPipelineOpen(true)}
             className="bg-primary text-primary-foreground hover:bg-primary/90 mt-4"
           >

@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
     return NextResponse.json(
-      { error: 'Failed to connect the WhatsApp instance.' },
+      { error: 'Falha ao conectar a instância do WhatsApp.' },
       { status: 502 }
     );
   }

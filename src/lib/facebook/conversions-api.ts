@@ -255,8 +255,8 @@ export async function sendCapiEvents(
 
   if (!res.ok) {
     const errMsg =
-      body?.error?.message ?? body?.message ?? 'Conversions API request failed';
-    throw new Error(`Meta CAPI error: ${errMsg}`);
+      body?.error?.message ?? body?.message ?? 'Falha na requisição à Conversions API';
+    throw new Error(`Erro na Conversions API da Meta: ${errMsg}`);
   }
 
   return body as CapiResponse;

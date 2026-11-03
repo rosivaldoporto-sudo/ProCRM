@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
     if (error) {
       return NextResponse.json(
-        { error: 'Failed to load error logs' },
+        { error: 'Falha ao carregar os registros de erro' },
         { status: 500 }
       );
     }

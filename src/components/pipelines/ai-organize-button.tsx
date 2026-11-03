@@ -84,7 +84,7 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
         className="border-border bg-card text-foreground hover:bg-muted"
         title={
           !canEdit
-            ? 'Read-only — your role can\'t organize pipeline'
+            ? 'Somente leitura: seu papel não permite organizar o funil'
             : 'Organizar pipeline com IA'
         }
       >

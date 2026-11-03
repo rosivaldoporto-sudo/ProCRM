@@ -27,9 +27,9 @@ export async function GET(_request: Request, { params }: Params) {
       .maybeSingle()
     if (error) {
       console.error('[ai/knowledge/[id] GET] error:', error)
-      return NextResponse.json({ error: 'Failed to load document' }, { status: 500 })
+      return NextResponse.json({ error: 'Falha ao carregar o documento' }, { status: 500 })
     }
-    if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (!data) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
     return NextResponse.json(data)
   } catch (err) {
     return toErrorResponse(err)
@@ -51,16 +51,16 @@ export async function PATCH(request: Request, { params }: Params) {
     const title = body?.title !== undefined ? reqStr(body?.title, 300) : undefined
     const content = typeof body?.content === 'string' ? body.content.trim() : undefined
     if (title === undefined && content === undefined) {
-      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+      return NextResponse.json({ error: 'Nada para atualizar' }, { status: 400 })
     }
     if (body?.title !== undefined && !title) {
-      return NextResponse.json({ error: 'title cannot be empty' }, { status: 400 })
+      return NextResponse.json({ error: 'O título não pode ficar vazio' }, { status: 400 })
     }
     if (content !== undefined && !content) {
-      return NextResponse.json({ error: 'content cannot be empty' }, { status: 400 })
+      return NextResponse.json({ error: 'O conteúdo não pode ficar vazio' }, { status: 400 })
     }
     if (content !== undefined && content.length > 100000) {
-      return NextResponse.json({ error: 'content is too large' }, { status: 413 })
+      return NextResponse.json({ error: 'O conteúdo é grande demais' }, { status: 413 })
     }
 
     const update: Record<string, string> = {}
@@ -76,9 +76,9 @@ export async function PATCH(request: Request, { params }: Params) {
       .maybeSingle()
     if (error) {
       console.error('[ai/knowledge/[id] PATCH] error:', error)
-      return NextResponse.json({ error: 'Failed to update document' }, { status: 500 })
+      return NextResponse.json({ error: 'Falha ao atualizar o documento' }, { status: 500 })
     }
-    if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (!updated) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
 
     if (content !== undefined) {
       const { key: embeddingsApiKey, corrupt } = await loadEmbeddingsKey(
@@ -88,12 +88,12 @@ export async function PATCH(request: Request, { params }: Params) {
       try {
         await ingestDocument(supabase, accountId, { embeddingsApiKey }, id, content)
       } catch (err) {
-        const message = err instanceof AiError ? err.message : 'indexing failed'
+        const message = err instanceof AiError ? err.message : 'falha na indexação'
         console.error('[ai/knowledge/[id] PATCH] ingest error:', err)
         return NextResponse.json(
           {
             success: true,
-            warning: `Updated, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+            warning: `Atualizado, mas a indexação semântica falhou (${message}). A busca por palavras segue funcionando; use Reindexar para tentar de novo.`,
           },
           { status: 200 },
         )
@@ -102,7 +102,7 @@ export async function PATCH(request: Request, { params }: Params) {
         return NextResponse.json({
           success: true,
           warning:
-            'Updated with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key).',
+            'Atualizado só com busca por palavras: sua chave de embeddings não pode ser descriptografada (confira ENCRYPTION_KEY e informe a chave de novo).',
         })
       }
     }
@@ -129,7 +129,7 @@ export async function DELETE(_request: Request, { params }: Params) {
       .eq('id', id)
     if (error) {
       console.error('[ai/knowledge/[id] DELETE] error:', error)
-      return NextResponse.json({ error: 'Failed to delete document' }, { status: 500 })
+      return NextResponse.json({ error: 'Falha ao excluir o documento' }, { status: 500 })
     }
     return NextResponse.json({ success: true })
   } catch (err) {

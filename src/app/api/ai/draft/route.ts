@@ -47,7 +47,7 @@ export async function POST(request: Request) {
         : '';
     if (!conversationId) {
       return NextResponse.json(
-        { error: 'conversation_id is required' },
+        { error: 'Informe a conversa' },
         { status: 400 }
       );
     }
@@ -62,13 +62,13 @@ export async function POST(request: Request) {
     if (convErr) {
       console.error('[ai/draft] conversation lookup error:', convErr);
       return NextResponse.json(
-        { error: 'Failed to load conversation' },
+        { error: 'Falha ao carregar a conversa' },
         { status: 500 }
       );
     }
     if (!conversation) {
       return NextResponse.json(
-        { error: 'Conversation not found' },
+        { error: 'Conversa não encontrada' },
         { status: 404 }
       );
     }
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       (err) => {
         // Decrypt failure — surface distinctly from "not configured".
         console.error('[ai/draft] loadAiConfig error:', err);
-        throw new AiError('Stored API key could not be decrypted.', {
+        throw new AiError('A chave de API salva não pode ser descriptografada.', {
           code: 'key_decrypt_failed',
           status: 400,
         });
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'AI assistant is not set up. Enable it in Settings → AI Assistant.',
+            'O assistente de IA não está configurado. Ative em Configurações → Assistente de IA.',
           code: 'ai_not_configured',
         },
         { status: 400 }
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     if (messages.length === 0) {
       return NextResponse.json(
         {
-          error: 'No messages to draft from yet.',
+          error: 'Ainda não há mensagens para basear o rascunho.',
           code: 'no_messages',
         },
         { status: 400 }

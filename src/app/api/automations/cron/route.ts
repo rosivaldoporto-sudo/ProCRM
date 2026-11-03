@@ -18,7 +18,7 @@ import type { AutomationContext } from '@/lib/automations/engine'
 export async function GET(request: Request) {
   const expected = process.env.AUTOMATION_CRON_SECRET
   if (!expected) {
-    return NextResponse.json({ error: 'cron not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'cron não configurado' }, { status: 503 })
   }
   const supplied = request.headers.get('x-cron-secret') ?? ''
   const suppliedBuf = Buffer.from(supplied)
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     suppliedBuf.length !== expectedBuf.length ||
     !timingSafeEqual(suppliedBuf, expectedBuf)
   ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
 
   const admin = supabaseAdmin()
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error('[automations-cron] failed to load due rows:', error.message)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 })
   }
   if (!due || due.length === 0) return NextResponse.json({ processed: 0 })
 

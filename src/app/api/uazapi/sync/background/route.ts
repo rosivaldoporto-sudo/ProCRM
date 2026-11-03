@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const env = uazapiEnvConfig();
     if (!env.serverUrl) {
       return NextResponse.json(
-        { error: 'UAZAPI_SERVER_URL is not set in the environment.' },
+        { error: 'UAZAPI_SERVER_URL não está definida no ambiente.' },
         { status: 400 }
       );
     }
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const apiToken = await getCachedInstanceToken(supabaseAdmin(), accountId);
     if (!apiToken) {
       return NextResponse.json(
-        { error: 'Uazapi instance token unavailable.' },
+        { error: 'Token da instância Uazapi indisponível.' },
         { status: 400 }
       );
     }
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     if (chats.length === 0) {
       return NextResponse.json({
         jobId: null,
-        message: 'No chats found to sync.',
+        message: 'Nenhuma conversa encontrada para sincronizar.',
         synced: 0,
       });
     }
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
 
     if (jobErr || !job) {
       console.error('[uazapi-sync-bg] job create error:', jobErr);
-      return NextResponse.json({ error: 'Failed to create sync job' }, { status: 500 });
+      return NextResponse.json({ error: 'Falha ao criar a sincronização' }, { status: 500 });
     }
 
     const jobId = job.id;
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
         .from('uazapi_sync_jobs')
         .update({
           status: 'failed',
-          error_message: err instanceof Error ? err.message : 'Unknown error',
+          error_message: err instanceof Error ? err.message : 'Erro desconhecido',
           completed_at: new Date().toISOString(),
         })
         .eq('id', jobId)
@@ -102,13 +102,13 @@ export async function POST(request: Request) {
     return NextResponse.json({
       jobId,
       totalChats: chats.length,
-      message: `Sync started in background for ${chats.length} chats.`,
+      message: `Sincronização de ${chats.length} conversas iniciada em segundo plano.`,
     });
   } catch (error) {
     console.error('[uazapi-sync-bg] error:', error);
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
-    return NextResponse.json({ error: 'Failed to start sync' }, { status: 500 });
+    return NextResponse.json({ error: 'Falha ao iniciar a sincronização' }, { status: 500 });
   }
 }
 
@@ -120,7 +120,7 @@ export async function DELETE(request: Request) {
     const jobId = searchParams.get('jobId');
 
     if (!jobId) {
-      return NextResponse.json({ error: 'jobId is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Informe o ID do job' }, { status: 400 });
     }
 
     const { data: job } = await supabaseAdmin()
@@ -131,11 +131,11 @@ export async function DELETE(request: Request) {
       .maybeSingle();
 
     if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Job não encontrado' }, { status: 404 });
     }
 
     if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-      return NextResponse.json({ error: 'Job already finished' }, { status: 400 });
+      return NextResponse.json({ error: 'Job já finalizado' }, { status: 400 });
     }
 
     await supabaseAdmin()
@@ -148,7 +148,7 @@ export async function DELETE(request: Request) {
     console.error('[uazapi-sync-bg] cancel error:', error);
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
-    return NextResponse.json({ error: 'Failed to cancel sync' }, { status: 500 });
+    return NextResponse.json({ error: 'Falha ao cancelar a sincronização' }, { status: 500 });
   }
 }
 
@@ -404,7 +404,7 @@ async function syncChatMessagesBackground(
     });
     if (error) {
       warnings.push(
-        `History fetch failed for chat ${chatid} at offset ${offset} (${error}) — messages after this point were not imported.`
+        `Falha ao buscar o histórico da conversa ${chatid} a partir de ${offset} (${error}): as mensagens seguintes não foram importadas.`
       );
       console.warn('[uazapi-sync-bg] fetchMessages error:', { chatid, offset, error });
       break;

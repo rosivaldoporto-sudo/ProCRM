@@ -43,16 +43,16 @@ export function UazapiSyncBar() {
           if (synced > 0 || imported > 0) {
             toast.success(
               imported > 0
-                ? `${synced} conversations synced, ${imported} messages imported.`
-                : `${synced} conversations synced from Uazapi.`
+                ? `${synced} conversas sincronizadas, ${imported} mensagens importadas.`
+                : `${synced} conversas sincronizadas da Uazapi.`
             );
             setSynced(true);
             setTimeout(() => setSynced(false), 3000);
           } else {
-            toast.info('No new conversations to sync.');
+            toast.info('Nenhuma conversa nova para sincronizar.');
           }
         } else if (data.status === 'failed') {
-          toast.error(data.errorMessage || 'Sync failed');
+          toast.error(data.errorMessage || 'Falha na sincronização');
         }
         setJobId(null);
         setJobStatus(null);
@@ -76,18 +76,18 @@ export function UazapiSyncBar() {
       const res = await fetch('/api/uazapi/sync/background', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Failed to start sync');
+        toast.error(data.error || 'Falha ao iniciar a sincronização');
         return;
       }
       if (data.jobId) {
         setJobId(data.jobId);
         setPolling(true);
-        toast.info(`Sync started for ${data.totalChats} conversations in background.`);
+        toast.info(`Sincronização de ${data.totalChats} conversas iniciada em segundo plano.`);
       } else {
-        toast.info(data.message || 'No conversations to sync.');
+        toast.info(data.message || 'Nenhuma conversa para sincronizar.');
       }
     } catch {
-      toast.error('Failed to start background sync');
+      toast.error('Falha ao iniciar a sincronização em segundo plano');
     } finally {
       setSyncing(false);
     }
@@ -100,9 +100,9 @@ export function UazapiSyncBar() {
       setPolling(false);
       setJobId(null);
       setJobStatus(null);
-      toast.info('Sync cancelled');
+      toast.info('Sincronização cancelada');
     } catch {
-      toast.error('Failed to cancel sync');
+      toast.error('Falha ao cancelar a sincronização');
     }
   }, [jobId]);
 
@@ -137,7 +137,7 @@ export function UazapiSyncBar() {
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
             <XCircle className="h-3 w-3" />
-            Cancel
+            Cancelar
           </button>
         </div>
       </div>
@@ -165,7 +165,7 @@ export function UazapiSyncBar() {
         )}
       >
         <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
-        {syncing ? 'Starting...' : polling ? 'Syncing...' : 'Sync'}
+        {syncing ? 'Iniciando...' : polling ? 'Sincronizando...' : 'Sincronizar'}
       </button>
     </div>
   );

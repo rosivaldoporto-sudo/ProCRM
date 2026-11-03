@@ -199,7 +199,7 @@ export function LeadFormEditor({ formId }: Props) {
     try {
       const res = await fetch(`/api/lead-forms/${formId}/recount`, { method: "POST" });
       const j = (await res.json().catch(() => ({}))) as { error?: string; form?: LeadForm; counts?: Record<string, number> };
-      if (!res.ok) throw new Error(j.error ?? "recount failed");
+      if (!res.ok) throw new Error(j.error ?? "Falha ao recalcular");
       if (j.form) setForm(j.form);
       else await load(true);
       toast.success(`Resumo recalculado: ${j.counts?.response_count ?? "?"} respostas`);
@@ -240,7 +240,7 @@ export function LeadFormEditor({ formId }: Props) {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error ?? "save failed");
+        throw new Error((j as { error?: string }).error ?? "Falha ao salvar");
       }
       const json = await res.json() as { form: LeadForm };
       setForm(json.form);
@@ -327,7 +327,7 @@ export function LeadFormEditor({ formId }: Props) {
       <div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           {[
-            ["Views", form.view_count],
+            ["Visualizações", form.view_count],
             ["Respostas", form.response_count],
             ["Conversão", `${convRate}%`],
             ["Qualificados", form.qualified_count],

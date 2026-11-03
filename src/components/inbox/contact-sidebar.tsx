@@ -25,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { addContactTag, deleteContactTag } from "@/lib/contacts/tag-api";
 import { format } from "date-fns";
+import { ptBR } from "date-fns/locale/pt-BR";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
@@ -39,11 +40,11 @@ interface ContactSidebarProps {
 // default pipeline when the account has none (sidebars can add leads
 // before the user ever visits the Pipelines page).
 const SIDEBAR_DEFAULT_STAGES = [
-  { name: "New Lead", color: "#3b82f6", position: 0 },
-  { name: "Qualified", color: "#eab308", position: 1 },
-  { name: "Proposal Sent", color: "#f97316", position: 2 },
-  { name: "Negotiation", color: "#8b5cf6", position: 3 },
-  { name: "Won", color: "#22c55e", position: 4 },
+  { name: "Novo Lead", color: "#3b82f6", position: 0 },
+  { name: "Qualificado", color: "#eab308", position: 1 },
+  { name: "Proposta Enviada", color: "#f97316", position: 2 },
+  { name: "Negociação", color: "#8b5cf6", position: 3 },
+  { name: "Ganho", color: "#22c55e", position: 4 },
 ];
 
 export function ContactSidebar({ contact, className }: ContactSidebarProps) {
@@ -337,7 +338,7 @@ export function ContactSidebar({ contact, className }: ContactSidebarProps) {
           .insert({
             user_id: user.id,
             account_id: accountId,
-            name: "Sales Pipeline",
+            name: "Funil de Vendas",
           })
           .select()
           .single();
@@ -670,7 +671,7 @@ export function ContactSidebar({ contact, className }: ContactSidebarProps) {
                       {note.note_text}
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
-                      {format(new Date(note.created_at), "MMM d, yyyy HH:mm")}
+                      {format(new Date(note.created_at), "d 'de' MMM 'de' yyyy HH:mm", { locale: ptBR })}
                     </p>
                   </div>
                 ))}

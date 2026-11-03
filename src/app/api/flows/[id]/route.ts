@@ -55,7 +55,7 @@ async function requireOwnership(flowId: string): Promise<
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return { ok: false, status: 401, body: { error: 'Unauthorized' } };
+    return { ok: false, status: 401, body: { error: 'Não autorizado' } };
   }
   // RLS scopes this to the caller — a flow owned by another user
   // returns null (404 below).
@@ -65,7 +65,7 @@ async function requireOwnership(flowId: string): Promise<
     .eq('id', flowId)
     .maybeSingle();
   if (!flow) {
-    return { ok: false, status: 404, body: { error: 'Not found' } };
+    return { ok: false, status: 404, body: { error: 'Não encontrado' } };
   }
   return {
     ok: true,
@@ -93,7 +93,7 @@ export async function GET(
       .order('created_at', { ascending: true }),
   ]);
   if (!flow) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
   }
   return NextResponse.json({ flow, nodes: nodes ?? [] });
 }
@@ -137,18 +137,18 @@ export async function PUT(
 
   const body = (await request.json().catch(() => null)) as PutBody | null;
   if (!body) {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
   }
   if (body.name !== undefined) {
     if (typeof body.name !== 'string' || !body.name.trim()) {
       return NextResponse.json(
-        { error: 'name cannot be empty' },
+        { error: 'O nome não pode ficar vazio' },
         { status: 400 }
       );
     }
     if (body.name.trim().length > 200) {
       return NextResponse.json(
-        { error: 'name is too long' },
+        { error: 'O nome é longo demais' },
         { status: 400 }
       );
     }
@@ -156,13 +156,13 @@ export async function PUT(
   if (body.nodes !== undefined) {
     if (!Array.isArray(body.nodes)) {
       return NextResponse.json(
-        { error: 'nodes must be an array' },
+        { error: 'Nós inválidos' },
         { status: 400 }
       );
     }
     if (body.nodes.length > 200) {
       return NextResponse.json(
-        { error: 'Too many nodes' },
+        { error: 'Nós demais' },
         { status: 400 }
       );
     }
@@ -198,7 +198,7 @@ export async function PUT(
       request,
       guard.accountId,
       guard.userId,
-      'Failed to update flow'
+      'Falha ao atualizar o fluxo'
     );
   }
 
@@ -215,7 +215,7 @@ export async function PUT(
         request,
         guard.accountId,
         guard.userId,
-        'Failed to replace flow nodes'
+        'Falha ao salvar os nós do fluxo'
       );
     }
     if (body.nodes.length > 0) {
@@ -235,7 +235,7 @@ export async function PUT(
           request,
           guard.accountId,
           guard.userId,
-          'Failed to replace flow nodes'
+          'Falha ao salvar os nós do fluxo'
         );
       }
     }
@@ -295,7 +295,7 @@ export async function DELETE(
       request,
       guard.accountId,
       guard.userId,
-      'Failed to delete flow'
+      'Falha ao excluir o fluxo'
     );
   }
   return NextResponse.json({ ok: true });

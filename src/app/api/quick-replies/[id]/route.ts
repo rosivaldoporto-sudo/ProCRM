@@ -27,14 +27,14 @@ export async function PATCH(
 
   const body = await request.json().catch(() => null);
   if (!body)
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
 
   const update: Record<string, unknown> = {};
   if (typeof body.title === 'string') {
     const title = reqStr(body.title, 120);
     if (!title)
       return NextResponse.json(
-        { error: 'title cannot be empty' },
+        { error: 'O título não pode ficar vazio' },
         { status: 400 }
       );
     update.title = title;
@@ -46,7 +46,7 @@ export async function PATCH(
   if ('kind' in body) {
     if (body.kind !== 'text' && body.kind !== 'interactive') {
       return NextResponse.json(
-        { error: 'kind must be "text" or "interactive"' },
+        { error: 'O tipo deve ser texto ou interativo' },
         { status: 400 }
       );
     }
@@ -62,13 +62,13 @@ export async function PATCH(
         typeof body.content_text === 'string' ? body.content_text : '';
       if (!text.trim()) {
         return NextResponse.json(
-          { error: 'content_text is required for text quick replies' },
+          { error: 'O texto é obrigatório em respostas rápidas de texto' },
           { status: 400 }
         );
       }
       if (text.length > 4096) {
         return NextResponse.json(
-          { error: 'content_text is too long' },
+          { error: 'O texto é longo demais' },
           { status: 400 }
         );
       }
@@ -82,13 +82,13 @@ export async function PATCH(
       if (v !== null) {
         if (typeof v !== 'string') {
           return NextResponse.json(
-            { error: 'content_text must be a string' },
+            { error: 'Texto inválido' },
             { status: 400 }
           );
         }
         if (v.length > 4096) {
           return NextResponse.json(
-            { error: 'content_text is too long' },
+            { error: 'O texto é longo demais' },
             { status: 400 }
           );
         }
@@ -117,7 +117,7 @@ export async function PATCH(
     .eq('account_id', ctx.accountId);
   if (error)
     return NextResponse.json(
-      { error: 'Failed to update quick reply' },
+      { error: 'Falha ao atualizar a resposta rápida' },
       { status: 500 }
     );
   return NextResponse.json({ ok: true });
@@ -145,7 +145,7 @@ export async function DELETE(
     .eq('account_id', ctx.accountId);
   if (error)
     return NextResponse.json(
-      { error: 'Failed to delete quick reply' },
+      { error: 'Falha ao excluir a resposta rápida' },
       { status: 500 }
     );
   return NextResponse.json({ ok: true });

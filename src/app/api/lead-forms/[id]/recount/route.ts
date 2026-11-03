@@ -28,7 +28,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   // Ownership via RLS: só retorna se o form for da conta do chamador.
   const { data: form } = await supabase
@@ -36,7 +36,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     .select('id, account_id')
     .eq('id', id)
     .maybeSingle();
-  if (!form) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!form) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
 
   try {
     const counts = await recountFormCounters(supabaseAdmin(), id);

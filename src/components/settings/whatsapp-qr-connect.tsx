@@ -281,7 +281,7 @@ export function WhatsAppQrConnect() {
     return (
       <section className="animate-in fade-in-50 duration-200">
         <SettingsPanelHead
-          title="WhatsApp QR Code"
+          title="QR Code do WhatsApp"
           description="Conecte seu WhatsApp automaticamente escaneando um QR Code."
         />
         <div className="flex items-center justify-center py-12">
@@ -294,7 +294,7 @@ export function WhatsAppQrConnect() {
   return (
     <section className="animate-in fade-in-50 duration-200">
       <SettingsPanelHead
-        title="WhatsApp QR Code"
+        title="QR Code do WhatsApp"
         description="Conecte seu WhatsApp não oficial escaneando um QR Code — sem digitar tokens."
       />
 
@@ -366,7 +366,7 @@ export function WhatsAppQrConnect() {
               <CardContent className="flex justify-center">
                 <img
                   src={qrCode}
-                  alt="WhatsApp QR Code"
+                  alt="QR Code do WhatsApp"
                   className="size-64 border border-border rounded-lg"
                 />
               </CardContent>
@@ -460,7 +460,7 @@ export function WhatsAppQrConnect() {
             <div className="flex flex-col items-center gap-3 py-2">
               <img
                 src={qrCode}
-                alt="WhatsApp QR Code"
+                alt="QR Code do WhatsApp"
                 className="size-64 border border-border rounded-lg"
               />
               {pairingCode && (

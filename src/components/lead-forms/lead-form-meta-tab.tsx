@@ -178,7 +178,7 @@ export function LeadFormMetaTab({ formId, responses, meta, onChange, onSaveForm,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(j.error ?? "save failed");
+      if (!res.ok) throw new Error(j.error ?? "Falha ao salvar");
       setToken("");
       setHasToken(true);
       toast.success("Configuração Meta salva");

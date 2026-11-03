@@ -82,7 +82,7 @@ function FunnelChart({ steps }: { steps: FunnelStep[] }) {
   const max = Math.max(...steps.map((s) => s.value), 1);
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <h3 className="mb-4 text-sm font-medium text-foreground">Funnel</h3>
+      <h3 className="mb-4 text-sm font-medium text-foreground">Funil</h3>
       <div className="space-y-2">
         {steps.map((step) => {
           const pctOfMax = Math.max(5, Math.round((step.value / max) * 100));
@@ -648,7 +648,7 @@ export default function BroadcastDetailPage() {
                     return (
                       <TableRow key={recipient.id} className="border-border">
                         <TableCell className="font-medium text-foreground">
-                          {recipient.contact?.name ?? 'Unknown'}
+                          {recipient.contact?.name ?? 'Desconhecido'}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {recipient.contact?.phone ?? '-'}
@@ -662,17 +662,17 @@ export default function BroadcastDetailPage() {
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {recipient.sent_at
-                            ? new Date(recipient.sent_at).toLocaleString()
+                            ? new Date(recipient.sent_at).toLocaleString('pt-BR')
                             : '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {recipient.delivered_at
-                            ? new Date(recipient.delivered_at).toLocaleString()
+                            ? new Date(recipient.delivered_at).toLocaleString('pt-BR')
                             : '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {recipient.read_at
-                            ? new Date(recipient.read_at).toLocaleString()
+                            ? new Date(recipient.read_at).toLocaleString('pt-BR')
                             : '-'}
                         </TableCell>
                         <TableCell className="max-w-xs truncate text-xs text-red-400">

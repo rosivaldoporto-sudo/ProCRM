@@ -15,7 +15,7 @@ export async function GET(
   const size = Number.parseInt(rawSize.replace(/\.png$/, ""), 10);
 
   if (!SIZES.has(size)) {
-    return new Response("Not found", { status: 404 });
+    return new Response("Não encontrado", { status: 404 });
   }
 
   const icon = renderAppIcon(size);

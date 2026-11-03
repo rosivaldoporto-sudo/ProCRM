@@ -18,12 +18,12 @@ export async function GET() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   const { data, error } = await supabase
     .from('lead_forms')
     .select('*')
     .order('created_at', { ascending: false });
-  if (error) return NextResponse.json({ error: 'Failed to load' }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Falha ao carregar' }, { status: 500 });
   return NextResponse.json({ forms: data ?? [] });
 }
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   const formLimit = checkRateLimit(`leadforms:${user.id}`, RATE_LIMITS.adminAction);
   if (!formLimit.success) return rateLimitResponse(formLimit);
   const { data: profile } = await supabase
@@ -54,10 +54,10 @@ export async function POST(request: Request) {
   } | null;
   if (!body?.name?.trim()) return NextResponse.json({ error: 'name é obrigatório' }, { status: 400 });
   if (body.name.trim().length > 200) {
-    return NextResponse.json({ error: 'name excede 200 caracteres' }, { status: 400 });
+    return NextResponse.json({ error: 'O nome excede 200 caracteres' }, { status: 400 });
   }
   if (typeof body.description === 'string' && body.description.length > 2000) {
-    return NextResponse.json({ error: 'description excede 2000 caracteres' }, { status: 400 });
+    return NextResponse.json({ error: 'A descrição excede 2000 caracteres' }, { status: 400 });
   }
 
   const admin = supabaseAdmin();

@@ -140,7 +140,7 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
   // A pure tool turn has no text but a stop_reason of tool_use — only
   // treat as empty when the model asked for nothing at all.
   if (!text && toolCalls.length === 0) {
-    throw new AiError('Anthropic returned an empty response.', {
+    throw new AiError('A Anthropic retornou uma resposta vazia.', {
       code: 'empty_response',
     })
   }

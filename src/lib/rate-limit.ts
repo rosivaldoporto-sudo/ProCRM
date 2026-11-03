@@ -154,7 +154,7 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
   );
   return NextResponse.json(
     {
-      error: 'Rate limit exceeded',
+      error: 'Muitas requisições. Aguarde um instante e tente novamente.',
       retry_after_seconds: retryAfterSec,
     },
     {

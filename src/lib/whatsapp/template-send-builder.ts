@@ -85,7 +85,7 @@ function buildHeaderComponent(
     const value = params.headerText;
     if (!value || !value.trim()) {
       throw new Error(
-        'Header text variable {{1}} requires a value — pass headerText.',
+        'A variável {{1}} do cabeçalho precisa de um valor.',
       );
     }
     return {

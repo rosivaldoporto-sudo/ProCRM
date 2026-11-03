@@ -26,24 +26,24 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+      return NextResponse.json({ error: 'Requisição inválida' }, { status: 400 })
     }
 
     const provider = body.provider as AiProvider
     if (provider !== 'openai' && provider !== 'anthropic' && provider !== 'deepseek') {
       return NextResponse.json(
-        { error: 'provider must be "openai", "anthropic", or "deepseek"' },
+        { error: 'O provedor deve ser OpenAI, Anthropic ou DeepSeek' },
         { status: 400 },
       )
     }
     const model = reqStr(body.model, 128)
     if (!model || !MODEL_RE.test(model)) {
-      return NextResponse.json({ error: 'model is required' }, { status: 400 })
+      return NextResponse.json({ error: 'O modelo é obrigatório' }, { status: 400 })
     }
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
     if (rawKey.length > 4096) {
-      return NextResponse.json({ error: 'api_key is too long' }, { status: 400 })
+      return NextResponse.json({ error: 'A chave de API é longa demais' }, { status: 400 })
     }
     let apiKeyPlain = rawKey
     if (!apiKeyPlain) {
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
         .maybeSingle()
       if (!existing?.api_key) {
         return NextResponse.json(
-          { error: 'Enter an API key to test.' },
+          { error: 'Informe uma chave de API para testar.' },
           { status: 400 },
         )
       }
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
         apiKeyPlain = decrypt(existing.api_key)
       } catch {
         return NextResponse.json(
-          { error: 'Stored API key could not be decrypted — re-enter your key.' },
+          { error: 'A chave de API salva não pode ser descriptografada: informe a chave de novo.' },
           { status: 400 },
         )
       }
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       }
       console.error('[ai/test] validation error:', err)
       return NextResponse.json(
-        { error: 'Could not validate the API key.' },
+        { error: 'Não foi possível validar a chave de API.' },
         { status: 400 },
       )
     }

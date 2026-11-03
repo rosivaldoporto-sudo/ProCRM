@@ -13,13 +13,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // ============================================================
 
 /** Mirrors SPEC_DEFAULT_STAGES in src/app/(dashboard)/pipelines/page.tsx. */
-const DEFAULT_PIPELINE_NAME = 'Sales Pipeline'
+const DEFAULT_PIPELINE_NAME = 'Funil de Vendas'
 const DEFAULT_STAGES = [
-  { name: 'New Lead', color: '#3b82f6', position: 0 },
-  { name: 'Qualified', color: '#eab308', position: 1 },
-  { name: 'Proposal Sent', color: '#f97316', position: 2 },
-  { name: 'Negotiation', color: '#8b5cf6', position: 3 },
-  { name: 'Won', color: '#22c55e', position: 4 },
+  { name: 'Novo Lead', color: '#3b82f6', position: 0 },
+  { name: 'Qualificado', color: '#eab308', position: 1 },
+  { name: 'Proposta Enviada', color: '#f97316', position: 2 },
+  { name: 'Negociação', color: '#8b5cf6', position: 3 },
+  { name: 'Ganho', color: '#22c55e', position: 4 },
 ]
 
 export interface EnsureLeadDealArgs {

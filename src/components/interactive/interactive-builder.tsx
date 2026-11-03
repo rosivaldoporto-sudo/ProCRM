@@ -117,29 +117,29 @@ export function InteractiveBuilder({
         <div className="flex gap-2">
           <KindButton
             active={value.kind === "buttons"}
-            label="Reply buttons"
+            label="Botões de resposta"
             onClick={() => switchKind("buttons")}
           />
           <KindButton
             active={value.kind === "list"}
-            label="List"
+            label="Lista"
             onClick={() => switchKind("list")}
           />
         </div>
 
-        <Field label="Body" counter={`${value.body.length}/${INTERACTIVE_LIMITS.bodyMaxLength}`}>
+        <Field label="Mensagem" counter={`${value.body.length}/${INTERACTIVE_LIMITS.bodyMaxLength}`}>
           <Textarea
             value={value.body}
             maxLength={INTERACTIVE_LIMITS.bodyMaxLength}
             onChange={(e) => setField({ body: e.target.value })}
-            placeholder="What the customer reads above the options"
+            placeholder="O que o cliente lê acima das opções"
             className="min-h-20 bg-muted text-foreground"
           />
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
           <Field
-            label="Header (optional)"
+            label="Cabeçalho (opcional)"
             counter={`${(value.header ?? "").length}/${INTERACTIVE_LIMITS.headerTextMaxLength}`}
           >
             <Input
@@ -149,19 +149,19 @@ export function InteractiveBuilder({
               disabled={headerMediaUrl !== ""}
               title={
                 headerMediaUrl !== ""
-                  ? "Remove the header image to use a text header"
+                  ? "Remova a imagem do cabeçalho para usar um cabeçalho de texto"
                   : undefined
               }
               placeholder={
                 headerMediaUrl !== ""
-                  ? "Disabled while an image header is set"
+                  ? "Desativado enquanto houver imagem no cabeçalho"
                   : undefined
               }
               className="bg-muted text-foreground disabled:opacity-50"
             />
           </Field>
           <Field
-            label="Footer (optional)"
+            label="Rodapé (opcional)"
             counter={`${(value.footer ?? "").length}/${INTERACTIVE_LIMITS.footerMaxLength}`}
           >
             <Input
@@ -178,8 +178,7 @@ export function InteractiveBuilder({
         ) : headerMediaUrl ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
             <p>
-              List messages support a text header only — remove the image to
-              save or switch back to Reply buttons to keep it.
+              Mensagens de lista aceitam só cabeçalho de texto: remova a imagem para salvar ou volte para Botões de resposta para mantê-la.
             </p>
             <Button
               variant="ghost"
@@ -188,7 +187,7 @@ export function InteractiveBuilder({
               className="mt-1.5 h-7 text-amber-200 hover:bg-amber-500/20 hover:text-amber-100"
             >
               <X className="mr-1 h-3.5 w-3.5" />
-              Remove image
+              Remover imagem
             </Button>
           </div>
         ) : null}
@@ -206,7 +205,7 @@ export function InteractiveBuilder({
             onChange={(e) => setAdvanced(e.target.checked)}
             className="h-3.5 w-3.5 accent-primary"
           />
-          Show reply IDs (advanced)
+          Mostrar IDs de resposta (avançado)
         </label>
 
         {!validation.ok && (
@@ -217,7 +216,7 @@ export function InteractiveBuilder({
       {showPreview && (
         <div className="flex shrink-0 flex-col gap-1.5 md:w-[280px]">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Preview
+            Prévia
           </span>
           <div className="rounded-lg bg-muted/40 p-3">
             <InteractivePreview payload={value} />
@@ -257,7 +256,7 @@ function HeaderImageEditor({
     if (!file) return;
     if (file.size > MEDIA_MAX_BYTES_BY_KIND.image) {
       toast.error(
-        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — image header limit is ${Math.round(
+        `O arquivo tem ${(file.size / 1024 / 1024).toFixed(1)} MB: o limite da imagem de cabeçalho é ${Math.round(
           MEDIA_MAX_BYTES_BY_KIND.image / 1024 / 1024,
         )} MB.`,
       );
@@ -273,7 +272,7 @@ function HeaderImageEditor({
       setUploadedPath(path);
       setUrl(publicUrl);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed.");
+      toast.error(err instanceof Error ? err.message : "Falha no envio.");
     } finally {
       setUploading(false);
     }
@@ -290,7 +289,7 @@ function HeaderImageEditor({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <label className="text-xs text-muted-foreground">Header image (optional)</label>
+        <label className="text-xs text-muted-foreground">Imagem do cabeçalho (opcional)</label>
       </div>
       <input
         ref={fileRef}
@@ -307,7 +306,7 @@ function HeaderImageEditor({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrl}
-            alt="Header preview"
+            alt="Prévia do cabeçalho"
             className="max-h-40 w-full rounded object-cover"
           />
           <div className="mt-2 flex items-center gap-2">
@@ -321,7 +320,7 @@ function HeaderImageEditor({
               className="h-7 shrink-0 text-red-400 hover:bg-red-500/10 hover:text-red-300"
             >
               <Trash2 className="mr-1 h-3.5 w-3.5" />
-              Remove
+              Remover
             </Button>
           </div>
         </div>
@@ -333,7 +332,7 @@ function HeaderImageEditor({
               size="sm"
               disabled={uploading || disabledByText}
               onClick={() => fileRef.current?.click()}
-              title={disabledByText ? "Clear the text header to add an image" : undefined}
+              title={disabledByText ? "Limpe o cabeçalho de texto para adicionar uma imagem" : undefined}
               className="shrink-0"
             >
               {uploading ? (
@@ -341,21 +340,20 @@ function HeaderImageEditor({
               ) : (
                 <ImagePlus className="mr-1 h-3.5 w-3.5" />
               )}
-              {uploading ? "Uploading…" : "Attach image"}
+              {uploading ? "Enviando…" : "Anexar imagem"}
             </Button>
             <Input
               value={value.header_media_url ?? ""}
               onChange={(e) => setUrl(e.target.value)}
               disabled={uploading || disabledByText}
-              title={disabledByText ? "Clear the text header to add an image" : undefined}
-              placeholder="…or paste an https image URL"
+              title={disabledByText ? "Limpe o cabeçalho de texto para adicionar uma imagem" : undefined}
+              placeholder="…ou cole a URL https de uma imagem"
               className="flex-1 bg-muted font-mono text-xs disabled:opacity-50"
             />
           </div>
           {disabledByText && (
             <p className="text-[11px] text-muted-foreground">
-              Clear the text header above to attach an image — Meta allows one
-              header only.
+              Limpe o cabeçalho de texto acima para anexar uma imagem: a Meta permite só um cabeçalho.
             </p>
           )}
         </div>
@@ -397,7 +395,7 @@ function ButtonsEditor({
   return (
     <div>
       <label className="mb-2 block text-xs text-muted-foreground">
-        Buttons ({buttons.length}/{INTERACTIVE_LIMITS.maxButtons})
+        Botões ({buttons.length}/{INTERACTIVE_LIMITS.maxButtons})
       </label>
       <div className="flex flex-col gap-2">
         {buttons.map((b, i) => (
@@ -417,7 +415,7 @@ function ButtonsEditor({
               value={b.title}
               maxLength={INTERACTIVE_LIMITS.buttonTitleMaxLength}
               onChange={(e) => update(i, { title: e.target.value })}
-              placeholder="Button label"
+              placeholder="Texto do botão"
               className="flex-1 bg-muted"
             />
             <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
@@ -439,7 +437,7 @@ function ButtonsEditor({
       {buttons.length < INTERACTIVE_LIMITS.maxButtons && (
         <Button variant="ghost" size="sm" onClick={add} className="mt-2">
           <Plus className="h-3.5 w-3.5" />
-          Add button
+          Adicionar botão
         </Button>
       )}
     </div>
@@ -510,7 +508,7 @@ function ListEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <Field label="List button label" counter={`${value.button_label.length}/${INTERACTIVE_LIMITS.buttonTitleMaxLength}`}>
+      <Field label="Texto do botão da lista" counter={`${value.button_label.length}/${INTERACTIVE_LIMITS.buttonTitleMaxLength}`}>
         <Input
           value={value.button_label}
           maxLength={INTERACTIVE_LIMITS.buttonTitleMaxLength}
@@ -520,7 +518,7 @@ function ListEditor({
       </Field>
 
       <label className="block text-xs text-muted-foreground">
-        Rows ({totalRows}/{INTERACTIVE_LIMITS.maxListRowsTotal})
+        Linhas ({totalRows}/{INTERACTIVE_LIMITS.maxListRowsTotal})
       </label>
 
       {sections.map((section, sIdx) => (
@@ -529,7 +527,7 @@ function ListEditor({
             <Input
               value={section.title ?? ""}
               onChange={(e) => updateSection(sIdx, { title: e.target.value })}
-              placeholder="Section title (optional)"
+              placeholder="Título da seção (opcional)"
               className="flex-1 bg-muted text-xs"
             />
             {sections.length > 1 && (
@@ -561,7 +559,7 @@ function ListEditor({
                     value={row.title}
                     maxLength={INTERACTIVE_LIMITS.listRowTitleMaxLength}
                     onChange={(e) => updateRow(sIdx, rIdx, { title: e.target.value })}
-                    placeholder="Row title"
+                    placeholder="Título da linha"
                     className="flex-1 bg-muted"
                   />
                   <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
@@ -582,7 +580,7 @@ function ListEditor({
                   value={row.description ?? ""}
                   maxLength={INTERACTIVE_LIMITS.listRowDescriptionMaxLength}
                   onChange={(e) => updateRow(sIdx, rIdx, { description: e.target.value })}
-                  placeholder="Description (optional)"
+                  placeholder="Descrição (opcional)"
                   className="mt-2 bg-muted text-xs"
                 />
               </div>
@@ -591,7 +589,7 @@ function ListEditor({
           {totalRows < INTERACTIVE_LIMITS.maxListRowsTotal && (
             <Button variant="ghost" size="sm" onClick={() => addRow(sIdx)} className="mt-2">
               <Plus className="h-3.5 w-3.5" />
-              Add row
+              Adicionar linha
             </Button>
           )}
         </div>
@@ -601,7 +599,7 @@ function ListEditor({
         totalRows < INTERACTIVE_LIMITS.maxListRowsTotal && (
           <Button variant="ghost" size="sm" onClick={addSection}>
             <Plus className="h-3.5 w-3.5" />
-            Add section
+            Adicionar seção
           </Button>
         )}
     </div>

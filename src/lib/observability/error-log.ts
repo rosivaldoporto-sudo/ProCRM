@@ -64,7 +64,7 @@ export async function logServerError(
     route: meta.route ? redactString(meta.route.split('?')[0]) : null,
     method: meta.method?.slice(0, 10) ?? null,
     error_name: redactString(err.name),
-    message: redactString(err.message || 'Unknown error'),
+    message: redactString(err.message || 'Erro desconhecido'),
     stack: err.stack
       ? redactString(err.stack.split('\n').slice(0, 12).join('\n'))
       : null,

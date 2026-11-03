@@ -105,34 +105,34 @@ function validateHeaderFooter(
 ): InteractiveValidation {
   if (header && header.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
     return fail(
-      `Header exceeds the ${INTERACTIVE_LIMITS.headerTextMaxLength}-character limit.`,
+      `O cabeçalho excede o limite de ${INTERACTIVE_LIMITS.headerTextMaxLength} caracteres.`,
     )
   }
   if (footer && footer.length > INTERACTIVE_LIMITS.footerMaxLength) {
     return fail(
-      `Footer exceeds the ${INTERACTIVE_LIMITS.footerMaxLength}-character limit.`,
+      `O rodapé excede o limite de ${INTERACTIVE_LIMITS.footerMaxLength} caracteres.`,
     )
   }
   const media = typeof headerMediaUrl === 'string' ? headerMediaUrl.trim() : ''
   if (media) {
     if (!allowMediaHeader) {
       return fail(
-        'List messages support a text header only — remove the image to save.',
+        'Mensagens de lista aceitam só cabeçalho de texto: remova a imagem para salvar.',
       )
     }
     if (typeof header === 'string' && header.trim() !== '') {
-      return fail('Use either a text header or an image header, not both.')
+      return fail('Use cabeçalho de texto ou de imagem, não os dois.')
     }
     if (media.length > 2048) {
-      return fail('Header image URL is too long (max 2048 chars).')
+      return fail('A URL da imagem do cabeçalho é longa demais (até 2048 caracteres).')
     }
     try {
       const u = new URL(media)
       if (u.protocol !== 'https:') {
-        return fail('Header image URL must be an https URL.')
+        return fail('A URL da imagem do cabeçalho deve ser https.')
       }
     } catch {
-      return fail('Header image URL must be a valid https URL.')
+      return fail('A URL da imagem do cabeçalho deve ser https válida.')
     }
   }
   return ok()
@@ -151,16 +151,16 @@ export function validateInteractivePayload(
   payload: unknown,
 ): InteractiveValidation {
   if (!payload || typeof payload !== 'object') {
-    return fail('Interactive message payload is required.')
+    return fail('O conteúdo da mensagem interativa é obrigatório.')
   }
   const p = payload as Partial<InteractiveMessagePayload>
 
   if (typeof p.body !== 'string' || p.body.trim() === '') {
-    return fail('Interactive message body text is required.')
+    return fail('O texto da mensagem interativa é obrigatório.')
   }
   if (p.body.length > INTERACTIVE_LIMITS.bodyMaxLength) {
     return fail(
-      `Body text exceeds the ${INTERACTIVE_LIMITS.bodyMaxLength}-character limit.`,
+      `O texto excede o limite de ${INTERACTIVE_LIMITS.bodyMaxLength} caracteres.`,
     )
   }
 
@@ -170,11 +170,11 @@ export function validateInteractivePayload(
     if (!hf.ok) return hf
     const buttons = (p as InteractiveButtonsPayload).buttons
     if (!Array.isArray(buttons) || buttons.length < 1) {
-      return fail('Add at least one reply button.')
+      return fail('Adicione pelo menos um botão de resposta.')
     }
     if (buttons.length > INTERACTIVE_LIMITS.maxButtons) {
       return fail(
-        `A reply-button message allows at most ${INTERACTIVE_LIMITS.maxButtons} buttons.`,
+        `A mensagem com botões permite no máximo ${INTERACTIVE_LIMITS.maxButtons} botões.`,
       )
     }
     const seen = new Set<string>()
@@ -191,7 +191,7 @@ export function validateInteractivePayload(
       }
       if (b.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
         return fail(
-          `Button label "${b.title}" exceeds the ${INTERACTIVE_LIMITS.buttonTitleMaxLength}-character limit.`,
+          `O texto do botão "${b.title}" excede o limite de ${INTERACTIVE_LIMITS.buttonTitleMaxLength} caracteres.`,
         )
       }
     }
@@ -206,15 +206,15 @@ export function validateInteractivePayload(
       typeof list.button_label !== 'string' ||
       list.button_label.trim() === ''
     ) {
-      return fail('The list needs a button label.')
+      return fail('A lista precisa do texto do botão.')
     }
     if (list.button_label.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
       return fail(
-        `List button label exceeds the ${INTERACTIVE_LIMITS.buttonTitleMaxLength}-character limit.`,
+        `O texto do botão da lista excede o limite de ${INTERACTIVE_LIMITS.buttonTitleMaxLength} caracteres.`,
       )
     }
     if (!Array.isArray(list.sections) || list.sections.length < 1) {
-      return fail('Add at least one list section.')
+      return fail('Adicione pelo menos uma seção à lista.')
     }
     if (list.sections.length > INTERACTIVE_LIMITS.maxListSections) {
       return fail(
@@ -241,7 +241,7 @@ export function validateInteractivePayload(
         }
         if (row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength) {
           return fail(
-            `List row title "${row.title}" exceeds the ${INTERACTIVE_LIMITS.listRowTitleMaxLength}-character limit.`,
+            `O título da linha "${row.title}" excede o limite de ${INTERACTIVE_LIMITS.listRowTitleMaxLength} caracteres.`,
           )
         }
         if (
@@ -250,21 +250,21 @@ export function validateInteractivePayload(
             INTERACTIVE_LIMITS.listRowDescriptionMaxLength
         ) {
           return fail(
-            `List row description exceeds the ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength}-character limit.`,
+            `A descrição da linha excede o limite de ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} caracteres.`,
           )
         }
       }
     }
-    if (total < 1) return fail('Add at least one list row.')
+    if (total < 1) return fail('Adicione pelo menos uma linha à lista.')
     if (total > INTERACTIVE_LIMITS.maxListRowsTotal) {
       return fail(
-        `A list allows at most ${INTERACTIVE_LIMITS.maxListRowsTotal} rows in total.`,
+        `A lista permite no máximo ${INTERACTIVE_LIMITS.maxListRowsTotal} linhas no total.`,
       )
     }
     return ok()
   }
 
-  return fail('Interactive message must be reply buttons or a list.')
+  return fail('A mensagem interativa deve ser de botões ou de lista.')
 }
 
 /**

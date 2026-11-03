@@ -11,7 +11,7 @@ const validButtons: InteractiveButtonsPayload = {
   kind: 'buttons',
   body: 'Choose an option',
   buttons: [
-    { id: 'yes', title: 'Yes' },
+    { id: 'yes', title: 'Sim' },
     { id: 'no', title: 'No' },
   ],
 }

@@ -21,7 +21,7 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   const { data, error } = await supabase
     .from('automations')
@@ -29,7 +29,7 @@ export async function GET() {
     .order('created_at', { ascending: false });
   if (error)
     return NextResponse.json(
-      { error: 'Failed to load automations' },
+      { error: 'Falha ao carregar as automações' },
       { status: 500 }
     );
   return NextResponse.json({ automations: data ?? [] });
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   const limit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
   if (!limit.success) return rateLimitResponse(limit);
@@ -66,14 +66,14 @@ export async function POST(request: Request) {
   const accountId = profile?.account_id as string | undefined;
   if (!accountId) {
     return NextResponse.json(
-      { error: 'Your profile is not linked to an account.' },
+      { error: 'Seu perfil não está vinculado a uma conta.' },
       { status: 403 }
     );
   }
 
   const body = await request.json().catch(() => null);
   if (!body)
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
 
   const {
     name,
@@ -105,13 +105,13 @@ export async function POST(request: Request) {
   const cleanName = reqStr(effectiveName, 200);
   if (!cleanName || !effectiveTriggerType) {
     return NextResponse.json(
-      { error: 'name and trigger_type are required' },
+      { error: 'Nome e tipo de gatilho são obrigatórios' },
       { status: 400 }
     );
   }
   if (!isValidEnum(effectiveTriggerType, Object.keys(TRIGGER_META))) {
     return NextResponse.json(
-      { error: 'Invalid trigger_type' },
+      { error: 'Tipo de gatilho inválido' },
       { status: 400 }
     );
   }
@@ -121,13 +121,13 @@ export async function POST(request: Request) {
   ) {
     if (typeof effectiveDescription !== 'string') {
       return NextResponse.json(
-        { error: 'Invalid description' },
+        { error: 'Descrição inválida' },
         { status: 400 }
       );
     }
     if (effectiveDescription.length > 2000) {
       return NextResponse.json(
-        { error: 'description is too long' },
+        { error: 'A descrição é longa demais' },
         { status: 400 }
       );
     }
@@ -135,13 +135,13 @@ export async function POST(request: Request) {
   if (effectiveSteps !== undefined) {
     if (!Array.isArray(effectiveSteps)) {
       return NextResponse.json(
-        { error: 'steps must be an array' },
+        { error: 'Etapas inválidas' },
         { status: 400 }
       );
     }
     if (effectiveSteps.length > 200) {
       return NextResponse.json(
-        { error: 'Too many steps' },
+        { error: 'Etapas demais' },
         { status: 400 }
       );
     }
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     !jsonSizeOk(effectiveTriggerConfig, 20000)
   ) {
     return NextResponse.json(
-      { error: 'trigger_config is too large' },
+      { error: 'A configuração do gatilho é grande demais' },
       { status: 400 }
     );
   }
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
     if (issues.length > 0) {
       return NextResponse.json(
         {
-          error: 'Cannot activate automation with invalid configuration',
+          error: 'Não é possível ativar a automação com configuração inválida',
           issues,
         },
         { status: 400 }
@@ -202,7 +202,7 @@ export async function POST(request: Request) {
   if (insertErr || !automation) {
     console.error('[api:automations] insert failed:', insertErr);
     return NextResponse.json(
-      { error: 'Failed to create automation' },
+      { error: 'Falha ao criar a automação' },
       { status: 500 }
     );
   }
@@ -211,7 +211,7 @@ export async function POST(request: Request) {
     const err = await insertSteps(automation.id, effectiveSteps);
     if (err) {
       console.error('[api:automations] insert steps failed:', err);
-      return NextResponse.json({ error: 'Failed to create automation' }, { status: 500 });
+      return NextResponse.json({ error: 'Falha ao criar a automação' }, { status: 500 });
     }
   }
 

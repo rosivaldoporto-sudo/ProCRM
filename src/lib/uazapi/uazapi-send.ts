@@ -56,7 +56,7 @@ export function validateUazapiSendParams(params: {
   const { messageType, contentText, mediaUrl, menuRows, menuTitle, menuFooter, filename } = params;
 
   if (!messageType) {
-    throw new UazapiSendError('bad_request', 'message_type is required', 400);
+    throw new UazapiSendError('bad_request', 'Informe o tipo da mensagem', 400);
   }
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
@@ -73,14 +73,14 @@ export function validateUazapiSendParams(params: {
     if (!contentText) {
       throw new UazapiSendError(
         'bad_request',
-        'content_text is required for text messages',
+        'O texto é obrigatório em mensagens de texto',
         400
       );
     }
     if (contentText.length > 4096) {
       throw new UazapiSendError(
         'bad_request',
-        'content_text exceeds the 4096-character limit',
+        'O texto excede o limite de 4096 caracteres',
         400
       );
     }
@@ -90,7 +90,7 @@ export function validateUazapiSendParams(params: {
     if (!mediaUrl) {
       throw new UazapiSendError(
         'bad_request',
-        `media_url is required for ${messageType} messages`,
+        `A URL da mídia é obrigatória em mensagens do tipo ${messageType}`,
         400
       );
     }
@@ -102,7 +102,7 @@ export function validateUazapiSendParams(params: {
     } catch {
       throw new UazapiSendError(
         'bad_request',
-        'media_url must be an https URL (max 2048 chars)',
+        'A URL da mídia deve ser https (até 2048 caracteres)',
         400
       );
     }
@@ -112,7 +112,7 @@ export function validateUazapiSendParams(params: {
     if (!menuRows || menuRows.length === 0) {
       throw new UazapiSendError(
         'bad_request',
-        'menu_rows is required for menu messages',
+        'As opções são obrigatórias em mensagens de menu',
         400
       );
     }
@@ -131,7 +131,7 @@ export function validateUazapiSendParams(params: {
         (row.description !== undefined &&
           (typeof row.description !== 'string' || row.description.length > 200))
       ) {
-        throw new UazapiSendError('bad_request', 'Invalid menu_rows', 400);
+        throw new UazapiSendError('bad_request', 'Opções de menu inválidas', 400);
       }
     }
   }
@@ -144,7 +144,7 @@ export function validateUazapiSendParams(params: {
   ) {
     throw new UazapiSendError(
       'bad_request',
-      'Caption exceeds the 1024-character limit',
+      'A legenda excede o limite de 1024 caracteres',
       400
     );
   }
@@ -152,7 +152,7 @@ export function validateUazapiSendParams(params: {
   if (filename !== undefined && filename !== null && filename.length > 255) {
     throw new UazapiSendError(
       'bad_request',
-      'filename exceeds the 255-character limit',
+      'O nome do arquivo excede o limite de 255 caracteres',
       400
     );
   }
@@ -160,7 +160,7 @@ export function validateUazapiSendParams(params: {
   if (menuTitle !== undefined && menuTitle !== null && menuTitle.length > 500) {
     throw new UazapiSendError(
       'bad_request',
-      'menu_title exceeds the 500-character limit',
+      'O título do menu excede o limite de 500 caracteres',
       400
     );
   }
@@ -168,7 +168,7 @@ export function validateUazapiSendParams(params: {
   if (menuFooter !== undefined && menuFooter !== null && menuFooter.length > 500) {
     throw new UazapiSendError(
       'bad_request',
-      'menu_footer exceeds the 500-character limit',
+      'O rodapé do menu excede o limite de 500 caracteres',
       400
     );
   }
@@ -220,14 +220,14 @@ export async function sendMessageToConversation(
     .single();
 
   if (convError || !conversation) {
-    throw new UazapiSendError('not_found', 'Conversation not found', 404);
+    throw new UazapiSendError('not_found', 'Conversa não encontrada', 404);
   }
 
   const contact = conversation.contact;
   if (!contact?.phone) {
     throw new UazapiSendError(
       'bad_request',
-      'Contact phone number not found',
+      'Telefone do contato não encontrado',
       400
     );
   }
@@ -236,7 +236,7 @@ export async function sendMessageToConversation(
   if (!isValidE164(sanitizedPhone)) {
     throw new UazapiSendError(
       'bad_request',
-      'Invalid phone number format',
+      'Formato de telefone inválido',
       400
     );
   }
@@ -247,7 +247,7 @@ export async function sendMessageToConversation(
   if (!env.serverUrl) {
     throw new UazapiSendError(
       'uazapi_not_configured',
-      'Uazapi is not configured. Set UAZAPI_SERVER_URL in the environment.',
+      'A Uazapi não está configurada. Defina UAZAPI_SERVER_URL no ambiente.',
       400
     );
   }
@@ -257,7 +257,7 @@ export async function sendMessageToConversation(
   if (!apiToken) {
     throw new UazapiSendError(
       'uazapi_not_configured',
-      'Uazapi instance token unavailable. Connect via the QR code first.',
+      'Token da instância Uazapi indisponível. Conecte pelo QR Code primeiro.',
       400
     );
   }
@@ -289,7 +289,7 @@ export async function sendMessageToConversation(
     if (liveStatus !== 'connected') {
       throw new UazapiSendError(
         'uazapi_not_connected',
-        'Uazapi instance is not connected. Please scan the QR code first.',
+        'A instância da Uazapi não está conectada. Escaneie o QR Code primeiro.',
         400
       );
     }
@@ -391,9 +391,9 @@ export async function sendMessageToConversation(
       uazapiMessageId = result.messageId;
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown Uazapi error';
+    const message = err instanceof Error ? err.message : 'Erro desconhecido na Uazapi';
     console.error('[uazapi-send] Send failed:', message);
-    throw new UazapiSendError('uazapi_error', `Uazapi error: ${message}`, 502);
+    throw new UazapiSendError('uazapi_error', `Erro na Uazapi: ${message}`, 502);
   }
 
   // Persist the message
@@ -417,7 +417,7 @@ export async function sendMessageToConversation(
     console.error('[uazapi-send] error inserting sent message:', msgError);
     throw new UazapiSendError(
       'db_error',
-      `Message sent to Uazapi but failed to save to DB: ${msgError.message}`,
+      `Mensagem enviada à Uazapi, mas falhou ao salvar: ${msgError.message}`,
       500
     );
   }

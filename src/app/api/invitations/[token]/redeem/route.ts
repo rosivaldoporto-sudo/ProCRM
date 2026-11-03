@@ -41,7 +41,7 @@ function rpcErrorToResponse(err: PostgrestError): NextResponse {
   }
   console.error('[redeem] unexpected RPC error:', err);
   return NextResponse.json(
-    { error: 'Failed to redeem invitation' },
+    { error: 'Falha ao aceitar o convite' },
     { status: 500 }
   );
 }
@@ -60,7 +60,7 @@ export async function POST(
   const { token } = await params;
   if (!token || typeof token !== 'string') {
     return NextResponse.json(
-      { error: 'Missing invitation token' },
+      { error: 'Token do convite ausente' },
       { status: 400 }
     );
   }
@@ -74,7 +74,7 @@ export async function POST(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
   }
 
   const { data: accountId, error } = await supabase.rpc('redeem_invitation', {

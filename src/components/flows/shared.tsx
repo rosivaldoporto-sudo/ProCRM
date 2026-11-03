@@ -81,9 +81,9 @@ export type NodeCategory = 'messaging' | 'logic' | 'flow';
 
 /** Category labels + the order they render in the add-step menu. */
 export const NODE_CATEGORIES: { id: NodeCategory; label: string }[] = [
-  { id: 'messaging', label: 'Messaging' },
-  { id: 'logic', label: 'Logic & data' },
-  { id: 'flow', label: 'Flow control' },
+  { id: 'messaging', label: 'Mensagens' },
+  { id: 'logic', label: 'Lógica e dados' },
+  { id: 'flow', label: 'Controle de fluxo' },
 ];
 
 export const NODE_META: Record<
@@ -97,73 +97,73 @@ export const NODE_META: Record<
   }
 > = {
   start: {
-    label: 'Start',
+    label: 'Início',
     icon: PlayCircle,
     color: 'text-emerald-400',
-    blurb: 'Entry point of the flow',
+    blurb: 'Ponto de entrada do fluxo',
     category: 'flow',
   },
   send_message: {
-    label: 'Send message',
+    label: 'Enviar mensagem',
     icon: MessageCircle,
     color: 'text-sky-400',
-    blurb: 'Sends a WhatsApp text message',
+    blurb: 'Envia uma mensagem de texto no WhatsApp',
     category: 'messaging',
   },
   send_buttons: {
-    label: 'Send buttons',
+    label: 'Enviar botões',
     icon: ListChecks,
     color: 'text-primary',
-    blurb: 'Sends quick-reply buttons',
+    blurb: 'Envia botões de resposta rápida',
     category: 'messaging',
   },
   send_list: {
-    label: 'Send list',
+    label: 'Enviar lista',
     icon: ListPlus,
     color: 'text-indigo-400',
-    blurb: 'Sends a tappable list of options',
+    blurb: 'Envia uma lista de opções para tocar',
     category: 'messaging',
   },
   send_media: {
-    label: 'Send media',
+    label: 'Enviar mídia',
     icon: Paperclip,
     color: 'text-cyan-400',
-    blurb: 'Sends an image, video, or document',
+    blurb: 'Envia imagem, vídeo ou documento',
     category: 'messaging',
   },
   collect_input: {
-    label: 'Collect input',
+    label: 'Coletar resposta',
     icon: Inbox,
     color: 'text-teal-400',
-    blurb: 'Asks a question, saves the reply',
+    blurb: 'Faz uma pergunta e salva a resposta',
     category: 'logic',
   },
   condition: {
-    label: 'If / else',
+    label: 'Se / senão',
     icon: GitFork,
     color: 'text-fuchsia-400',
-    blurb: 'Branches on a rule',
+    blurb: 'Divide o fluxo por uma regra',
     category: 'logic',
   },
   set_tag: {
-    label: 'Tag contact',
+    label: 'Etiquetar contato',
     icon: Tag,
     color: 'text-pink-400',
-    blurb: 'Adds or removes a contact tag',
+    blurb: 'Adiciona ou remove uma etiqueta do contato',
     category: 'logic',
   },
   handoff: {
-    label: 'Handoff to agent',
+    label: 'Transferir para agente',
     icon: UserPlus,
     color: 'text-amber-400',
-    blurb: 'Hands the conversation to a human',
+    blurb: 'Passa a conversa para um humano',
     category: 'flow',
   },
   end: {
-    label: 'End',
+    label: 'Fim',
     icon: Flag,
     color: 'text-muted-foreground',
-    blurb: 'Ends the flow',
+    blurb: 'Encerra o fluxo',
     category: 'flow',
   },
 };
@@ -362,7 +362,7 @@ export function summarizeNode(
       const caption = typeof cfg.caption === 'string' ? cfg.caption : '';
       const label = mediaType
         ? t ? t(mediaType) || (mediaType.charAt(0).toUpperCase() + mediaType.slice(1)) : mediaType.charAt(0).toUpperCase() + mediaType.slice(1)
-        : t ? t('media') : 'Media';
+        : t ? t('media') : 'Mídia';
       if (!url) return t ? t('noFile', { label }) : `${label} (no file uploaded)`;
       const name = filename || url.split('/').pop() || 'file';
       return caption
@@ -391,7 +391,7 @@ export function summarizeNode(
             : 'var';
       const subjectStr =
         subject === 'tag'
-          ? t ? t('hasTag', { tag: truncate(subjectKey, 24) }) : `has tag ${truncate(subjectKey, 24)}`
+          ? t ? t('hasTag', { tag: truncate(subjectKey, 24) }) : `tem a etiqueta ${truncate(subjectKey, 24)}`
           : `${subject}.${subjectKey}`;
       const op =
         cfg.operator === 'equals'
@@ -411,14 +411,14 @@ export function summarizeNode(
       return subject === 'tag' ? subjectStr : `${subjectStr} ${op}${valStr}`;
     }
     case 'set_tag': {
-      const mode = cfg.mode === 'remove' ? (t ? t('modeRemove') : 'Remove') : (t ? t('modeAdd') : 'Add');
+      const mode = cfg.mode === 'remove' ? (t ? t('modeRemove') : 'Remover') : (t ? t('modeAdd') : 'Adicionar');
       const tagId = typeof cfg.tag_id === 'string' ? cfg.tag_id : '';
       // No tag name available without an async lookup here; show a
       // short prefix of the UUID so users can disambiguate between
       // multiple set_tag nodes at a glance.
       return tagId
-        ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} tag ${tagId.slice(0, 8)}…`
-        : t ? t('tagNone', { mode }) : `${mode} tag (none picked)`;
+        ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} etiqueta ${tagId.slice(0, 8)}…`
+        : t ? t('tagNone', { mode }) : `${mode} etiqueta (nenhuma escolhida)`;
     }
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';

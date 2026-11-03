@@ -48,7 +48,7 @@ export async function resolveConversationByPhone(
   if (!isValidE164(sanitized)) {
     throw new SendMessageError(
       'bad_request',
-      "'to' must be a valid phone number in E.164 format (e.g. +14155550123)",
+      "O telefone deve estar no formato internacional (ex.: +5511999999999)",
       400
     );
   }
@@ -63,7 +63,7 @@ export async function resolveConversationByPhone(
   if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
+      'WhatsApp não configurado. Configure sua integração com o WhatsApp primeiro.',
       400
     );
   }
@@ -120,7 +120,7 @@ export async function resolveConversationByPhone(
         } else {
           throw new SendMessageError(
             'db_error',
-            'Failed to create contact',
+            'Falha ao criar o contato',
             500
           );
         }
@@ -129,7 +129,7 @@ export async function resolveConversationByPhone(
           '[resolve-conversation] contact create error:',
           createErr
         );
-        throw new SendMessageError('db_error', 'Failed to create contact', 500);
+        throw new SendMessageError('db_error', 'Falha ao criar o contato', 500);
       }
     } else {
       contactId = created.id;
@@ -175,7 +175,7 @@ async function findOrCreateConversationRow(
 
   if (findErr) {
     console.error('[resolve-conversation] conversation lookup error:', findErr);
-    throw new SendMessageError('db_error', 'Failed to resolve conversation', 500);
+    throw new SendMessageError('db_error', 'Falha ao localizar a conversa', 500);
   }
 
   if (existing && existing.length > 0) {
@@ -206,7 +206,7 @@ async function findOrCreateConversationRow(
       }
     }
     console.error('[resolve-conversation] conversation create error:', convErr);
-    throw new SendMessageError('db_error', 'Failed to create conversation', 500);
+    throw new SendMessageError('db_error', 'Falha ao criar a conversa', 500);
   }
 
   return newConv.id;

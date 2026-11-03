@@ -49,10 +49,10 @@ export interface TemplatePayload {
 }
 
 export function validateTemplateName(name: string): void {
-  if (!name) throw new Error('Template name is required.');
+  if (!name) throw new Error('O nome do modelo é obrigatório.');
   if (!TEMPLATE_LIMITS.nameRegex.test(name)) {
     throw new Error(
-      'Template name must use only lowercase letters, digits, and underscores (1-512 chars).',
+      'O nome do modelo só aceita letras minúsculas, números e sublinhado (1 a 512 caracteres).',
     );
   }
 }
@@ -79,7 +79,7 @@ function assertContiguous(indices: number[], where: string): void {
   for (let i = 0; i < indices.length; i++) {
     if (indices[i] !== i + 1) {
       throw new Error(
-        `${where} variables must be contiguous starting at {{1}} — found ${indices
+        `As variáveis de ${where} devem ser sequenciais a partir de {{1}}: encontradas ${indices
           .map((n) => `{{${n}}}`)
           .join(', ')}.`,
       );
@@ -88,14 +88,14 @@ function assertContiguous(indices: number[], where: string): void {
 }
 
 export function validateBody(bodyText: string): number[] {
-  if (!bodyText.trim()) throw new Error('Body text is required.');
+  if (!bodyText.trim()) throw new Error('O texto da mensagem é obrigatório.');
   if (bodyText.length > TEMPLATE_LIMITS.bodyMaxLength) {
     throw new Error(
       `Body text exceeds ${TEMPLATE_LIMITS.bodyMaxLength} chars (got ${bodyText.length}).`,
     );
   }
   const indices = extractVariableIndices(bodyText);
-  assertContiguous(indices, 'Body');
+  assertContiguous(indices, 'mensagem');
   return indices;
 }
 
@@ -107,7 +107,7 @@ export function validateFooter(footerText: string | undefined): void {
     );
   }
   if (extractVariableIndices(footerText).length > 0) {
-    throw new Error('Footer text cannot contain {{N}} variables (Meta rule).');
+    throw new Error('O rodapé não pode ter variáveis {{N}} (regra da Meta).');
   }
 }
 
@@ -127,7 +127,7 @@ export function validateHeader(
 
   if (header_type === 'text') {
     if (!header_content || !header_content.trim()) {
-      throw new Error('Text header requires header_content.');
+      throw new Error('O cabeçalho de texto precisa de conteúdo.');
     }
     if (header_content.length > TEMPLATE_LIMITS.headerTextMaxLength) {
       throw new Error(
@@ -141,7 +141,7 @@ export function validateHeader(
       );
     }
     if (indices.length === 1 && indices[0] !== 1) {
-      throw new Error('Text header variable must be {{1}} (Meta rule).');
+      throw new Error('A variável do cabeçalho de texto precisa ser {{1}} (regra da Meta).');
     }
     return { variableCount: indices.length };
   }
@@ -150,17 +150,17 @@ export function validateHeader(
   // Upload handle. Either one — Meta accepts both example forms.
   if (!header_media_url && !header_handle) {
     throw new Error(
-      `${header_type} header requires either a public sample URL (header_media_url) or a Resumable Upload handle (header_handle).`,
+      `O cabeçalho ${header_type} precisa de uma URL pública de exemplo ou de um identificador de envio.`,
     );
   }
   if (header_media_url) {
     try {
       const u = new URL(header_media_url);
       if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-        throw new Error('header_media_url must use http(s) scheme.');
+        throw new Error('A URL da mídia do cabeçalho precisa usar http(s).');
       }
     } catch {
-      throw new Error('header_media_url must be a valid URL.');
+      throw new Error('A URL da mídia do cabeçalho é inválida.');
     }
   }
   return { variableCount: 0 };
@@ -212,7 +212,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
     if (b.type === 'QUICK_REPLY') {
       if (sawNonQR) {
         throw new Error(
-          'QUICK_REPLY buttons cannot be interleaved with URL / PHONE_NUMBER / COPY_CODE buttons — group them at the start.',
+          'Botões de resposta rápida não podem ficar intercalados com botões de URL, telefone ou código: agrupe-os no início.',
         );
       }
     } else {
@@ -223,7 +223,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
   for (let i = 0; i < buttons.length; i++) {
     const b = buttons[i];
     if (!b.text?.trim()) {
-      throw new Error(`Button #${i + 1} (${b.type}) is missing text.`);
+      throw new Error(`O botão nº ${i + 1} (${b.type}) está sem texto.`);
     }
     if (b.text.length > TEMPLATE_LIMITS.buttonTextMaxLength) {
       throw new Error(
@@ -233,12 +233,12 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
     switch (b.type) {
       case 'URL': {
         if (!b.url?.trim()) {
-          throw new Error(`URL button #${i + 1} is missing url.`);
+          throw new Error(`O botão de URL nº ${i + 1} está sem URL.`);
         }
         try {
           new URL(b.url);
         } catch {
-          throw new Error(`URL button #${i + 1} has an invalid url.`);
+          throw new Error(`O botão de URL nº ${i + 1} tem uma URL inválida.`);
         }
         const urlVars = extractVariableIndices(b.url);
         if (urlVars.length > 1) {
@@ -249,7 +249,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
         if (urlVars.length === 1) {
           if (urlVars[0] !== 1) {
             throw new Error(
-              `URL button #${i + 1} variable must be {{1}} (Meta rule).`,
+              `A variável do botão de URL nº ${i + 1} deve ser {{1}} (regra da Meta).`,
             );
           }
           if (!b.example?.trim()) {
@@ -263,14 +263,14 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
       case 'PHONE_NUMBER':
         if (!b.phone_number?.trim()) {
           throw new Error(
-            `PHONE_NUMBER button #${i + 1} is missing phone_number.`,
+            `O botão de telefone nº ${i + 1} está sem telefone.`,
           );
         }
         break;
       case 'COPY_CODE':
         if (!b.example?.trim()) {
           throw new Error(
-            `COPY_CODE button #${i + 1} is missing example value.`,
+            `O botão de código nº ${i + 1} está sem valor de exemplo.`,
           );
         }
         break;
@@ -303,12 +303,12 @@ export function validateSampleValues(
   }
   for (let i = 0; i < body.length; i++) {
     if (!body[i] || !body[i].trim()) {
-      throw new Error(`Body sample value #${i + 1} is empty.`);
+      throw new Error(`O exemplo nº ${i + 1} da mensagem está vazio.`);
     }
   }
   for (let i = 0; i < header.length; i++) {
     if (!header[i] || !header[i].trim()) {
-      throw new Error(`Header sample value #${i + 1} is empty.`);
+      throw new Error(`O exemplo nº ${i + 1} do cabeçalho está vazio.`);
     }
   }
 }
@@ -324,7 +324,7 @@ export function validateTemplatePayload(payload: TemplatePayload): {
 } {
   validateTemplateName(payload.name);
   if (!payload.language?.trim()) {
-    throw new Error('Language is required.');
+    throw new Error('O idioma é obrigatório.');
   }
   const bodyVars = validateBody(payload.body_text);
   validateFooter(payload.footer_text);

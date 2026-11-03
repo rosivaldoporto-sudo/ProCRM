@@ -5,15 +5,15 @@ import { bad, fail, isUuid } from '@/lib/api-validate';
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  if (!isUuid(id)) return bad('Invalid id');
+  if (!isUuid(id)) return bad('ID inválido');
   const guard = await requireOwnership(id);
-  if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  if (!guard.ok) return NextResponse.json({ error: 'Não encontrado' }, { status: guard.status });
   const supabase = guard.supabase;
   const url = new URL(req.url);
   const rawLimit = Number(url.searchParams.get('limit') ?? 50);
   const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, Math.floor(rawLimit))) : 50;
   const { data: form } = await supabase.from('lead_forms').select('id').eq('id', id).maybeSingle();
-  if (!form) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!form) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
 
   const { data: responses } = await supabase
     .from('lead_form_responses')
@@ -32,14 +32,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  if (!isUuid(id)) return bad('Invalid id');
+  if (!isUuid(id)) return bad('ID inválido');
   try {
     await requireRole('agent');
   } catch (err) {
     return toErrorResponse(err);
   }
   const guard = await requireOwnership(id);
-  if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  if (!guard.ok) return NextResponse.json({ error: 'Não encontrado' }, { status: guard.status });
   const supabase = guard.supabase;
   const { response_id } = ((await req.json().catch(() => null)) ?? {}) as { response_id?: string };
   if (!response_id || !isUuid(response_id)) return bad('response_id é obrigatório');

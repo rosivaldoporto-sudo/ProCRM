@@ -21,6 +21,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale/pt-BR';
 import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
 import {
@@ -517,8 +518,8 @@ export function ConversationList({
             variant="ghost"
             onClick={() => setNewConvOpen(true)}
             className="text-muted-foreground hover:text-foreground hover:bg-muted h-11 w-11 shrink-0 sm:h-9 sm:w-9"
-            title="New conversation"
-            aria-label="New conversation"
+            title="Nova conversa"
+            aria-label="Nova conversa"
           >
             <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
           </Button>
@@ -557,7 +558,7 @@ export function ConversationList({
           <div
             className="flex items-center gap-1"
             role="group"
-            aria-label="Channel filter"
+            aria-label="Filtro de canal"
           >
             {(
               [
@@ -905,6 +906,7 @@ function ConversationItem({
   const timeAgo = conversation.last_message_at
     ? formatDistanceToNow(new Date(conversation.last_message_at), {
         addSuffix: false,
+        locale: ptBR,
       })
     : '';
 

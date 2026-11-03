@@ -18,7 +18,7 @@ const BASE_ARGS = {
   phoneNumberId: "test-phone",
   accessToken: "test-token",
   to: "1234567890",
-  bodyText: "Body text",
+  bodyText: "Texto da mensagem",
 } as const;
 
 describe("sendInteractiveButtons — validation", () => {
@@ -111,7 +111,7 @@ describe("sendInteractiveButtons — validation", () => {
       headerText: "Hello",
       footerText: "Tap one",
       buttons: [
-        { id: "yes", title: "Yes" },
+        { id: "yes", title: "Sim" },
         { id: "no", title: "No" },
       ],
     });
@@ -127,12 +127,12 @@ describe("sendInteractiveButtons — validation", () => {
       type: "interactive",
       interactive: {
         type: "button",
-        body: { text: "Body text" },
+        body: { text: "Texto da mensagem" },
         header: { type: "text", text: "Hello" },
         footer: { text: "Tap one" },
         action: {
           buttons: [
-            { type: "reply", reply: { id: "yes", title: "Yes" } },
+            { type: "reply", reply: { id: "yes", title: "Sim" } },
             { type: "reply", reply: { id: "no", title: "No" } },
           ],
         },
@@ -155,7 +155,7 @@ describe("sendInteractiveList — validation", () => {
     await expect(
       sendInteractiveList({
         ...BASE_ARGS,
-        buttonLabel: "Open",
+        buttonLabel: "Aberta",
         sections: [],
       }),
     ).rejects.toThrow(/1-10 sections/);
@@ -169,7 +169,7 @@ describe("sendInteractiveList — validation", () => {
     await expect(
       sendInteractiveList({
         ...BASE_ARGS,
-        buttonLabel: "Open",
+        buttonLabel: "Aberta",
         sections: [{ rows }],
       }),
     ).rejects.toThrow(/1-10 rows total/);
@@ -179,7 +179,7 @@ describe("sendInteractiveList — validation", () => {
     await expect(
       sendInteractiveList({
         ...BASE_ARGS,
-        buttonLabel: "Open",
+        buttonLabel: "Aberta",
         sections: [
           {
             rows: [
@@ -198,7 +198,7 @@ describe("sendInteractiveList — validation", () => {
     await expect(
       sendInteractiveList({
         ...BASE_ARGS,
-        buttonLabel: "Open",
+        buttonLabel: "Aberta",
         sections: [
           { rows: [{ id: "dupe", title: "First" }] },
           { rows: [{ id: "dupe", title: "Second" }] },
@@ -250,7 +250,7 @@ describe("sendInteractiveList — validation", () => {
       type: "interactive",
       interactive: {
         type: "list",
-        body: { text: "Body text" },
+        body: { text: "Texto da mensagem" },
         action: {
           button: "Open menu",
           sections: [

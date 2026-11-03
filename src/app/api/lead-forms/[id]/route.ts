@@ -25,12 +25,12 @@ function fail(op: string, err: unknown) {
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const guard = await requireOwnership(id);
-  if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  if (!guard.ok) return NextResponse.json({ error: 'Não encontrado' }, { status: guard.status });
   const [{ data: form }, { data: blocks }] = await Promise.all([
     guard.supabase.from('lead_forms').select('*').eq('id', id).maybeSingle(),
     guard.supabase.from('lead_form_blocks').select('*').eq('form_id', id).order('position'),
   ]);
-  if (!form) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!form) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
   // Preenche defaults novos em configs antigas para o editor não exibir
   // campos vazios e para o próximo save persistir a configuração completa.
   const normalizedForm = { ...form, scheduling_config: normalizeScheduling(form.scheduling_config) };
@@ -45,11 +45,11 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     return toErrorResponse(err);
   }
   const guard = await requireOwnership(id);
-  if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  if (!guard.ok) return NextResponse.json({ error: 'Não encontrado' }, { status: guard.status });
   const putLimit = checkRateLimit(`leadforms:${guard.userId}`, RATE_LIMITS.adminAction);
   if (!putLimit.success) return rateLimitResponse(putLimit);
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  if (!body) return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
 
   // Teto anti-DoS: configs gigantes (ou milhares de blocos) estourariam
   // armazenamento e lentidão no form público. 200KB é folga ampla.
@@ -63,10 +63,10 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   }
   if (typeof patch.name === 'string') {
     if (!patch.name.trim()) return NextResponse.json({ error: 'name não pode ser vazio' }, { status: 400 });
-    if (patch.name.length > 200) return bad('name excede 200 caracteres');
+    if (patch.name.length > 200) return bad('O nome excede 200 caracteres');
   }
   if (typeof patch.description === 'string' && patch.description.length > 2000) {
-    return bad('description excede 2000 caracteres');
+    return bad('A descrição excede 2000 caracteres');
   }
   if (body.slug !== undefined) {
     const s = slugify(String(body.slug || patch.name || 'form'));
@@ -173,7 +173,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     return toErrorResponse(err);
   }
   const guard = await requireOwnership(id);
-  if (!guard.ok) return NextResponse.json({ error: 'Not found' }, { status: guard.status });
+  if (!guard.ok) return NextResponse.json({ error: 'Não encontrado' }, { status: guard.status });
   const { error } = await supabaseAdmin().from('lead_forms').delete().eq('id', id).eq('account_id', guard.accountId);
   if (error) {
     console.error('[lead-forms:delete]', error);

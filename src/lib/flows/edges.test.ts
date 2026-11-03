@@ -156,7 +156,7 @@ describe("deriveCanvasEdges — send_buttons (per-button)", () => {
           config: {
             text: "Pick",
             buttons: [
-              { reply_id: "yes", title: "Yes", next_node_key: "ok" },
+              { reply_id: "yes", title: "Sim", next_node_key: "ok" },
               { reply_id: "no", title: "No", next_node_key: "bye" },
             ],
           },
@@ -170,7 +170,7 @@ describe("deriveCanvasEdges — send_buttons (per-button)", () => {
       source: "menu",
       target: "ok",
       sourceHandle: "button:yes",
-      label: "Yes",
+      label: "Sim",
     });
     expect(edges[1]).toMatchObject({
       source: "menu",
@@ -329,13 +329,13 @@ describe("outgoingSlots", () => {
       config: {
         text: "Pick",
         buttons: [
-          { reply_id: "yes", title: "Yes", next_node_key: "" },
+          { reply_id: "yes", title: "Sim", next_node_key: "" },
           { reply_id: "no", title: "No", next_node_key: "" },
         ],
       },
     });
     expect(slots).toEqual([
-      { id: "button:yes", label: "Yes" },
+      { id: "button:yes", label: "Sim" },
       { id: "button:no", label: "No" },
     ]);
   });
@@ -426,7 +426,7 @@ describe("applyEdgeConnection", () => {
       config: {
         text: "Pick",
         buttons: [
-          { reply_id: "yes", title: "Yes", next_node_key: "" },
+          { reply_id: "yes", title: "Sim", next_node_key: "" },
           { reply_id: "no", title: "No", next_node_key: "" },
         ],
       },
@@ -434,7 +434,7 @@ describe("applyEdgeConnection", () => {
     const patch = applyEdgeConnection(node, "button:yes", "ok");
     expect(patch).toEqual({
       buttons: [
-        { reply_id: "yes", title: "Yes", next_node_key: "ok" },
+        { reply_id: "yes", title: "Sim", next_node_key: "ok" },
         { reply_id: "no", title: "No", next_node_key: "" },
       ],
     });

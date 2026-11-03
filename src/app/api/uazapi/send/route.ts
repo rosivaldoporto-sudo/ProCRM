@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
     }
 
     const limit = checkRateLimit(`uazapi-send:${user.id}`, RATE_LIMITS.send)
@@ -32,12 +32,12 @@ export async function POST(request: Request) {
       .maybeSingle()
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
-      return NextResponse.json({ error: 'Profile not linked to an account.' }, { status: 403 })
+      return NextResponse.json({ error: 'Perfil não vinculado a uma conta.' }, { status: 403 })
     }
     // Viewers are read-only: the role is enforced here, not only in the UI.
     if (!canWriteWithRole(profile?.account_role)) {
       return NextResponse.json(
-        { error: "This action requires the 'agent' role or higher" },
+        { error: "Esta ação exige o papel de agente ou superior" },
         { status: 403 },
       )
     }
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
     if ((!conversationIdInput && !contact_id) || !message_type) {
       return NextResponse.json({
-        error: 'Either conversation_id or contact_id, plus message_type, are required',
+        error: 'Informe a conversa ou o contato e o tipo da mensagem',
       }, { status: 400 })
     }
 
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
         .single()
 
       if (convError || !data) {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+        return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
       }
       conversationId = data.id
     } else {
@@ -103,18 +103,18 @@ export async function POST(request: Request) {
         .maybeSingle()
 
       if (!contactRow) {
-        return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
+        return NextResponse.json({ error: 'Contato não encontrado' }, { status: 404 })
       }
 
       const resolved = await findOrCreateConversation(supabase, accountId, user.id, contact_id)
       if (!resolved) {
-        return NextResponse.json({ error: 'Failed to open a conversation' }, { status: 500 })
+        return NextResponse.json({ error: 'Falha ao abrir uma conversa' }, { status: 500 })
       }
       conversationId = resolved
     }
 
     if (!conversationId) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Conversa não encontrada' }, { status: 404 })
     }
 
     try {
@@ -143,7 +143,7 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error('Error in Uazapi send POST:', error)
-    return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })
+    return NextResponse.json({ error: 'Falha ao enviar a mensagem' }, { status: 500 })
   }
 }
 

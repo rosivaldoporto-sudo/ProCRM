@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
   if (!isPushConfigured()) {
     return NextResponse.json(
-      { error: "Push notifications are not configured on the server" },
+      { error: "As notificações não estão configuradas no servidor" },
       { status: 503 },
     );
   }

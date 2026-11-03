@@ -126,7 +126,7 @@ async function handleStatusUpdate(
   const update: Record<string, unknown> = {
     status,
     rejection_reason:
-      status === 'REJECTED' ? value.reason ?? 'Rejected by Meta' : null,
+      status === 'REJECTED' ? value.reason ?? 'Rejeitado pela Meta' : null,
     submission_error: null,
   }
 

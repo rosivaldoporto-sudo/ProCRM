@@ -20,7 +20,7 @@ export async function GET() {
         configured: false,
         status: 'disconnected',
         reason: 'env_missing',
-        message: 'UAZAPI_SERVER_URL is not set in the environment.',
+        message: 'UAZAPI_SERVER_URL não está definida no ambiente.',
       });
     }
 
@@ -34,7 +34,7 @@ export async function GET() {
         configured: true,
         status: 'disconnected',
         reason: 'no_instance',
-        message: 'Instance not created yet — click Conectar WhatsApp.',
+        message: 'A instância ainda não foi criada: clique em Conectar WhatsApp.',
       });
     }
 
@@ -95,7 +95,7 @@ export async function GET() {
         connected: false,
         configured: true,
         reason: 'uazapi_error',
-        message: 'Uazapi status is temporarily unavailable.',
+        message: 'O status da Uazapi está indisponível no momento.',
       },
       { status: 502 }
     );

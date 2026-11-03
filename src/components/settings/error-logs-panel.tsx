@@ -81,7 +81,7 @@ export function ErrorLogsPanel() {
                   {log.request_id}
                 </span>
                 <time className="text-xs text-muted-foreground">
-                  {new Date(log.occurred_at).toLocaleString()}
+                  {new Date(log.occurred_at).toLocaleString('pt-BR')}
                 </time>
               </div>
               <p className="text-sm font-medium text-foreground">

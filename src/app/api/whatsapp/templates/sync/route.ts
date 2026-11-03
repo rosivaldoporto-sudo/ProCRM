@@ -134,7 +134,7 @@ export async function POST() {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
     }
 
     const limit = checkRateLimit(`templates-sync:${user.id}`, RATE_LIMITS.adminAction)
@@ -152,14 +152,14 @@ export async function POST() {
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
     // Viewers are read-only: the role is enforced here, not only in the UI.
     if (!canWriteWithRole(profile?.account_role)) {
       return NextResponse.json(
-        { error: "This action requires the 'agent' role or higher" },
+        { error: "Esta ação exige o papel de agente ou superior" },
         { status: 403 },
       )
     }
@@ -174,7 +174,7 @@ export async function POST() {
       return NextResponse.json(
         {
           error:
-            'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
+            'WhatsApp não configurado. Conecte sua conta do WhatsApp Business em Configurações.',
         },
         { status: 400 },
       )
@@ -184,7 +184,7 @@ export async function POST() {
       return NextResponse.json(
         {
           error:
-            'WABA (WhatsApp Business Account) ID missing. Re-connect your account in Settings.',
+            'ID da conta do WhatsApp Business (WABA) ausente. Conecte a conta de novo em Configurações.',
         },
         { status: 400 },
       )
@@ -206,7 +206,7 @@ export async function POST() {
       })
 
       if (!metaRes.ok) {
-        let metaErr = `Meta API error: ${metaRes.status}`
+        let metaErr = `Erro na API da Meta: ${metaRes.status}`
         try {
           const body = await metaRes.json()
           if (body?.error?.message) metaErr = body.error.message
@@ -370,7 +370,7 @@ export async function POST() {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : 'Failed to sync templates',
+          error instanceof Error ? error.message : 'Falha ao sincronizar os modelos',
       },
       { status: 500 },
     )

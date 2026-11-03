@@ -100,7 +100,7 @@ async function loadConfig(): Promise<{
     credentials: "same-origin",
   });
   if (!response.ok) {
-    throw new Error(`Push config request failed (${response.status})`);
+    throw new Error(`Falha ao buscar a configuração de notificações (${response.status})`);
   }
   return (await response.json()) as {
     configured: boolean;
@@ -319,7 +319,7 @@ export async function sendTestPush(payload: {
   } | null;
 
   if (!response.ok) {
-    throw new Error(data?.error || `Test push failed (${response.status})`);
+    throw new Error(data?.error || `Falha no teste de notificação (${response.status})`);
   }
 
   return { sent: data?.sent ?? 0 };

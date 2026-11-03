@@ -24,7 +24,7 @@ export async function GET() {
       .order('created_at', { ascending: false });
     if (error)
       return NextResponse.json(
-        { error: 'Failed to load quick replies' },
+        { error: 'Falha ao carregar as respostas rápidas' },
         { status: 500 }
       );
     return NextResponse.json({ quick_replies: data ?? [] });
@@ -46,12 +46,12 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   if (!body)
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
 
   const title = reqStr(body.title, 120);
   const kind = body.kind === 'interactive' ? 'interactive' : 'text';
   if (!title) {
-    return NextResponse.json({ error: 'title is required' }, { status: 400 });
+    return NextResponse.json({ error: 'o título é obrigatório' }, { status: 400 });
   }
 
   let content_text: string | null = null;
@@ -67,13 +67,13 @@ export async function POST(request: Request) {
     const text = typeof body.content_text === 'string' ? body.content_text : '';
     if (!text.trim()) {
       return NextResponse.json(
-        { error: 'content_text is required for text quick replies' },
+        { error: 'O texto é obrigatório em respostas rápidas de texto' },
         { status: 400 }
       );
     }
     if (text.length > 4096) {
       return NextResponse.json(
-        { error: 'content_text is too long' },
+        { error: 'O texto é longo demais' },
         { status: 400 }
       );
     }
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json(
-      { error: 'Failed to create quick reply' },
+      { error: 'Falha ao criar a resposta rápida' },
       { status: 500 }
     );
   }

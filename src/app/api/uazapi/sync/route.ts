@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     const env = uazapiEnvConfig();
     if (!env.serverUrl) {
       return NextResponse.json(
-        { error: 'UAZAPI_SERVER_URL is not set in the environment.' },
+        { error: 'UAZAPI_SERVER_URL não está definida no ambiente.' },
         { status: 400 }
       );
     }
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     const apiToken = await getCachedInstanceToken(supabaseAdmin(), accountId);
     if (!apiToken) {
       return NextResponse.json(
-        { error: 'Uazapi instance token unavailable.' },
+        { error: 'Token da instância Uazapi indisponível.' },
         { status: 400 }
       );
     }
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     }
     if (liveStatus !== 'connected') {
       return NextResponse.json(
-        { error: 'Uazapi is not connected.' },
+        { error: 'A Uazapi não está conectada.' },
         { status: 400 }
       );
     }
@@ -167,7 +167,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         synced: 0,
         messagesImported: 0,
-        message: 'No chats found to sync.',
+        message: 'Nenhuma conversa encontrada para sincronizar.',
       });
     }
 
@@ -325,13 +325,13 @@ export async function POST(request: Request) {
       found: chats.length,
       warnings: syncWarnings,
       webhook,
-      message: `Synced ${syncedCount} of ${chats.length} chats found (${messagesImported} messages imported).`,
+      message: `${syncedCount} de ${chats.length} conversas sincronizadas (${messagesImported} mensagens importadas).`,
     });
   } catch (error) {
     console.error('[uazapi-sync] error:', error);
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
-    return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Falha na sincronização' }, { status: 500 });
   }
 }
 
@@ -403,7 +403,7 @@ async function syncChatMessages(
     });
     if (error) {
       warnings.push(
-        `History fetch failed for chat ${chatid} at offset ${offset} (${error}) — messages after this point were not imported.`
+        `Falha ao buscar o histórico da conversa ${chatid} a partir de ${offset} (${error}): as mensagens seguintes não foram importadas.`
       );
       console.warn('[uazapi-sync] fetchMessages error:', {
         chatid,

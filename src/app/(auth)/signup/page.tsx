@@ -110,7 +110,7 @@ function SignupPageInner() {
                 variant="outline"
                 className="w-full border-border text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                Voltar para sign in
+                Voltar para o login
               </Button>
             </Link>
           </CardContent>
@@ -169,7 +169,7 @@ function SignupPageInner() {
               <Input
                 id="email"
                 type="email"
-               placeholder="you@example.com"
+               placeholder="voce@exemplo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

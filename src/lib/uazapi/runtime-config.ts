@@ -100,7 +100,7 @@ export async function resolveUazapiInstance(
 ): Promise<ResolvedUazapiInstance> {
   const env = uazapiEnvConfig()
   if (!env.serverUrl) {
-    throw new Error('UAZAPI_SERVER_URL is not set in the environment.')
+    throw new Error('UAZAPI_SERVER_URL não está definida no ambiente.')
   }
 
   const cached = await getCachedInstanceToken(db, accountId)
@@ -115,7 +115,7 @@ export async function resolveUazapiInstance(
 
   if (!env.adminToken) {
     throw new Error(
-      'No Uazapi instance token available. Set UAZAPI_INSTANCE_TOKEN or UAZAPI_ADMIN_TOKEN in the environment.',
+      'Nenhum token de instância da Uazapi disponível. Defina UAZAPI_INSTANCE_TOKEN ou UAZAPI_ADMIN_TOKEN no ambiente.',
     )
   }
 

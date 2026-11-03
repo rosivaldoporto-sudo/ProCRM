@@ -93,7 +93,7 @@ describe('buildMetaTemplatePayload', () => {
     const payload = buildMetaTemplatePayload({
       ...base,
       buttons: [
-        { type: 'QUICK_REPLY', text: 'Yes' },
+        { type: 'QUICK_REPLY', text: 'Sim' },
         { type: 'URL', text: 'Track', url: 'https://x/{{1}}', example: 'abc' },
         { type: 'PHONE_NUMBER', text: 'Call', phone_number: '+15551234567' },
         { type: 'COPY_CODE', text: 'Copy', example: 'SUMMER20' },
@@ -101,7 +101,7 @@ describe('buildMetaTemplatePayload', () => {
     });
     const buttons = payload.components.find((c) => c.type === 'BUTTONS');
     expect(buttons?.buttons).toEqual([
-      { type: 'QUICK_REPLY', text: 'Yes' },
+      { type: 'QUICK_REPLY', text: 'Sim' },
       { type: 'URL', text: 'Track', url: 'https://x/{{1}}', example: ['abc'] },
       { type: 'PHONE_NUMBER', text: 'Call', phone_number: '+15551234567' },
       { type: 'COPY_CODE', text: 'Copy', example: ['SUMMER20'] },
@@ -114,7 +114,7 @@ describe('buildMetaTemplatePayload', () => {
       header_type: 'text',
       header_content: 'Hi',
       footer_text: 'Footer',
-      buttons: [{ type: 'QUICK_REPLY', text: 'Yes' }],
+      buttons: [{ type: 'QUICK_REPLY', text: 'Sim' }],
     });
     expect(payload.components.map((c) => c.type)).toEqual([
       'HEADER',

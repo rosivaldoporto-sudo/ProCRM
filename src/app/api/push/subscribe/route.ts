@@ -90,7 +90,7 @@ export async function POST(request: Request) {
   // point it at an internal https service (SSRF).
   if (!subscription || !(await isDeliverableUrl(subscription.endpoint))) {
     return NextResponse.json(
-      { error: "Invalid push subscription" },
+      { error: "Inscrição de notificação inválida" },
       { status: 400 },
     );
   }
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[push] failed to save subscription:", error.message);
     return NextResponse.json(
-      { error: "Could not save push subscription" },
+      { error: "Não foi possível salvar a inscrição de notificação" },
       { status: 500 },
     );
   }
@@ -143,7 +143,7 @@ export async function DELETE(request: Request) {
     typeof body?.endpoint === "string" ? body.endpoint.trim() : "";
 
   if (!endpoint || endpoint.length > MAX_ENDPOINT_LENGTH) {
-    return NextResponse.json({ error: "Invalid endpoint" }, { status: 400 });
+    return NextResponse.json({ error: "Endereço inválido" }, { status: 400 });
   }
 
   const { error } = await supabaseAdmin()
@@ -155,7 +155,7 @@ export async function DELETE(request: Request) {
   if (error) {
     console.error("[push] failed to remove subscription:", error.message);
     return NextResponse.json(
-      { error: "Could not remove push subscription" },
+      { error: "Não foi possível remover a inscrição de notificação" },
       { status: 500 },
     );
   }

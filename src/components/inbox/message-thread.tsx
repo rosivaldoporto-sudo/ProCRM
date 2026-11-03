@@ -30,6 +30,7 @@ import {
   PanelRightClose,
 } from 'lucide-react';
 import { format, isToday, isYesterday, differenceInHours } from 'date-fns';
+import { ptBR } from 'date-fns/locale/pt-BR';
 import { useTranslations } from 'next-intl';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -126,7 +127,7 @@ function formatDateSeparator(
   const date = new Date(dateStr);
   if (isToday(date)) return t('today');
   if (isYesterday(date)) return t('yesterday');
-  return format(date, 'MMMM d, yyyy');
+  return format(date, "d 'de' MMMM 'de' yyyy", { locale: ptBR });
 }
 
 function groupMessagesByDate(messages: Message[]) {
@@ -151,9 +152,9 @@ const STATUS_OPTIONS: {
   value: ConversationStatus;
   color: string;
 }[] = [
-  { label: 'Open', value: 'open', color: 'text-primary' },
-  { label: 'Pending', value: 'pending', color: 'text-amber-400' },
-  { label: 'Closed', value: 'closed', color: 'text-muted-foreground' },
+  { label: 'Aberta', value: 'open', color: 'text-primary' },
+  { label: 'Pendente', value: 'pending', color: 'text-amber-400' },
+  { label: 'Fechada', value: 'closed', color: 'text-muted-foreground' },
 ];
 
 /**
@@ -272,7 +273,7 @@ export function MessageThread({
       .find((m) => m.sender_type === 'customer');
 
     if (!lastCustomerMsg)
-      return { expired: true, remaining: 'No customer messages' };
+      return { expired: true, remaining: 'Sem mensagens do cliente' };
 
     const hoursSince = differenceInHours(
       new Date(),
@@ -566,7 +567,7 @@ export function MessageThread({
         if (!res.ok) {
           const reason = payload?.error || `HTTP ${res.status}`;
           console.error('Failed to send message:', reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(`Falha ao enviar: ${reason}`);
           // Mark the optimistic bubble as failed so the user sees what happened
           onUpdateMessage(tempId, { status: 'failed' });
           return;
@@ -578,8 +579,8 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'sent' });
       } catch (err) {
         console.error('Failed to send message:', err);
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Failed to send: ${reason}`);
+        const reason = err instanceof Error ? err.message : 'erro de rede';
+        toast.error(`Falha ao enviar: ${reason}`);
         onUpdateMessage(tempId, { status: 'failed' });
       }
     },
@@ -595,7 +596,7 @@ export function MessageThread({
       // kinds use the caption as-is. Audio carries no caption.
       const contentText =
         payload.kind === 'document'
-          ? payload.caption || payload.filename || 'Document'
+          ? payload.caption || payload.filename || 'Documento'
           : payload.caption;
 
       const tempId = `temp-${Date.now()}`;
@@ -632,7 +633,7 @@ export function MessageThread({
         if (!res.ok) {
           const reason = data?.error || `HTTP ${res.status}`;
           console.error('Failed to send media:', reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(`Falha ao enviar: ${reason}`);
           onUpdateMessage(tempId, { status: 'failed' });
           // The upload never reached the recipient — GC the orphaned
           // object rather than leaving it in the public bucket forever.
@@ -645,8 +646,8 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'sent' });
       } catch (err) {
         console.error('Failed to send media:', err);
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Failed to send: ${reason}`);
+        const reason = err instanceof Error ? err.message : 'erro de rede';
+        toast.error(`Falha ao enviar: ${reason}`);
         onUpdateMessage(tempId, { status: 'failed' });
         void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(
           () => {}
@@ -693,7 +694,7 @@ export function MessageThread({
         if (!res.ok) {
           const reason = data?.error || `HTTP ${res.status}`;
           console.error('Failed to send interactive message:', reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(`Falha ao enviar: ${reason}`);
           onUpdateMessage(tempId, { status: 'failed' });
           return;
         }
@@ -701,8 +702,8 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'sent' });
       } catch (err) {
         console.error('Failed to send interactive message:', err);
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Failed to send: ${reason}`);
+        const reason = err instanceof Error ? err.message : 'erro de rede';
+        toast.error(`Falha ao enviar: ${reason}`);
         onUpdateMessage(tempId, { status: 'failed' });
       }
     },
@@ -785,7 +786,7 @@ export function MessageThread({
         if (!res.ok) {
           const reason = payload?.error || `HTTP ${res.status}`;
           console.error('Failed to send template:', reason);
-          toast.error(`Failed to send template: ${reason}`);
+          toast.error(`Falha ao enviar o modelo: ${reason}`);
           onUpdateMessage(tempId, { status: 'failed' });
           return;
         }
@@ -793,8 +794,8 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'sent' });
       } catch (err) {
         console.error('Failed to send template:', err);
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Failed to send template: ${reason}`);
+        const reason = err instanceof Error ? err.message : 'erro de rede';
+        toast.error(`Falha ao enviar o modelo: ${reason}`);
         onUpdateMessage(tempId, { status: 'failed' });
       }
     },
@@ -820,14 +821,14 @@ export function MessageThread({
     return map;
   }, [reactions]);
 
-  const contactDisplayName = contact?.name || contact?.phone || 'Customer';
+  const contactDisplayName = contact?.name || contact?.phone || 'Cliente';
 
   // Author label for a quoted message: "You" when we sent the parent,
   // contact name when the customer sent it.
   const authorLabelFor = useCallback(
     (m: Message): string => {
       const isAgentMsg = m.sender_type === 'agent' || m.sender_type === 'bot';
-      return isAgentMsg ? 'You' : contactDisplayName;
+      return isAgentMsg ? 'Você' : contactDisplayName;
     },
     [contactDisplayName]
   );
@@ -854,7 +855,7 @@ export function MessageThread({
         return;
       }
       if (messageId.startsWith('temp-')) {
-        toast.error('Wait for the message to finish sending');
+        toast.error('Aguarde o envio da mensagem terminar');
         return;
       }
 
@@ -899,8 +900,8 @@ export function MessageThread({
           throw new Error(payload?.error || `HTTP ${res.status}`);
         }
       } catch (err) {
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Reaction failed: ${reason}`);
+        const reason = err instanceof Error ? err.message : 'erro de rede';
+        toast.error(`Falha na reação: ${reason}`);
         setReactions(snapshot);
       }
     },
@@ -919,7 +920,7 @@ export function MessageThread({
 
       if (error) {
         console.error('Failed to update assignment:', error);
-        toast.error('Failed to update assignment');
+        toast.error('Falha ao atualizar a atribuição');
         return;
       }
 
@@ -1025,7 +1026,7 @@ export function MessageThread({
                       toggleChannel();
                     }
                   }}
-                  title={`Sending via ${effectiveChannel === 'uazapi' ? 'Uazapi' : 'WhatsApp'} — click to switch`}
+                  title={`Enviando por ${effectiveChannel === 'uazapi' ? 'Uazapi' : 'WhatsApp'}: clique para trocar`}
                   className={cn(
                     'inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium transition-colors',
                     effectiveChannel === 'uazapi'
@@ -1247,7 +1248,7 @@ export function MessageThread({
                             parent.sender_type === 'agent' ||
                             parent.sender_type === 'bot'
                               ? t('me')
-                              : contact?.name || contact?.phone || 'Unknown',
+                              : contact?.name || contact?.phone || 'Desconhecido',
                           preview: buildReplyPreview(parent, tQuote),
                         }
                       : null;

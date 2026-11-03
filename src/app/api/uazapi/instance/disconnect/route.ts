@@ -14,7 +14,7 @@ export async function POST() {
     const env = uazapiEnvConfig();
     if (!env.serverUrl) {
       return NextResponse.json(
-        { error: 'UAZAPI_SERVER_URL is not set in the environment.' },
+        { error: 'UAZAPI_SERVER_URL não está definida no ambiente.' },
         { status: 400 }
       );
     }
@@ -25,7 +25,7 @@ export async function POST() {
     );
     if (!instanceToken) {
       return NextResponse.json(
-        { error: 'Uazapi instance not created yet.' },
+        { error: 'A instância da Uazapi ainda não foi criada.' },
         { status: 400 }
       );
     }
@@ -54,7 +54,7 @@ export async function POST() {
     const authResponse = toErrorResponse(error);
     if (authResponse.status !== 500) return authResponse;
     return NextResponse.json(
-      { error: 'Failed to disconnect the WhatsApp instance.' },
+      { error: 'Falha ao desconectar a instância do WhatsApp.' },
       { status: 502 }
     );
   }

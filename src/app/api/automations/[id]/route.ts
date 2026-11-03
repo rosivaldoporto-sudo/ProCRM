@@ -30,7 +30,7 @@ export async function GET(
   const { id } = await params;
   const user = await requireUser();
   if (!user)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   const admin = supabaseAdmin();
   const { data: automation, error } = await admin
@@ -42,11 +42,11 @@ export async function GET(
 
   if (error)
     return NextResponse.json(
-      { error: 'Failed to load automation' },
+      { error: 'Falha ao carregar a automação' },
       { status: 500 }
     );
   if (!automation)
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
 
   const steps = await loadStepsTree(id);
   return NextResponse.json({ automation, steps });
@@ -69,14 +69,14 @@ export async function PATCH(
 
   const user = await requireUser();
   if (!user)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   const patchLimit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
   if (!patchLimit.success) return rateLimitResponse(patchLimit);
 
   const body = await request.json().catch(() => null);
   if (!body)
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 });
 
   const admin = supabaseAdmin();
 
@@ -88,37 +88,37 @@ export async function PATCH(
     .eq('id', id)
     .maybeSingle();
   if (!existing || existing.user_id !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Não encontrado' }, { status: 404 });
   }
 
   const update: Record<string, unknown> = {};
   if ('name' in body) {
     const cleanName = reqStr(body.name, 200);
     if (!cleanName) {
-      return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
+      return NextResponse.json({ error: 'Nome inválido' }, { status: 400 });
     }
     update.name = cleanName;
   }
   if ('description' in body) {
     if (body.description !== null) {
       if (typeof body.description !== 'string') {
-        return NextResponse.json({ error: 'Invalid description' }, { status: 400 });
+        return NextResponse.json({ error: 'Descrição inválida' }, { status: 400 });
       }
       if (body.description.length > 2000) {
-        return NextResponse.json({ error: 'description is too long' }, { status: 400 });
+        return NextResponse.json({ error: 'A descrição é longa demais' }, { status: 400 });
       }
     }
     update.description = body.description;
   }
   if ('trigger_type' in body) {
     if (!isValidEnum(body.trigger_type, Object.keys(TRIGGER_META))) {
-      return NextResponse.json({ error: 'Invalid trigger_type' }, { status: 400 });
+      return NextResponse.json({ error: 'Tipo de gatilho inválido' }, { status: 400 });
     }
     update.trigger_type = body.trigger_type;
   }
   if ('trigger_config' in body) {
     if (!jsonSizeOk(body.trigger_config, 20000)) {
-      return NextResponse.json({ error: 'trigger_config is too large' }, { status: 400 });
+      return NextResponse.json({ error: 'A configuração do gatilho é grande demais' }, { status: 400 });
     }
     update.trigger_config = body.trigger_config;
   }
@@ -127,10 +127,10 @@ export async function PATCH(
   }
   if ('steps' in body && body.steps !== undefined) {
     if (!Array.isArray(body.steps)) {
-      return NextResponse.json({ error: 'steps must be an array' }, { status: 400 });
+      return NextResponse.json({ error: 'Etapas inválidas' }, { status: 400 });
     }
     if (body.steps.length > 200) {
-      return NextResponse.json({ error: 'Too many steps' }, { status: 400 });
+      return NextResponse.json({ error: 'Etapas demais' }, { status: 400 });
     }
   }
 
@@ -160,7 +160,7 @@ export async function PATCH(
     if (issues.length > 0) {
       return NextResponse.json(
         {
-          error: 'Cannot keep automation active with invalid configuration',
+          error: 'Não é possível manter a automação ativa com configuração inválida',
           issues,
         },
         { status: 400 }
@@ -182,7 +182,7 @@ export async function PATCH(
     const err = await replaceSteps(id, body.steps as BuilderStepInput[]);
     if (err) {
       console.error('[api:automations] replace steps failed:', err);
-      return NextResponse.json({ error: 'Failed to save automation' }, { status: 500 });
+      return NextResponse.json({ error: 'Falha ao salvar a automação' }, { status: 500 });
     }
   }
 
@@ -205,7 +205,7 @@ export async function DELETE(
 
   const user = await requireUser();
   if (!user)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
   const deleteLimit = checkRateLimit(`automations:${user.id}`, RATE_LIMITS.adminAction);
   if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
@@ -217,7 +217,7 @@ export async function DELETE(
     .eq('user_id', user.id);
   if (error)
     return NextResponse.json(
-      { error: 'Failed to delete automation' },
+      { error: 'Falha ao excluir a automação' },
       { status: 500 }
     );
   return NextResponse.json({ ok: true });

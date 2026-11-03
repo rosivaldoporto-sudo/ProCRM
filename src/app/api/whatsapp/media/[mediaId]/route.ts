@@ -17,7 +17,7 @@ export async function GET(
     // token, so an encoded `../` must not reach other Graph endpoints.
     if (!mediaId || !/^[A-Za-z0-9_-]{1,128}$/.test(mediaId)) {
       return NextResponse.json(
-        { error: 'Media ID is required' },
+        { error: 'Informe o ID da mídia' },
         { status: 400 }
       )
     }
@@ -31,7 +31,7 @@ export async function GET(
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Não autorizado' },
         { status: 401 }
       )
     }
@@ -53,7 +53,7 @@ export async function GET(
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
@@ -67,7 +67,7 @@ export async function GET(
 
     if (configError || !config) {
       return NextResponse.json(
-        { error: 'WhatsApp not configured' },
+        { error: 'WhatsApp não configurado' },
         { status: 400 }
       )
     }
@@ -90,7 +90,7 @@ export async function GET(
   } catch (error) {
     console.error('Error in WhatsApp media GET:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch media' },
+      { error: 'Falha ao buscar a mídia' },
       { status: 500 }
     )
   }

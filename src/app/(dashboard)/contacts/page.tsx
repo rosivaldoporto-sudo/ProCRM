@@ -112,7 +112,7 @@ const ContactRow = memo(function ContactRow({
         <Checkbox
           checked={isSelected}
           onCheckedChange={() => onToggle(contact.id, index)}
-          aria-label={`Select ${contact.name || contact.phone}`}
+          aria-label={`Selecionar ${contact.name || contact.phone}`}
         />
       </TableCell>
       <TableCell
@@ -167,7 +167,7 @@ const ContactRow = memo(function ContactRow({
         </div>
       </TableCell>
       <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-        {new Date(contact.created_at).toLocaleDateString('en-US', {
+        {new Date(contact.created_at).toLocaleDateString('pt-BR', {
           month: 'short',
           day: 'numeric',
           year: 'numeric',
@@ -573,7 +573,7 @@ export default function ContactsPage() {
           <GatedButton
             variant="outline"
             canAct={canEdit}
-            gateReason="add or import contacts"
+            gateReason="adicionar ou importar contatos"
             onClick={() => setImportOpen(true)}
             className="border-border text-muted-foreground hover:bg-muted"
           >
@@ -583,7 +583,7 @@ export default function ContactsPage() {
           <GatedButton
             variant="outline"
             canAct={canEdit}
-            gateReason="add or import contacts"
+            gateReason="adicionar ou importar contatos"
             onClick={() => setBulkAddOpen(true)}
             className="border-border text-muted-foreground hover:bg-muted"
           >
@@ -592,7 +592,7 @@ export default function ContactsPage() {
           </GatedButton>
           <GatedButton
             canAct={canEdit}
-            gateReason="add or import contacts"
+            gateReason="adicionar ou importar contatos"
             onClick={openAddForm}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
@@ -665,7 +665,7 @@ export default function ContactsPage() {
                       <Checkbox
                         checked={selectedTagIds.includes(tag.id)}
                         onCheckedChange={() => toggleTagFilter(tag.id)}
-                        aria-label={`Filter by ${tag.name}`}
+                        aria-label={`Filtrar por ${tag.name}`}
                       />
                       <span
                         className="size-2.5 shrink-0 rounded-full"
@@ -751,7 +751,7 @@ export default function ContactsPage() {
                   {tag.name}
                   <button
                     onClick={() => toggleTagFilter(id)}
-                    aria-label={`Remove ${tag.name} filter`}
+                    aria-label={`Remover filtro ${tag.name}`}
                     className="hover:opacity-70"
                   >
                     <X className="size-3" />
@@ -814,7 +814,7 @@ export default function ContactsPage() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ contact_ids: ids, tag_id: tag.id, action: 'add' }),
                         });
-                        if (!res.ok) throw new Error('Failed');
+                        if (!res.ok) throw new Error('Falhou');
                         const data = await res.json();
                         toast.success(t('toastBulkTagAdded', { count: data.added }));
                         fetchContacts();
@@ -852,7 +852,7 @@ export default function ContactsPage() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ contact_ids: ids, tag_id: tag.id, action: 'remove' }),
                         });
-                        if (!res.ok) throw new Error('Failed');
+                        if (!res.ok) throw new Error('Falhou');
                         const data = await res.json();
                         toast.success(t('toastBulkTagRemoved', { count: data.removed }));
                         fetchContacts();
@@ -877,7 +877,7 @@ export default function ContactsPage() {
               variant="destructive"
               size="sm"
               canAct={canEdit}
-              gateReason="delete contacts"
+              gateReason="excluir contatos"
               onClick={() => setBulkDeleteOpen(true)}
             >
               <Trash2 className="size-4" />
@@ -898,7 +898,7 @@ export default function ContactsPage() {
                   indeterminate={!allOnPageSelected && someOnPageSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
+                  aria-label="Selecionar todos os contatos desta página"
                 />
               </TableHead>
               <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
@@ -933,7 +933,7 @@ export default function ContactsPage() {
                     {!hasActiveFilters && (
                       <GatedButton
                         canAct={canEdit}
-                        gateReason="add or import contacts"
+                        gateReason="adicionar ou importar contatos"
                         variant="outline"
                         size="sm"
                         onClick={openAddForm}

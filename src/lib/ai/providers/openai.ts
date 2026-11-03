@@ -122,7 +122,7 @@ export async function generateOpenAi(args: ProviderArgs): Promise<ProviderResult
   // An empty reply is only an error when the model didn't ask for
   // tools either — a pure tool turn legitimately has no text.
   if (!text.trim() && toolCalls.length === 0) {
-    throw new AiError('OpenAI returned an empty response.', {
+    throw new AiError('A OpenAI retornou uma resposta vazia.', {
       code: 'empty_response',
     })
   }

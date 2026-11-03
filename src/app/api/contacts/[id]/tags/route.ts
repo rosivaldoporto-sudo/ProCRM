@@ -32,11 +32,11 @@ export async function POST(
     if (!postLimit.success) return rateLimitResponse(postLimit);
     const { id: contactId } = await params;
     if (!isUuid(contactId)) {
-      return NextResponse.json({ error: 'Invalid contact id' }, { status: 400 });
+      return NextResponse.json({ error: 'ID de contato inválido' }, { status: 400 });
     }
     const tagId = await readTagId(request);
     if (!tagId || !isUuid(tagId)) {
-      return NextResponse.json({ error: 'tag_id must be a UUID' }, { status: 400 });
+      return NextResponse.json({ error: 'Etiqueta inválida' }, { status: 400 });
     }
 
     const result = await addContactTagAndDispatch({
@@ -65,11 +65,11 @@ export async function DELETE(
     if (!deleteLimit.success) return rateLimitResponse(deleteLimit);
     const { id: contactId } = await params;
     if (!isUuid(contactId)) {
-      return NextResponse.json({ error: 'Invalid contact id' }, { status: 400 });
+      return NextResponse.json({ error: 'ID de contato inválido' }, { status: 400 });
     }
     const tagId = await readTagId(request);
     if (!tagId || !isUuid(tagId)) {
-      return NextResponse.json({ error: 'tag_id must be a UUID' }, { status: 400 });
+      return NextResponse.json({ error: 'Etiqueta inválida' }, { status: 400 });
     }
 
     await removeContactTag(ctx.supabase, {
