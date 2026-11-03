@@ -7,7 +7,6 @@
  */
 import type { FormFunnelEvent } from '@/lib/facebook/conversions-api';
 
-export { FB_EVENTS_URL } from '@/lib/facebook/conversions-api';
 export type { FormFunnelEvent };
 
 /**

@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useMemo, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -8,26 +9,33 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { SettingsRail } from '@/components/settings/settings-rail';
 import { SettingsOverview } from '@/components/settings/settings-overview';
-import { ProfileForm } from '@/components/settings/profile-form';
-import { SecurityPanel } from '@/components/settings/security-panel';
-import { AppearancePanel } from '@/components/settings/appearance-panel';
-import { NotificationsPanel } from '@/components/settings/notifications-panel';
-import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
-import { WhatsAppQrConnect } from '@/components/settings/whatsapp-qr-connect';
-import { MetaAdsConfig } from '@/components/settings/meta-ads-config';
-import { TemplateManager } from '@/components/settings/template-manager';
-import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
-import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
-import { DealsSettings } from '@/components/settings/deals-settings';
-import { MembersTab } from '@/components/settings/members-tab';
-import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
-import { ErrorLogsPanel } from '@/components/settings/error-logs-panel';
 import {
   resolveSection,
   SECTION_SLUGS,
   SECTION_META,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
+
+// Só a seção aberta é renderizada, então cada uma carrega sob demanda em vez
+// de todas (template manager, WhatsApp, chaves de API...) no primeiro acesso.
+function PanelLoading() {
+  return <div className="h-40 animate-pulse rounded-lg bg-muted/40" />;
+}
+
+const ProfileForm = dynamic(() => import('@/components/settings/profile-form').then((m) => m.ProfileForm), { loading: PanelLoading });
+const SecurityPanel = dynamic(() => import('@/components/settings/security-panel').then((m) => m.SecurityPanel), { loading: PanelLoading });
+const AppearancePanel = dynamic(() => import('@/components/settings/appearance-panel').then((m) => m.AppearancePanel), { loading: PanelLoading });
+const NotificationsPanel = dynamic(() => import('@/components/settings/notifications-panel').then((m) => m.NotificationsPanel), { loading: PanelLoading });
+const WhatsAppConfig = dynamic(() => import('@/components/settings/whatsapp-config').then((m) => m.WhatsAppConfig), { loading: PanelLoading });
+const WhatsAppQrConnect = dynamic(() => import('@/components/settings/whatsapp-qr-connect').then((m) => m.WhatsAppQrConnect), { loading: PanelLoading });
+const MetaAdsConfig = dynamic(() => import('@/components/settings/meta-ads-config').then((m) => m.MetaAdsConfig), { loading: PanelLoading });
+const TemplateManager = dynamic(() => import('@/components/settings/template-manager').then((m) => m.TemplateManager), { loading: PanelLoading });
+const QuickRepliesManager = dynamic(() => import('@/components/settings/quick-replies-manager').then((m) => m.QuickRepliesManager), { loading: PanelLoading });
+const FieldsAndTagsPanel = dynamic(() => import('@/components/settings/fields-and-tags-panel').then((m) => m.FieldsAndTagsPanel), { loading: PanelLoading });
+const DealsSettings = dynamic(() => import('@/components/settings/deals-settings').then((m) => m.DealsSettings), { loading: PanelLoading });
+const MembersTab = dynamic(() => import('@/components/settings/members-tab').then((m) => m.MembersTab), { loading: PanelLoading });
+const ApiKeysSettings = dynamic(() => import('@/components/settings/api-keys-settings').then((m) => m.ApiKeysSettings), { loading: PanelLoading });
+const ErrorLogsPanel = dynamic(() => import('@/components/settings/error-logs-panel').then((m) => m.ErrorLogsPanel), { loading: PanelLoading });
 
 // `useSearchParams` opts this page out of static prerendering unless it
 // sits under a Suspense boundary. Without one, the production build hits

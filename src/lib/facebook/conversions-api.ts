@@ -36,8 +36,6 @@ export type FormFunnelEvent =
   | 'Schedule'
   | 'QualifiedLead';
 
-export const FB_EVENTS_URL = 'https://connect.facebook.net/en_US/fbevents.js';
-
 /** Valores oficiais de action_source (server-event parameters). */
 export type CapiActionSource =
   | 'website'

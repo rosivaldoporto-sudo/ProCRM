@@ -214,11 +214,6 @@ export interface KeywordTriggerConfig {
 // the no-empty-object-type lint rule.
 export type FirstInboundTriggerConfig = Record<string, never>;
 
-export type FlowTriggerConfig =
-  | { trigger_type: "keyword"; config: KeywordTriggerConfig }
-  | { trigger_type: "first_inbound_message"; config: FirstInboundTriggerConfig }
-  | { trigger_type: "manual"; config: Record<string, never> };
-
 // ============================================================
 // DB-row shapes (read by the engine via supabaseAdmin)
 // ============================================================
@@ -365,10 +360,3 @@ export interface DispatchInboundResult {
 // Helpers — exhaustiveness assertions
 // ============================================================
 
-/**
- * Throws a typed compile-time error if the switch over a discriminated
- * union forgets a case. Used in the engine's node-type switch.
- */
-export function assertNever(x: never): never {
-  throw new Error(`Unhandled node type: ${JSON.stringify(x)}`);
-}

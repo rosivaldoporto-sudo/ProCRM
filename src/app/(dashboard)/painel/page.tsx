@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { formatCurrency } from '@/lib/currency'
@@ -31,8 +32,17 @@ import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { ConversationsChart } from '@/components/dashboard/conversations-chart'
 import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
-import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
+
+// Único gráfico do painel que usa recharts (110 KB gzip): fica no fim da página,
+// então não precisa atrasar o carregamento do que aparece primeiro.
+const ResponseTimeChart = dynamic(
+  () =>
+    import('@/components/dashboard/response-time-chart').then(
+      (m) => m.ResponseTimeChart
+    ),
+  { ssr: false, loading: () => <SkeletonCard /> }
+)
 
 import { useTranslations } from 'next-intl'
 

@@ -133,7 +133,13 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full bg-background text-foreground font-sans">
-        <NextIntlClientProvider messages={messages} locale={locale}>
+        {/* Só o login usa traduções fora do painel. O catálogo inteiro (100 KB)
+            ia junto em toda página, inclusive no formulário público; o painel
+            recebe o restante no próprio layout. */}
+        <NextIntlClientProvider
+          messages={{ LoginPage: messages.LoginPage }}
+          locale={locale}
+        >
           <ThemeProvider>
             {children}
             <ThemedToaster />

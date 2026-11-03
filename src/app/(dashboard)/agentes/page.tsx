@@ -1,13 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Bot, Sparkles, Settings2, BarChart3 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AiPlayground } from '@/components/agents/ai-playground';
-import { AiUsageCard } from '@/components/agents/ai-usage';
 import { AiConfig } from '@/components/settings/ai-config';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
+
+// O gráfico puxa o recharts (110 KB gzip) e só aparece na aba Consumo.
+const AiUsageCard = dynamic(
+  () => import('@/components/agents/ai-usage').then((m) => m.AiUsageCard),
+  { loading: () => <div className="h-64 animate-pulse rounded-lg bg-muted/40" /> }
+);
 
 type Tab = 'playground' | 'setup' | 'usage';
 

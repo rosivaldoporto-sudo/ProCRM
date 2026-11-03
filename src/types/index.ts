@@ -83,19 +83,6 @@ export interface AccountMember {
  * plaintext token is returned once at creation time and surfaced
  * via the invite URL; never re-emitted.
  */
-export interface AccountInvitation {
-  id: string;
-  account_id: string;
-  /** Roles offered via invite — owner is never offered. */
-  role: Exclude<AccountRole, "owner">;
-  created_by_user_id: string | null;
-  label: string | null;
-  created_at: string;
-  expires_at: string;
-  accepted_at: string | null;
-  accepted_by_user_id: string | null;
-}
-
 export interface Contact {
   id: string;
   user_id: string;

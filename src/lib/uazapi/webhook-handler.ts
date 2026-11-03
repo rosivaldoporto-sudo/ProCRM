@@ -29,8 +29,6 @@ import {
   uazapiTimestampToIso,
 } from '@/lib/uazapi/message-mapping';
 
-export const maxDuration = 60;
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null;
 function supabaseAdmin() {

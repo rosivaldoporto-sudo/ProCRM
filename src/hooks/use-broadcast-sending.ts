@@ -18,7 +18,6 @@ export type {
   CustomFieldOperator,
   VariableMapping,
 } from '@/lib/broadcast-send';
-export { resolveVariables } from '@/lib/broadcast-send';
 
 interface BroadcastPayload {
   name: string;
