@@ -226,7 +226,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'O modelo está inconsistente: execute "Sincronizar com a Meta" em Configurações antes de transmitir.',
+            'O modelo está inconsistente: execute "Sincronizar da Meta" em Configurações antes de transmitir.',
         },
         { status: 500 },
       )

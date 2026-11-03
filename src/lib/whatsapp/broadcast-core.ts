@@ -141,7 +141,7 @@ export async function createBroadcast(
   if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
     throw new BroadcastError(
       'template_malformed',
-      'O modelo está inconsistente: execute "Sincronizar com a Meta" em Configurações antes de transmitir.',
+      'O modelo está inconsistente: execute "Sincronizar da Meta" em Configurações antes de transmitir.',
       500
     );
   }
@@ -184,7 +184,7 @@ export async function createBroadcast(
   if (deduped.length === 0) {
     throw new BroadcastError(
       'bad_request',
-      'No recipients had a valid E.164 phone number',
+      'Nenhum destinatário tem telefone válido no formato internacional',
       400
     );
   }

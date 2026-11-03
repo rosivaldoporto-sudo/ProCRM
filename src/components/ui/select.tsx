@@ -6,7 +6,47 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
-const Select = SelectPrimitive.Root
+/**
+ * Base UI only shows an item's label in the closed select when it receives
+ * the `items` map up front; without it the trigger prints the raw value
+ * ("all", "draft", a UUID). The labels are already in the JSX, so collect them
+ * from the `SelectItem`s instead of repeating the map at every call site.
+ */
+function collectItemLabels(
+  children: React.ReactNode,
+  labels: Record<string, React.ReactNode>
+) {
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return
+    const { value, children: nested } = child.props as {
+      value?: unknown
+      children?: React.ReactNode
+    }
+    if (child.type === SelectItem) {
+      if (typeof value === "string") labels[value] = nested
+    } else if (nested) {
+      collectItemLabels(nested, labels)
+    }
+  })
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>({
+  items,
+  children,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  let resolvedItems = items
+  if (!resolvedItems) {
+    const labels: Record<string, React.ReactNode> = {}
+    collectItemLabels(children, labels)
+    resolvedItems = labels
+  }
+  return (
+    <SelectPrimitive.Root items={resolvedItems} {...props}>
+      {children}
+    </SelectPrimitive.Root>
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (

@@ -126,7 +126,7 @@ export function LeadFormResponsesTab({ responses, bookings }: Props) {
       toast.error("Nada para exportar com os filtros atuais");
       return;
     }
-    const header = ["nome", "email", "telefone", "score", "qualificado", "status", "agendou", "origem", "campanha", "conjunto", "anuncio", "data"];
+    const header = ["nome", "e-mail", "telefone", "pontuação", "qualificado", "status", "agendou", "origem", "campanha", "conjunto", "anuncio", "data"];
     const lines = filtered.map((r) =>
       [
         r.respondent_name ?? "",

@@ -6,6 +6,7 @@ import { Loader2, Upload, Trash2, Mail, CircleAlert } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { ROLE_NAMES } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -313,7 +314,7 @@ export function ProfileForm() {
               <div>
                 <dt className="text-muted-foreground">{t('role')}</dt>
                 <dd className="mt-0.5 font-mono text-foreground">
-                  {profile?.role ?? 'user'}
+                  {profile?.account_role ? ROLE_NAMES[profile.account_role] : ROLE_NAMES.agent}
                 </dd>
               </div>
               <div>

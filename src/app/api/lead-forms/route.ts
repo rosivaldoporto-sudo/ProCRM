@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     .eq('user_id', user.id)
     .single();
   const accountId = (profile as { account_id?: string } | null)?.account_id;
-  if (!accountId) return NextResponse.json({ error: 'No account' }, { status: 403 });
+  if (!accountId) return NextResponse.json({ error: 'Perfil sem conta vinculada' }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as {
     name?: string;

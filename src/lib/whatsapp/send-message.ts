@@ -423,7 +423,7 @@ export async function sendMessageToConversation(
     if (data && !isMessageTemplate(data)) {
       throw new SendMessageError(
         'template_malformed',
-        'O modelo está inconsistente: execute "Sincronizar com a Meta" em Configurações.',
+        'O modelo está inconsistente: execute "Sincronizar da Meta" em Configurações.',
         500
       );
     }

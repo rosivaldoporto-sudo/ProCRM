@@ -137,7 +137,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Modelos de autenticação ainda não são aceitos aqui: crie-os no WhatsApp Manager da Meta e use "Sincronizar com a Meta".',
+            'Modelos de autenticação ainda não são aceitos aqui: crie-os no WhatsApp Manager da Meta e use "Sincronizar da Meta".',
         },
         { status: 400 },
       )
@@ -250,7 +250,7 @@ export async function POST(request: Request) {
       // so the user can recover via "Sync from Meta".
       return NextResponse.json(
         {
-          error: `Enviado à Meta, mas falhou ao salvar aqui: ${upsertErr.message}. Execute "Sincronizar com a Meta" para recuperar.`,
+          error: `Enviado à Meta, mas falhou ao salvar aqui: ${upsertErr.message}. Execute "Sincronizar da Meta" para recuperar.`,
           meta_template_id: metaTemplateId,
         },
         { status: 500 },

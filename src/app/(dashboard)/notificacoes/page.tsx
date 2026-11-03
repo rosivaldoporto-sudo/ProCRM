@@ -192,7 +192,7 @@ export default function NotificationsPage() {
             <Bell className="h-6 w-6 text-primary" />
           </div>
           <p className="mt-3 text-sm font-medium text-foreground">
-            No notifications yet
+            Nenhuma notificação ainda
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Você verá um alerta aqui quando alguém atribuir uma conversa a você.

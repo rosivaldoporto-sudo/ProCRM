@@ -156,7 +156,7 @@ export default function DashboardPage() {
                 label: deltaLabel(
                   metrics.activeConversations.previous, 
                   t('newTodayVsYesterday'), 
-                  t('noChange', { suffix: t('newTodayVsYesterday') })
+                  t('noChange', { suffix: t('vsYesterday') })
                 ),
               }}
             />

@@ -558,7 +558,7 @@ export function Step3Personalize({
                               loadingFields
                                 ? 'Carregando…'
                                 : customFields.length === 0
-                                  ? 'No custom fields'
+                                  ? 'Nenhum campo personalizado'
                                   : 'Selecione um campo personalizado…'
                             }
                           />
