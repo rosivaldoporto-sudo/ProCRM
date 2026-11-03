@@ -135,7 +135,7 @@ describe('handleTemplateWebhookChange — status update', () => {
       },
       stub,
     );
-    expect(calls[0].update?.rejection_reason).toBe('Rejected by Meta');
+    expect(calls[0].update?.rejection_reason).toBe('Rejeitado pela Meta');
   });
 
   it('normalises PENDING_REVIEW → PENDING (via shared normalizeStatus)', async () => {

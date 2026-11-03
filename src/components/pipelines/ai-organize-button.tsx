@@ -47,7 +47,7 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
       const data = await res.json()
 
       if (!res.ok) {
-        toast.error(data.error || 'Erro ao organizar pipeline')
+        toast.error(data.error || 'Erro ao organizar o funil')
         return
       }
 
@@ -62,7 +62,7 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
         onOrganized?.()
       }
     } catch {
-      toast.error('Erro de conexão ao organizar pipeline.')
+      toast.error('Erro de conexão ao organizar o funil.')
     } finally {
       setLoading(false)
     }
@@ -85,7 +85,7 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
         title={
           !canEdit
             ? 'Somente leitura: seu papel não permite organizar o funil'
-            : 'Organizar pipeline com IA'
+            : 'Organizar funil com IA'
         }
       >
         {loading ? (
@@ -178,7 +178,7 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
 
             {results.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                Nenhum card aberto com conversa encontrado neste pipeline.
+                Nenhum card aberto com conversa encontrado neste funil.
               </p>
             )}
           </div>

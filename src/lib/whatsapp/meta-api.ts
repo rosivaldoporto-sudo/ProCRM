@@ -798,7 +798,7 @@ export async function sendInteractiveButtons(
     if (!btn.title) throw new Error(`O botão interativo "${btn.id}" está sem título.`)
     if (btn.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
       throw new Error(
-        `Interactive button title "${btn.title}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
+        `O título do botão "${btn.title}" passa de ${INTERACTIVE_LIMITS.buttonTitleMaxLength} caracteres.`
       )
     }
   }
@@ -895,12 +895,12 @@ export async function sendInteractiveList(
   if (!buttonLabel) throw new Error('A lista interativa precisa do texto do botão.')
   if (buttonLabel.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
     throw new Error(
-      `Interactive list buttonLabel "${buttonLabel}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
+      `O texto do botão da lista "${buttonLabel}" passa de ${INTERACTIVE_LIMITS.buttonTitleMaxLength} caracteres.`
     )
   }
   if (sections.length < 1 || sections.length > INTERACTIVE_LIMITS.maxListSections) {
     throw new Error(
-      `Interactive list requires 1-${INTERACTIVE_LIMITS.maxListSections} sections (got ${sections.length}).`
+      `A lista precisa de 1 a ${INTERACTIVE_LIMITS.maxListSections} seções (recebidas: ${sections.length}).`
     )
   }
   const totalRows = sections.reduce((sum, s) => sum + s.rows.length, 0)
@@ -920,7 +920,7 @@ export async function sendInteractiveList(
       if (!row.title) throw new Error(`A linha "${row.id}" da lista está sem título.`)
       if (row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength) {
         throw new Error(
-          `Interactive list row title "${row.title}" exceeds ${INTERACTIVE_LIMITS.listRowTitleMaxLength} chars.`
+          `O título da linha "${row.title}" passa de ${INTERACTIVE_LIMITS.listRowTitleMaxLength} caracteres.`
         )
       }
       if (
@@ -981,7 +981,7 @@ function validateInteractiveBody(bodyText: string): void {
   if (!bodyText) throw new Error('A mensagem interativa precisa de um texto.')
   if (bodyText.length > INTERACTIVE_LIMITS.bodyMaxLength) {
     throw new Error(
-      `Interactive bodyText exceeds ${INTERACTIVE_LIMITS.bodyMaxLength} chars.`
+      `O texto da mensagem passa de ${INTERACTIVE_LIMITS.bodyMaxLength} caracteres.`
     )
   }
 }
@@ -993,12 +993,12 @@ function validateInteractiveHeaderFooter(
 ): void {
   if (headerText && headerText.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
     throw new Error(
-      `Interactive headerText exceeds ${INTERACTIVE_LIMITS.headerTextMaxLength} chars.`
+      `O cabeçalho passa de ${INTERACTIVE_LIMITS.headerTextMaxLength} caracteres.`
     )
   }
   if (footerText && footerText.length > INTERACTIVE_LIMITS.footerMaxLength) {
     throw new Error(
-      `Interactive footerText exceeds ${INTERACTIVE_LIMITS.footerMaxLength} chars.`
+      `O rodapé passa de ${INTERACTIVE_LIMITS.footerMaxLength} caracteres.`
     )
   }
   const media = typeof headerImageUrl === 'string' ? headerImageUrl.trim() : ''

@@ -315,7 +315,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   }>) {
     const conv = Array.isArray(m.conversations) ? m.conversations[0] : m.conversations
     const contact = Array.isArray(conv?.contacts) ? conv?.contacts[0] : conv?.contacts
-    const who = contact?.name || contact?.phone || 'Unknown'
+    const who = contact?.name || contact?.phone || 'Desconhecido'
     items.push({
       id: `msg-${m.id}`,
       kind: 'message',

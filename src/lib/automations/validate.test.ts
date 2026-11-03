@@ -192,7 +192,7 @@ describe("validateStepsForActivation", () => {
       { step_type: "do_a_barrel_roll", step_config: {} },
     ]);
     expect(issues).toEqual([
-      { path: "steps[0]", message: "unknown step type: do_a_barrel_roll" },
+      { path: "steps[0]", message: "tipo de etapa desconhecido: do_a_barrel_roll" },
     ]);
   });
 

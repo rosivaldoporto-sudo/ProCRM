@@ -400,7 +400,7 @@ describe("tag_added — conversation policy", () => {
 
     expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
       status: "failed",
-      error_message: "tag_added automation cannot send: o contato não tem conversa existente",
+      error_message: "automação tag_added não pode enviar: o contato não tem conversa existente",
     }));
   });
 });

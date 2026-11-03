@@ -182,7 +182,7 @@ export default function NotificationsPage() {
           ) : (
             <CheckCheck className="h-4 w-4" />
           )}
-          Mark all as read
+          Marcar todas como lidas
         </Button>
       </div>
 

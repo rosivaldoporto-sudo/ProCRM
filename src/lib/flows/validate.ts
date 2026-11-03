@@ -104,7 +104,7 @@ export function validateFlowForActivation(
         severity: "error",
         scope: "node",
         node_key: n.node_key,
-        message: `Duplicate node_key "${n.node_key}".`,
+        message: `Chave de nó duplicada: "${n.node_key}".`,
       });
     }
     seen.add(n.node_key);
@@ -278,7 +278,7 @@ function validateNode(
           scope: "node",
           node_key: node.node_key,
           field: "caption",
-          message: `Caption exceeds ${INTERACTIVE_LIMITS.bodyMaxLength} chars (WhatsApp limit).`,
+          message: `A legenda passa de ${INTERACTIVE_LIMITS.bodyMaxLength} caracteres (limite do WhatsApp).`,
         });
       }
       if (!cfg.next_node_key) {
@@ -366,7 +366,7 @@ function validateNode(
             scope: "node",
             node_key: node.node_key,
             field: `${field}.title`,
-            message: `Button ${i + 1} needs a title.`,
+            message: `O botão ${i + 1} precisa de um título.`,
           });
         } else if (b.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
           issues.push({
@@ -473,7 +473,7 @@ function validateNode(
               scope: "node",
               node_key: node.node_key,
               field: `${field}.reply_id`,
-              message: `Duplicate list row id "${row.reply_id}".`,
+              message: `ID de linha duplicado na lista: "${row.reply_id}".`,
             });
           }
           if (row.reply_id) seenIds.add(row.reply_id);
@@ -484,7 +484,7 @@ function validateNode(
               scope: "node",
               node_key: node.node_key,
               field: `${field}.title`,
-              message: `Row ${ri + 1} needs a title.`,
+              message: `A linha ${ri + 1} precisa de um título.`,
             });
           } else if (
             row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength
@@ -494,7 +494,7 @@ function validateNode(
               scope: "node",
               node_key: node.node_key,
               field: `${field}.title`,
-              message: `Row ${ri + 1} title exceeds ${INTERACTIVE_LIMITS.listRowTitleMaxLength} chars.`,
+              message: `O título da linha ${ri + 1} passa de ${INTERACTIVE_LIMITS.listRowTitleMaxLength} caracteres.`,
             });
           }
           if (
@@ -507,7 +507,7 @@ function validateNode(
               scope: "node",
               node_key: node.node_key,
               field: `${field}.description`,
-              message: `Row ${ri + 1} description exceeds ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} chars.`,
+              message: `A descrição da linha ${ri + 1} passa de ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} caracteres.`,
             });
           }
           if (!row.next_node_key) {

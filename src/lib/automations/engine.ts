@@ -487,7 +487,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           .limit(1)
         agentId = profiles?.[0]?.user_id
       }
-      if (!agentId) return 'no agent resolved'
+      if (!agentId) return 'nenhum agente encontrado'
       await db
         .from('conversations')
         .update({ assigned_agent_id: agentId })

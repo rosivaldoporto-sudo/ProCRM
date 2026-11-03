@@ -140,7 +140,7 @@ export function validateSendMessageParams(params: {
   if (!(VALID_MESSAGE_TYPES as readonly string[]).includes(messageType)) {
     throw new SendMessageError(
       'bad_request',
-      `Unsupported message_type "${messageType}"`,
+      `Tipo de mensagem não suportado: "${messageType}"`,
       400
     );
   }
@@ -185,7 +185,7 @@ export function validateSendMessageParams(params: {
     ) {
       throw new SendMessageError(
         'bad_request',
-        'Invalid template_language (e.g. pt_BR)',
+        'Idioma de modelo inválido (ex.: pt_BR)',
         400
       );
     }

@@ -65,7 +65,7 @@ export async function GET() {
     return NextResponse.json({
       live: false,
       checks: { config_exists: false },
-      message: 'No WhatsApp configuration saved yet.',
+      message: 'Nenhuma configuração do WhatsApp salva.',
     })
   }
 

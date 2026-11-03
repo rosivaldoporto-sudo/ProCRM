@@ -194,7 +194,7 @@ export function QuickRepliesManager() {
                 <Input
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="e.g. Business hours"
+                  placeholder="ex.: Horário de atendimento"
                   className="bg-muted text-foreground"
                 />
               </div>

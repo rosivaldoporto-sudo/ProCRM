@@ -44,7 +44,7 @@ describe("derivePresence", () => {
 
 describe("formatLastSeen", () => {
   it("describes recent activity coarsely", () => {
-    expect(formatLastSeen(ago(10_000), NOW)).toBe("just now");
+    expect(formatLastSeen(ago(10_000), NOW)).toBe("agora mesmo");
     expect(formatLastSeen(ago(60_000), NOW)).toBe("há 1 minuto");
     expect(formatLastSeen(ago(5 * 60_000), NOW)).toBe("há 5 minutos");
   });
@@ -65,11 +65,11 @@ describe("formatLastSeen", () => {
 describe("presenceLabel", () => {
   it("labels each state for the tooltip", () => {
     expect(presenceLabel("online", ago(1_000), NOW)).toBe(
-      "Online — active now",
+      "Online: ativo agora",
     );
-    expect(presenceLabel("away", ago(1_000), NOW)).toBe("Away — idle");
+    expect(presenceLabel("away", ago(1_000), NOW)).toBe("Ausente: inativo");
     expect(presenceLabel("offline", ago(2 * 60 * 60_000), NOW)).toBe(
-      "Offline — last seen há 2 horas",
+      "Offline: visto por último há 2 horas",
     );
   });
 });

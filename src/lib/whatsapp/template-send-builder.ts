@@ -107,7 +107,7 @@ function buildHeaderComponent(
   const id = params.headerMediaId;
   if (!link && !id) {
     throw new Error(
-      `${headerType} header requires a media link or id at send time — set header_media_url on the template or pass headerMediaUrl/headerMediaId.`,
+      `O cabeçalho ${headerType} precisa de um link ou ID de mídia no envio: defina a mídia no modelo ou informe-a na transmissão.`,
     );
   }
   const mediaPayload: { link?: string; id?: string } = id ? { id } : { link };
@@ -132,7 +132,7 @@ function buildBodyComponent(
   if (varCount === 0 && body.length === 0) return null;
   if (body.length < varCount) {
     throw new Error(
-      `Body has ${varCount} variable(s) but only ${body.length} value(s) were supplied.`,
+      `A mensagem tem ${varCount} variável(is), mas só ${body.length} valor(es) foram informados.`,
     );
   }
   // Trim to the variable count — extra values are dropped silently so
@@ -175,7 +175,7 @@ function buildButtonComponent(
       // the button's index in the template's buttons array.
       if (!override || !override.trim()) {
         throw new Error(
-          `URL button #${index + 1} uses {{1}} — requires a buttonParams[${index}] value.`,
+          `O botão de URL nº ${index + 1} usa {{1}}: informe o valor do botão.`,
         );
       }
       return {

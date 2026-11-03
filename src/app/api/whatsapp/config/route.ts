@@ -141,7 +141,7 @@ export async function GET() {
           reason: 'token_corrupted',
           needs_reset: true,
           message:
-            'The stored access token cannot be decrypted with the current ENCRYPTION_KEY. This usually means the key changed, or it differs between environments (local vs Hostinger vs Vercel). Click "Reset Configuration" below, then re-save.',
+            'O token de acesso salvo não pode ser descriptografado com a ENCRYPTION_KEY atual. Normalmente a chave mudou ou é diferente entre ambientes (local, Hostinger, Vercel). Click "Reset Configuration" below, then re-save.',
         },
         { status: 200 }
       )

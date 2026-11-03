@@ -75,7 +75,7 @@ export function formatLastSeen(
 
   const diff = Math.max(0, now - last);
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
+  if (mins < 1) return "agora mesmo";
   if (mins === 1) return "há 1 minuto";
   if (mins < 60) return `há ${mins} minutos`;
 
@@ -90,8 +90,8 @@ export function formatLastSeen(
 
 /**
  * Tooltip / aria label for a presence dot, e.g.
- *   "Online — active now"
- *   "Away — idle"
+ *   "Online: ativo agora"
+ *   "Ausente: inativo"
  *   "Offline — last seen 2 hours ago"
  */
 export function presenceLabel(
@@ -101,11 +101,11 @@ export function presenceLabel(
 ): string {
   switch (status) {
     case "online":
-      return "Online — active now";
+      return "Online: ativo agora";
     case "away":
-      return "Away — idle";
+      return "Ausente: inativo";
     case "offline":
-      return `Offline — last seen ${formatLastSeen(lastSeenAt, now)}`;
+      return `Offline: visto por último ${formatLastSeen(lastSeenAt, now)}`;
   }
 }
 

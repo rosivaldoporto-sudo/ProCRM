@@ -72,7 +72,7 @@ describe('ensureImageHeaderHandle', () => {
   it('rejects a non-image content type', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
     vi.stubGlobal('fetch', vi.fn(async () => imgResponse('text/html')));
-    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/JPEG or PNG/);
+    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/JPEG ou PNG/);
   });
 
   it('refuses a non-public URL before fetching it', async () => {
@@ -81,7 +81,7 @@ describe('ensureImageHeaderHandle', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(
       ensureImageHeaderHandle(payload({ header_media_url: 'https://internal.test/a.jpg' }), 'tok'),
-    ).rejects.toThrow(/publicly reachable/);
+    ).rejects.toThrow(/é pública/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

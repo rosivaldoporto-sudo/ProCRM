@@ -64,7 +64,7 @@ export function validateUazapiSendParams(params: {
   if (!(VALID_MESSAGE_TYPES as readonly string[]).includes(messageType)) {
     throw new UazapiSendError(
       'bad_request',
-      `Unsupported message_type "${messageType}"`,
+      `Tipo de mensagem não suportado: "${messageType}"`,
       400
     );
   }

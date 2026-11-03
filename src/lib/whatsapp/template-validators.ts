@@ -91,7 +91,7 @@ export function validateBody(bodyText: string): number[] {
   if (!bodyText.trim()) throw new Error('O texto da mensagem é obrigatório.');
   if (bodyText.length > TEMPLATE_LIMITS.bodyMaxLength) {
     throw new Error(
-      `Body text exceeds ${TEMPLATE_LIMITS.bodyMaxLength} chars (got ${bodyText.length}).`,
+      `O texto excede ${TEMPLATE_LIMITS.bodyMaxLength} caracteres (recebidos: ${bodyText.length}).`,
     );
   }
   const indices = extractVariableIndices(bodyText);
@@ -103,7 +103,7 @@ export function validateFooter(footerText: string | undefined): void {
   if (!footerText) return;
   if (footerText.length > TEMPLATE_LIMITS.footerMaxLength) {
     throw new Error(
-      `Footer text exceeds ${TEMPLATE_LIMITS.footerMaxLength} chars (got ${footerText.length}).`,
+      `O rodapé excede ${TEMPLATE_LIMITS.footerMaxLength} caracteres (recebidos: ${footerText.length}).`,
     );
   }
   if (extractVariableIndices(footerText).length > 0) {
@@ -131,13 +131,13 @@ export function validateHeader(
     }
     if (header_content.length > TEMPLATE_LIMITS.headerTextMaxLength) {
       throw new Error(
-        `Header text exceeds ${TEMPLATE_LIMITS.headerTextMaxLength} chars (got ${header_content.length}).`,
+        `O cabeçalho excede ${TEMPLATE_LIMITS.headerTextMaxLength} caracteres (recebidos: ${header_content.length}).`,
       );
     }
     const indices = extractVariableIndices(header_content);
     if (indices.length > 1) {
       throw new Error(
-        `Text header supports at most one variable — found ${indices.length} (Meta rule).`,
+        `O cabeçalho de texto aceita no máximo uma variável: encontradas ${indices.length} (regra da Meta).`,
       );
     }
     if (indices.length === 1 && indices[0] !== 1) {
@@ -183,24 +183,24 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
   if (!buttons || buttons.length === 0) return;
   if (buttons.length > TEMPLATE_LIMITS.maxButtonsTotal) {
     throw new Error(
-      `Templates can have at most ${TEMPLATE_LIMITS.maxButtonsTotal} buttons (got ${buttons.length}).`,
+      `Modelos aceitam no máximo ${TEMPLATE_LIMITS.maxButtonsTotal} botões (recebidos: ${buttons.length}).`,
     );
   }
 
   const counts = countButtonsByType(buttons);
   if (counts.URL > TEMPLATE_LIMITS.maxUrlButtons) {
     throw new Error(
-      `At most ${TEMPLATE_LIMITS.maxUrlButtons} URL buttons allowed (got ${counts.URL}).`,
+      `São permitidos no máximo ${TEMPLATE_LIMITS.maxUrlButtons} botões de URL (recebidos: ${counts.URL}).`,
     );
   }
   if (counts.PHONE_NUMBER > TEMPLATE_LIMITS.maxPhoneButtons) {
     throw new Error(
-      `At most ${TEMPLATE_LIMITS.maxPhoneButtons} PHONE_NUMBER button allowed (got ${counts.PHONE_NUMBER}).`,
+      `É permitido no máximo ${TEMPLATE_LIMITS.maxPhoneButtons} botão de telefone (recebidos: ${counts.PHONE_NUMBER}).`,
     );
   }
   if (counts.COPY_CODE > TEMPLATE_LIMITS.maxCopyCodeButtons) {
     throw new Error(
-      `At most ${TEMPLATE_LIMITS.maxCopyCodeButtons} COPY_CODE button allowed (got ${counts.COPY_CODE}).`,
+      `É permitido no máximo ${TEMPLATE_LIMITS.maxCopyCodeButtons} botão de código (recebidos: ${counts.COPY_CODE}).`,
     );
   }
 
@@ -227,7 +227,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
     }
     if (b.text.length > TEMPLATE_LIMITS.buttonTextMaxLength) {
       throw new Error(
-        `Button #${i + 1} text exceeds ${TEMPLATE_LIMITS.buttonTextMaxLength} chars.`,
+        `O texto do botão nº ${i + 1} excede ${TEMPLATE_LIMITS.buttonTextMaxLength} caracteres.`,
       );
     }
     switch (b.type) {
@@ -243,7 +243,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
         const urlVars = extractVariableIndices(b.url);
         if (urlVars.length > 1) {
           throw new Error(
-            `URL button #${i + 1} can have at most one variable (Meta rule).`,
+            `O botão de URL nº ${i + 1} aceita no máximo uma variável (regra da Meta).`,
           );
         }
         if (urlVars.length === 1) {
@@ -254,7 +254,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
           }
           if (!b.example?.trim()) {
             throw new Error(
-              `URL button #${i + 1} uses {{1}} — Meta requires an example value.`,
+              `O botão de URL nº ${i + 1} usa {{1}}: a Meta exige um valor de exemplo.`,
             );
           }
         }
@@ -293,12 +293,12 @@ export function validateSampleValues(
 
   if (body.length !== bodyVarCount) {
     throw new Error(
-      `Body has ${bodyVarCount} variable(s) — supply exactly ${bodyVarCount} sample value(s) (got ${body.length}).`,
+      `A mensagem tem ${bodyVarCount} variável(is): informe exatamente ${bodyVarCount} exemplo(s) (recebidos: ${body.length}).`,
     );
   }
   if (header.length !== headerVarCount) {
     throw new Error(
-      `Header has ${headerVarCount} variable(s) — supply exactly ${headerVarCount} sample value(s) (got ${header.length}).`,
+      `O cabeçalho tem ${headerVarCount} variável(is): informe exatamente ${headerVarCount} exemplo(s) (recebidos: ${header.length}).`,
     );
   }
   for (let i = 0; i < body.length; i++) {

@@ -43,7 +43,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
-          toast.error('No agent configured yet — finish Setup first.');
+          toast.error('Nenhum agente configurado: conclua a Configuração primeiro.');
         } else {
           toast.error(data.error ?? "Não foi possível obter uma resposta.");
         }

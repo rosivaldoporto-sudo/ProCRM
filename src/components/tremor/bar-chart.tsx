@@ -384,7 +384,7 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
   )
 })
 
-Legend.displayName = "Legend"
+Legend.displayName = "Legenda"
 
 const ChartLegend = (
   { payload }: any,
