@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { evaluateQualification, extractContactFields } from '@/lib/lead-forms/types';
-import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
+import { fireFormCapiEvent, type CapiResult } from '@/lib/lead-forms/meta-events';
 import { normalizeAttribution, sanitizeTracking, type TrackingBag } from '@/lib/lead-forms/attribution';
 import { getClientIp } from '@/lib/request-ip';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
@@ -350,11 +350,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   // Meta CAPI: Lead sempre; CompleteRegistration/QualifiedLead se qualificado.
-  // Em PARALELO (Promise.all): sequencial, 3 round-trips à Meta somavam
-  // segundos e congelavam a última pergunta. Cada envio é best-effort
-  // (fireFormCapiEvent nunca lança) e tem timeout próprio de 8s.
-  const metaCfg = form.meta_config as { fire_lead?: boolean; fire_complete_registration?: boolean; fire_qualified?: boolean };
-  const metaIds: Record<string, string> = {};
+  // Roda em after(): a resposta volta na hora, o navegador dispara o pixel
+  // antes de a pessoa sair da página e a Meta lenta não trava o formulário.
+  const metaCfg = form.meta_config as { pixel_id?: string | null; fire_lead?: boolean; fire_complete_registration?: boolean; fire_qualified?: boolean };
   const trk = tracking as Record<string, string | undefined>;
   // Atribuição no custom_data: ajuda a fatiar relatórios por campanha/anúncio
   // e alimenta otimização. Chaves livres são ignoradas pela Meta sem erro.
@@ -370,18 +368,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     : `form_${form.id}_${responseId}`;
   const baseUser = {
     email: contact.email, phone: contact.phone, fullName: contact.name,
+    pixelId: metaCfg.pixel_id,
     eventSourceUrl: trk.source_url,
     fbp: trk.fbp, fbc: trk.fbc, fbclid: trk.fbclid,
     clientIp: getClientIp(req), clientUa: req.headers.get('user-agent')?.slice(0, 500) ?? undefined,
   };
-  const capiSends: Array<Promise<{ key: string; eid: string | null }>> = [];
+  const capiSends: Array<Promise<{ key: string; result: CapiResult }>> = [];
   if (isFirstCompletion && metaCfg.fire_lead !== false) {
     capiSends.push(
       fireFormCapiEvent({
         accountId: form.account_id, formId: form.id, responseId, event: 'Lead',
         ...baseUser, eventId: sharedEventId,
         custom: { form_name: form.name, score, qualified: isQualified, utm_campaign: trk.utm_campaign, ...attrCustom },
-      }).then((eid) => ({ key: 'lead', eid }))
+      }).then((result) => ({ key: 'lead', result }))
     );
   }
   if (isFirstCompletion && isQualified && metaCfg.fire_complete_registration !== false) {
@@ -390,7 +389,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
         accountId: form.account_id, formId: form.id, responseId, event: 'CompleteRegistration',
         ...baseUser, eventId: `${sharedEventId}_complete`,
         custom: { form_name: form.name, score, ...attrCustom },
-      }).then((eid) => ({ key: 'complete_registration', eid }))
+      }).then((result) => ({ key: 'complete_registration', result }))
     );
   }
   if (isFirstCompletion && isQualified && metaCfg.fire_qualified !== false) {
@@ -399,14 +398,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
         accountId: form.account_id, formId: form.id, responseId, event: 'QualifiedLead',
         ...baseUser, eventId: `${sharedEventId}_qualified`,
         custom: { form_name: form.name, score, lead_quality: 'qualified', ...attrCustom },
-      }).then((eid) => ({ key: 'qualified', eid }))
+      }).then((result) => ({ key: 'qualified', result }))
     );
   }
-  for (const { key, eid } of await Promise.all(capiSends)) {
-    if (eid) metaIds[key] = eid;
-  }
-  if (Object.keys(metaIds).length) {
-    await db.from('lead_form_responses').update({ meta_event_ids: metaIds }).eq('id', responseId);
+  if (capiSends.length) {
+    after(async () => {
+      const metaIds: Record<string, string> = {};
+      for (const { key, result } of await Promise.all(capiSends)) {
+        if (result.eventId) metaIds[key] = result.eventId;
+        if (result.error) metaIds[`error_${key}`] = result.error;
+      }
+      await db.from('lead_form_responses').update({ meta_event_ids: metaIds }).eq('id', responseId);
+    });
   }
 
   // Webhook externo (fire-and-forget) — só na primeira conclusão.
@@ -428,5 +431,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     message: isQualified ? qual.qualified_message : qual.disqualified_message,
     // scheduling_config já veio no select('*') acima — sem round-trip extra.
     scheduling_enabled: form.scheduling_config?.enabled ?? false,
+    // Lido pelo navegador após disparar o pixel; só http(s) para não virar
+    // redirecionamento para javascript: e afins.
+    redirect_url: safeRedirectUrl((form.settings as { redirect_url?: string | null }).redirect_url),
+    event_id: sharedEventId,
   });
+}
+
+function safeRedirectUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+  } catch {
+    return null;
+  }
 }

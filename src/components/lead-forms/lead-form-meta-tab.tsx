@@ -34,6 +34,8 @@ import type { LeadFormMeta } from "@/lib/lead-forms/types";
 
 interface Props {
   formId: string;
+  /** Respostas recentes: alimentam o diagnóstico de entrega à Meta. */
+  responses: Array<Record<string, unknown>>;
   meta: LeadFormMeta;
   onChange: (meta: LeadFormMeta) => void;
   onSaveForm: () => Promise<void> | void;
@@ -74,10 +76,10 @@ const EVENT_TOGGLES = [
   ["fire_lead", "Lead: resposta completa", "Navegador + CAPI com o mesmo event_id (deduplicado pela Meta)."],
   ["fire_complete_registration", "CompleteRegistration: qualificado", "CAPI quando o lead atinge a pontuação de qualificação."],
   ["fire_schedule", "Schedule: reunião agendada", "Navegador + CAPI quando o lead agenda."],
-  ["fire_qualified", "QualifiedLead (Lead + lead_quality=qualified)", "CAPI extra para otimizar campanhas para leads qualificados."],
+  ["fire_qualified", "QualifiedLead: evento personalizado", "CAPI extra para criar conversão personalizada de leads qualificados."],
 ] as const;
 
-export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm }: Props) {
+export function LeadFormMetaTab({ formId, responses, meta, onChange, onSaveForm, savingForm }: Props) {
   void formId;
   // ---- Global (CAPI server-side) ----
   const [loadingGlobal, setLoadingGlobal] = useState(true);
@@ -231,8 +233,46 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
   const effectiveTestCode = testCode.trim() || "Nenhum";
   const canTest = !loadingGlobal && !forbidden && !!globalPixel.trim() && hasToken;
 
+  // Diagnóstico: o que realmente aconteceu nas últimas respostas concluídas.
+  const delivery = responses
+    .filter((r) => r.status !== "started")
+    .slice(0, 20)
+    .map((r) => (r.meta_event_ids ?? {}) as Record<string, string>);
+  const delivered = delivery.filter((ids) => ids.lead).length;
+  const lastError = delivery
+    .flatMap((ids) => Object.entries(ids).filter(([k]) => k.startsWith("error_")).map(([, v]) => v))[0];
+
   return (
     <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle>Saúde do rastreamento</CardTitle>
+          <CardDescription>
+            Resultado real das últimas respostas, sem depender do evento de teste.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="flex items-center gap-2">
+            {effectivePixel !== "Não configurado" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+            Pixel do navegador: {effectivePixel}
+          </p>
+          <p className="flex items-center gap-2">
+            {delivery.length === 0 || delivered > 0 ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+            {delivery.length === 0
+              ? "Conversions API: aguardando a primeira resposta concluída"
+              : `Conversions API: ${delivered} de ${delivery.length} leads recentes aceitos pela Meta`}
+          </p>
+          {lastError && (
+            <p className="rounded border border-red-500/30 bg-red-500/10 p-2 text-xs break-words">
+              Último erro da Meta: {lastError}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Respostas anteriores a esta versão podem aparecer como aceitas mesmo tendo ido só para Eventos de teste.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* ---------- 1. Conexão global ---------- */}
       <Card>
         <CardHeader>
@@ -290,7 +330,7 @@ export function LeadFormMetaTab({ formId, meta, onChange, onSaveForm, savingForm
                 <div className="space-y-2">
                   <Label>
                     Código de evento de teste{" "}
-                    <span className="text-muted-foreground">(aba Eventos de teste)</span>
+                    <span className="text-muted-foreground">(só no botão de teste; leads reais ignoram)</span>
                   </Label>
                   <Input
                     value={testCode}

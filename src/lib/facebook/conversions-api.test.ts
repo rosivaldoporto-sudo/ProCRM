@@ -4,6 +4,7 @@ import {
   normalizeEmail,
   normalizeName,
   normalizePhone,
+  withBrazilDdi,
   sha256Hex,
   splitName,
   validFbp,
@@ -25,6 +26,12 @@ describe('Meta CAPI normalization + hashing', () => {
   it('normalizes phone (digits only, no leading zeros)', () => {
     expect(normalizePhone('+55 (11) 99999-9999')).toBe('5511999999999');
     expect(normalizePhone('(650) 555-1212')).toBe('6505551212');
+  });
+
+  it('adds the Brazilian country code only when it is missing', () => {
+    expect(withBrazilDdi('(11) 99999-9999')).toBe('5511999999999');
+    expect(withBrazilDdi('(11) 3333-4444')).toBe('551133334444');
+    expect(withBrazilDdi('+55 11 99999-9999')).toBe('5511999999999');
   });
 
   it('hashes phone to the documented vector', async () => {

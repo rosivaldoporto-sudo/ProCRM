@@ -116,6 +116,15 @@ export function normalizePhone(value: string): string {
   return value.replace(/\D/g, '').replace(/^0+/, '');
 }
 
+/**
+ * Telefone BR digitado sem DDI (DDD + número = 10 ou 11 dígitos) recebe o 55.
+ * Sem o DDI o hash não bate com o cadastro da Meta e o evento não é atribuído.
+ */
+export function withBrazilDdi(value: string): string {
+  const digits = normalizePhone(value);
+  return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
+}
+
 /** Nome: trim + lowercase + sem pontuação (UTF-8 preservado). */
 export function normalizeName(value: string): string {
   return value
@@ -175,7 +184,9 @@ async function hashAll(values: string[], normalize: (v: string) => string): Prom
  * Send one or more events to the Meta Conversions API.
  *
  * PII é hasheada aqui — callers passam valores RAW.
- * `testEventCode` envia para a aba Test Events (sem dado produtivo).
+ * `testEventCode` desvia o evento para a aba Test Events: a Meta NÃO o usa
+ * em atribuição nem otimização. Só o painel de teste pode informá-lo; fluxos
+ * reais (formulário, WhatsApp, pipeline) nunca devem passar este campo.
  */
 export async function sendCapiEvents(
   config: CapiConfig,

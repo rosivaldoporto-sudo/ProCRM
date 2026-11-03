@@ -7,8 +7,8 @@ export async function proxy(request: NextRequest) {
   const isDev = process.env.NODE_ENV === 'development';
   // Formulários públicos (/f/*) precisam de duas exceções em relação ao
   // CSP estrito do app:
-  //   1. Meta Pixel: o fbq envia beacons para connect.facebook.net /
-  //      www.facebook.com — precisa estar no connect-src. O próprio
+  //   1. Meta Pixel: o fbq envia beacons para *.facebook.net /
+  //      *.facebook.com — precisa estar no connect-src. O próprio
   //      fbevents.js é carregado por um inline <Script nonce> (ver
   //      MetaPixelSnippet em public-form.tsx) e herda a confiança via
   //      'strict-dynamic', então nenhum host extra no script-src.
@@ -26,10 +26,10 @@ export async function proxy(request: NextRequest) {
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https://*.supabase.co",
     "font-src 'self' data:",
-    `connect-src 'self' https://*.supabase.co wss://*.supabase.co${isPublicForm ? ' https://connect.facebook.net https://www.facebook.com' : ''}`,
+    `connect-src 'self' https://*.supabase.co wss://*.supabase.co${isPublicForm ? ' https://*.facebook.net https://*.facebook.com' : ''}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
-    "frame-src 'none'",
+    isPublicForm ? 'frame-src https://*.facebook.com' : "frame-src 'none'",
     isPublicForm ? 'frame-ancestors *' : "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

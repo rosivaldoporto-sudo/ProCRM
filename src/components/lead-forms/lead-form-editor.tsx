@@ -2,7 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, RefreshCw, Calculator, Check } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Loader2, Plus, Trash2, GripVertical, Save, ExternalLink, RefreshCw, Calculator, Check, Copy, AlertTriangle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,12 +37,54 @@ import { LeadFormMetaTab } from "./lead-form-meta-tab";
 import { LeadFormShareTab } from "./lead-form-share-tab";
 import { LeadFormResponsesTab } from "./lead-form-responses-tab";
 import { ScheduleEditor } from "./lead-form-schedule-editor";
+import { PublicForm } from "./public-form";
 
 interface Props {
   formId: string;
 }
 
 const BLOCK_TYPES = Object.keys(BLOCK_TYPE_LABELS) as LeadFormBlockType[];
+
+/** Id só de tela: a chave da pergunta é editável e não serve para o React/dnd. */
+type EditorBlock = LeadFormBlock & { _uid: string };
+let uidSeq = 0;
+const withUid = (b: LeadFormBlock): EditorBlock => ({ ...b, _uid: `block-${++uidSeq}` });
+
+/** Erros que quebrariam o formulário no ar (bloqueiam publicar). */
+function blockingIssues(blocks: LeadFormBlock[]): string[] {
+  const issues: string[] = [];
+  const seen = new Set<string>();
+  blocks.forEach((b, i) => {
+    const n = i + 1;
+    if (!b.config.label?.trim()) issues.push(`Pergunta ${n}: escreva o texto da pergunta.`);
+    if (!b.block_key.trim()) issues.push(`Pergunta ${n}: preencha a chave.`);
+    else if (seen.has(b.block_key)) issues.push(`Pergunta ${n}: a chave "${b.block_key}" está repetida, e uma resposta sobrescreveria a outra.`);
+    seen.add(b.block_key);
+    if ((b.block_type === "choice_single" || b.block_type === "choice_multi") && (b.config.options ?? []).length < 2) {
+      issues.push(`Pergunta ${n}: adicione ao menos 2 opções.`);
+    }
+  });
+  return issues;
+}
+
+function SortableQuestion({ id, children }: { id: string; children: (handle: React.ReactNode) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 }}>
+      {children(
+        <button
+          type="button"
+          aria-label="Arrastar para reordenar. Use espaço e as setas no teclado."
+          className="mt-1 flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Snapshot só dos campos editáveis (contadores de views/respostas não sujam o dirty). */
 function editableSnapshot(form: LeadForm, blocks: LeadFormBlock[]): string {
@@ -45,7 +104,12 @@ function editableSnapshot(form: LeadForm, blocks: LeadFormBlock[]): string {
 
 export function LeadFormEditor({ formId }: Props) {
   const [form, setForm] = useState<LeadForm | null>(null);
-  const [blocks, setBlocks] = useState<LeadFormBlock[]>([]);
+  const [blocks, setBlocks] = useState<EditorBlock[]>([]);
+  const [previewRun, setPreviewRun] = useState(0);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [responses, setResponses] = useState<Array<Record<string, unknown>>>([]);
@@ -62,7 +126,7 @@ export function LeadFormEditor({ formId }: Props) {
       if (!res.ok) throw new Error();
       const json = await res.json() as { form: LeadForm; blocks: Array<{ block_key: string; block_type: LeadFormBlockType; config: LeadFormBlock["config"]; position: number; is_qualifier: boolean; score_weight: number }> };
       setForm(json.form);
-      const mapped = json.blocks.map((b) => ({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight }));
+      const mapped = json.blocks.map((b) => withUid({ block_key: b.block_key, block_type: b.block_type, config: b.config, position: b.position, is_qualifier: b.is_qualifier, score_weight: b.score_weight }));
       setBlocks(mapped);
       snapshotRef.current = editableSnapshot(json.form, mapped);
       setDirty(false);
@@ -89,6 +153,31 @@ export function LeadFormEditor({ formId }: Props) {
     if (!form) return;
     setDirty(editableSnapshot(form, blocks) !== snapshotRef.current);
   }, [form, blocks]);
+
+  // Avisa antes de fechar a aba com alterações não salvas.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  function handleReorder(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = blocks.findIndex((b) => b._uid === active.id);
+    const to = blocks.findIndex((b) => b._uid === over.id);
+    if (from < 0 || to < 0) return;
+    setBlocks(arrayMove(blocks, from, to).map((b, position) => ({ ...b, position })));
+  }
+
+  function duplicateBlock(index: number) {
+    const source = blocks[index];
+    let key = `${source.block_key}_copia`;
+    while (blocks.some((b) => b.block_key === key)) key += "_2";
+    const copy = withUid({ ...source, block_key: key, config: { ...source.config } });
+    setBlocks([...blocks.slice(0, index + 1), copy, ...blocks.slice(index + 1)].map((b, position) => ({ ...b, position })));
+  }
 
   // Ctrl/Cmd+S salva de qualquer aba.
   useEffect(() => {
@@ -121,7 +210,14 @@ export function LeadFormEditor({ formId }: Props) {
     }
   }
 
-  async function save(patch: Partial<LeadForm> & { blocks?: LeadFormBlock[] } = {}) {
+  async function save(patch: Partial<LeadForm> & { blocks?: EditorBlock[] } = {}) {
+    if ((patch.status ?? form?.status) === "published") {
+      const [firstIssue] = blockingIssues(patch.blocks ?? blocks);
+      if (firstIssue) {
+        toast.error(firstIssue);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -183,16 +279,18 @@ export function LeadFormEditor({ formId }: Props) {
   }
 
   const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/f/${form.slug}` : `/f/${form.slug}`;
+  const issues = blockingIssues(blocks);
+  const hasContact = blocks.some((b) => b.block_type === "phone" || b.block_type === "email");
   const convRate = form.view_count > 0 ? Math.round((form.response_count / form.view_count) * 100) : 0;
 
   return (
-    <div className="space-y-4 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} className="w-72 text-lg font-semibold" />
+    <div className="space-y-4 p-4 sm:p-6">
+      <header className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Input aria-label="Nome do formulário" value={form.name} onChange={(e) => updateForm("name", e.target.value)} className="w-full max-w-72 text-lg font-semibold" />
           <Badge variant="outline">{form.status === "published" ? "Publicado" : form.status === "archived" ? "Arquivado" : "Rascunho"}</Badge>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={form.status} onValueChange={(v) => updateForm("status", v as LeadForm["status"])}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -249,8 +347,9 @@ export function LeadFormEditor({ formId }: Props) {
         </div>
       </div>
 
-      <Tabs defaultValue="build">
-        <TabsList className="flex flex-wrap">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <Tabs defaultValue="build" className="min-w-0">
+        <TabsList className="flex h-auto flex-wrap">
           <TabsTrigger value="build">Perguntas</TabsTrigger>
           <TabsTrigger value="design">Personalização</TabsTrigger>
           <TabsTrigger value="qualify">Qualificação</TabsTrigger>
@@ -262,15 +361,28 @@ export function LeadFormEditor({ formId }: Props) {
 
         {/* ---------- BUILD ---------- */}
         <TabsContent value="build" className="space-y-3">
+          {(issues.length > 0 || !hasContact) && (
+            <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <p className="flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" /> Revise antes de publicar</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-6 text-xs text-muted-foreground">
+                {issues.map((issue) => <li key={issue}>{issue}</li>)}
+                {!hasContact && <li>Sem pergunta de WhatsApp ou e-mail: o lead não poderá ser contatado e a Meta terá pouco dado para atribuir a conversão.</li>}
+              </ul>
+            </div>
+          )}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleReorder}>
+          <SortableContext items={blocks.map((b) => b._uid)} strategy={verticalListSortingStrategy}>
           {blocks.map((b, i) => (
-            <Card key={`${b.block_key}-${i}`}>
+            <SortableQuestion key={b._uid} id={b._uid}>
+            {(handle) => (
+            <Card>
               <CardContent className="flex gap-3 p-4">
-                <GripVertical className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                {handle}
                 <div className="flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Input value={b.config.label} onChange={(e) => {
                       const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, label: e.target.value } }; setBlocks(nb);
-                    }} placeholder="Pergunta" className="min-w-52 flex-1" />
+                    }} placeholder="Pergunta" aria-label={`Texto da pergunta ${i + 1}`} className="min-w-52 flex-1" />
                     <Select value={b.block_type} onValueChange={(v) => {
                       const nb = [...blocks]; nb[i] = { ...b, block_type: v as LeadFormBlockType }; setBlocks(nb);
                     }}>
@@ -279,7 +391,8 @@ export function LeadFormEditor({ formId }: Props) {
                         {BLOCK_TYPES.map((t) => <SelectItem key={t} value={t}>{BLOCK_TYPE_LABELS[t]}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="sm" aria-label="Excluir pergunta" onClick={() => {
+                    <Button variant="ghost" size="sm" aria-label="Duplicar pergunta" title="Duplicar" onClick={() => duplicateBlock(i)}><Copy className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" aria-label="Excluir pergunta" title="Excluir" onClick={() => {
                       const nb = [...blocks]; const [removed] = nb.splice(i, 1);
                       const idx = i;
                       setBlocks(nb.map((x, j) => ({ ...x, position: j })));
@@ -298,16 +411,19 @@ export function LeadFormEditor({ formId }: Props) {
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                     <Input value={b.block_key} onChange={(e) => {
                       const nb = [...blocks]; nb[i] = { ...b, block_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") }; setBlocks(nb);
-                    }} placeholder="chave (ex: faturamento)" />
+                    }} placeholder="chave (ex: faturamento)" aria-label="Chave da resposta" title="Identificador da resposta no CRM e no webhook" />
                     <Input value={b.config.placeholder ?? ""} onChange={(e) => {
                       const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, placeholder: e.target.value } }; setBlocks(nb);
-                    }} placeholder="Texto de exemplo" />
+                    }} placeholder="Texto de exemplo" aria-label="Texto de exemplo" />
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Switch checked={!!b.config.required} onCheckedChange={(v) => {
                         const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, required: v } }; setBlocks(nb);
                       }} /> Obrigatório
                     </label>
                   </div>
+                  <Input value={b.config.help_text ?? ""} onChange={(e) => {
+                    const nb = [...blocks]; nb[i] = { ...b, config: { ...b.config, help_text: e.target.value || undefined } }; setBlocks(nb);
+                  }} placeholder="Texto de ajuda (opcional)" aria-label="Texto de ajuda" />
                   {(b.block_type === "choice_single" || b.block_type === "choice_multi") && (
                     <OptionsEditor block={b} onChange={(cfg) => {
                       const nb = [...blocks]; nb[i] = { ...b, config: cfg }; setBlocks(nb);
@@ -331,43 +447,42 @@ export function LeadFormEditor({ formId }: Props) {
                 </div>
               </CardContent>
             </Card>
+            )}
+            </SortableQuestion>
           ))}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setBlocks([...blocks, {
+          </SortableContext>
+          </DndContext>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setBlocks([...blocks, withUid({
               block_key: `pergunta_${blocks.length + 1}`, block_type: "short_text",
               config: { label: "Nova pergunta", required: true }, position: blocks.length,
               is_qualifier: false, score_weight: 0,
-            }])}>
+            })])}>
               <Plus className="h-4 w-4" /> Adicionar pergunta
             </Button>
-            <Button variant="outline" onClick={() => setBlocks([...blocks, {
+            <Button variant="outline" onClick={() => setBlocks([...blocks, withUid({
               block_key: "agendar", block_type: "meeting",
               config: { label: "Agende sua reunião" }, position: blocks.length,
               is_qualifier: false, score_weight: 0,
-            }])}>
+            })])}>
               <Plus className="h-4 w-4" /> Bloco de agendamento
             </Button>
           </div>
-          <Button onClick={() => save({ blocks })} disabled={saving}>Salvar perguntas</Button>
         </TabsContent>
 
         {/* ---------- DESIGN ---------- */}
         <TabsContent value="design">
           <Card><CardHeader><CardTitle>Personalização</CardTitle>
-            <CardDescription>Cores, avatar, logo e marca. Pré-visualize em /f/{form.slug}</CardDescription></CardHeader>
+            <CardDescription>Cor, avatar, logo e marca. A prévia ao lado mostra cada mudança na hora.</CardDescription></CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2"><Label>Cor primária</Label>
                 <div className="flex gap-2"><Input type="color" value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} className="h-10 w-16" />
                   <Input value={form.theme_config.primary_color} onChange={(e) => updateForm("theme_config", { ...form.theme_config, primary_color: e.target.value })} /></div></div>
-              <div className="space-y-2"><Label>Fundo</Label>
-                <div className="flex gap-2"><Input type="color" value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} className="h-10 w-16" />
-                  <Input value={form.theme_config.background} onChange={(e) => updateForm("theme_config", { ...form.theme_config, background: e.target.value })} /></div></div>
+              <div className="space-y-2"><Label>Frase da primeira pergunta</Label><Input value={form.theme_config.welcome_subtitle} onChange={(e) => updateForm("theme_config", { ...form.theme_config, welcome_subtitle: e.target.value })} placeholder="Responda em menos de 1 minuto." /></div>
               <div className="space-y-2"><Label>Avatar (URL)</Label><Input value={form.theme_config.avatar_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, avatar_url: e.target.value || null })} placeholder="https://..." /></div>
               <div className="space-y-2"><Label>Logo (URL)</Label><Input value={form.theme_config.logo_url ?? ""} onChange={(e) => updateForm("theme_config", { ...form.theme_config, logo_url: e.target.value || null })} placeholder="https://..." /></div>
-              <div className="space-y-2"><Label>Balão do visitante</Label><Input type="color" value={form.theme_config.bubble_user} onChange={(e) => updateForm("theme_config", { ...form.theme_config, bubble_user: e.target.value })} className="h-10 w-16" /></div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={form.theme_config.show_branding} onCheckedChange={(v) => updateForm("theme_config", { ...form.theme_config, show_branding: v })} /> Mostrar marca ProCRM</label>
             </CardContent></Card>
-          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar design</Button>
         </TabsContent>
 
         {/* ---------- QUALIFY ---------- */}
@@ -390,9 +505,6 @@ export function LeadFormEditor({ formId }: Props) {
               <div className="space-y-2"><Label>Mensagem: lead qualificado</Label><Textarea value={form.qualification_config.qualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, qualified_message: e.target.value })} /></div>
               <div className="space-y-2"><Label>Mensagem: lead desqualificado</Label><Textarea value={form.qualification_config.disqualified_message} onChange={(e) => updateForm("qualification_config", { ...form.qualification_config, disqualified_message: e.target.value })} /></div>
             </CardContent></Card>
-          <div className="mt-3 flex gap-2">
-            <Button onClick={() => save()} disabled={saving}>Salvar qualificação</Button>
-          </div>
           <Card className="mt-3"><CardHeader><CardTitle>Criação automática</CardTitle></CardHeader>
             <CardContent className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm"><Switch checked={form.settings.create_contact} onCheckedChange={(v) => updateForm("settings", { ...form.settings, create_contact: v })} /> Criar contato</label>
@@ -404,7 +516,7 @@ export function LeadFormEditor({ formId }: Props) {
               )}
               <div className="w-full space-y-2"><Label>Webhook externo (POST JSON, opcional)</Label>
                 <Input value={form.settings.webhook_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, webhook_url: e.target.value || null })} placeholder="https://..." /></div>
-              <div className="w-full space-y-2"><Label>Redirecionar após concluir (opcional)</Label>
+              <div className="w-full space-y-2"><Label>Redirecionar após concluir (opcional; não se aplica a quem vê a agenda)</Label>
                 <Input value={form.settings.redirect_url ?? ""} onChange={(e) => updateForm("settings", { ...form.settings, redirect_url: e.target.value || null })} placeholder="https://obrigado..." /></div>
             </CardContent></Card>
         </TabsContent>
@@ -415,13 +527,13 @@ export function LeadFormEditor({ formId }: Props) {
             value={form.scheduling_config}
             onChange={(v) => updateForm("scheduling_config", v)}
           />
-          <Button className="mt-3" onClick={() => save()} disabled={saving}>Salvar agenda</Button>
         </TabsContent>
 
         {/* ---------- META ---------- */}
         <TabsContent value="meta" className="space-y-3">
           <LeadFormMetaTab
             formId={formId}
+            responses={responses}
             meta={form.meta_config}
             onChange={(meta_config) => updateForm("meta_config", meta_config)}
             onSaveForm={() => save()}
@@ -436,7 +548,6 @@ export function LeadFormEditor({ formId }: Props) {
             onSlugChange={(slug) => updateForm("slug", slug)}
             publicUrl={publicUrl}
           />
-          <Button onClick={() => save()} disabled={saving}>Salvar slug</Button>
         </TabsContent>
 
         {/* ---------- RESPONSES ---------- */}
@@ -444,6 +555,33 @@ export function LeadFormEditor({ formId }: Props) {
           <LeadFormResponsesTab responses={responses} bookings={bookings} />
         </TabsContent>
       </Tabs>
+
+      {/* Prévia ao vivo: reflete o que está na tela, mesmo antes de salvar. */}
+      <aside className="hidden xl:sticky xl:top-20 xl:block" aria-label="Pré-visualização do formulário">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">Prévia ao vivo · nada é salvo nem enviado</p>
+          <Button variant="ghost" size="sm" onClick={() => setPreviewRun((n) => n + 1)}>
+            <RotateCcw className="h-3.5 w-3.5" /> Recomeçar
+          </Button>
+        </div>
+        <div className="h-[640px] overflow-y-auto rounded-3xl border-4 border-border bg-[#fafaf9]">
+          <PublicForm
+            key={previewRun}
+            slug={form.slug}
+            preview={{
+              form: {
+                id: form.id,
+                name: form.name,
+                theme: form.theme_config,
+                scheduling: form.scheduling_config,
+                pixel_id: null,
+              },
+              blocks: blocks.map((b, position) => ({ key: b.block_key, type: b.block_type, config: b.config, position })),
+            }}
+          />
+        </div>
+      </aside>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   findAvailableSlot,
@@ -43,7 +43,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const form = formRow as {
     id: string; account_id: string; status: string; name: string;
     scheduling_config: unknown;
-    meta_config: { fire_schedule?: boolean };
+    meta_config: { fire_schedule?: boolean; pixel_id?: string | null };
   } | null;
   if (!form || form.status !== 'published') {
     return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
@@ -125,8 +125,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   if (form.meta_config?.fire_schedule !== false) {
     const b = booking as { id: string };
     // event_id `booking_<id>` = mesmo do browser (dedup pixel ↔ CAPI).
-    void fireFormCapiEvent({
+    // after(): `void` perderia o evento se o processo encerrasse o request.
+    after(() => fireFormCapiEvent({
       accountId: form.account_id, formId: form.id, responseId: resp.id,
+      pixelId: form.meta_config?.pixel_id,
       event: 'Schedule',
       eventId: `booking_${b.id}`,
       email: email ?? resp.respondent_email ?? undefined,
@@ -136,7 +138,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       fbp: resp.tracking?.fbp, fbc: resp.tracking?.fbc, fbclid: resp.tracking?.fbclid,
       clientIp: resp.ip ?? undefined, clientUa: resp.user_agent ?? undefined,
       custom: { form_name: form.name, booking_id: b.id, starts_at: match.start },
-    });
+    }));
   }
 
   return NextResponse.json({ booking }, { status: 201 });

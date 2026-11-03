@@ -1544,7 +1544,6 @@ async function fireCapiLeadEvent(
     {
       pixelId: adsConfig.pixel_id,
       accessToken,
-      testEventCode: adsConfig.test_event_code ?? undefined,
     },
     [
       {

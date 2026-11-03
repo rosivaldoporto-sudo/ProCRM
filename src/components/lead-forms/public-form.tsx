@@ -48,12 +48,13 @@ interface PublicBlock {
   position: number;
 }
 
-interface PublicFormData {
+export interface PublicFormData {
   form: {
     id: string; name: string;
     theme: { primary_color: string; background: string; font: string; avatar_url: string | null; logo_url: string | null; welcome_title: string; welcome_subtitle: string; button_text: string; show_branding: boolean; bubble_user: string; bubble_bot: string };
-    scheduling: { enabled: boolean; duration_min: number; timezone: string; meeting_title: string };
+    scheduling: { enabled: boolean; duration_min: number; timezone: string; meeting_title: string; meeting_link?: string | null };
     pixel_id: string | null;
+    pixel_events?: { view_content: boolean; lead: boolean; complete_registration: boolean; schedule: boolean };
   };
   blocks: PublicBlock[];
 }
@@ -71,16 +72,67 @@ function partialStorageKey(slug: string): string {
   return `wacrm:lead-form:${slug}:response_id`;
 }
 
+/** Rascunho na aba: quem sai para o app do anúncio e volta não recomeça. */
+function draftStorageKey(slug: string): string {
+  return `wacrm:lead-form:${slug}:draft`;
+}
+
+/** Texto legível sobre a cor de destaque escolhida no editor. */
+function contrastOn(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? "#1c1917" : "#ffffff";
+}
+
+/** Máscara de telefone BR; número iniciado por + fica livre (internacional). */
+function formatPhone(raw: string): string {
+  if (raw.trim().startsWith("+")) return raw;
+  const d = raw.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 2) return d ? `(${d}` : "";
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  const split = d.length === 11 ? 7 : 6;
+  return `(${d.slice(0, 2)}) ${d.slice(2, split)}-${d.slice(split)}`;
+}
+
+/** Permite o preenchimento automático do navegador/celular. */
+function autoCompleteFor(block: PublicBlock): string {
+  if (block.type === "email") return "email";
+  if (block.type === "phone") return "tel";
+  if (/^(nome|name|nome_completo|full_name)$/i.test(block.key)) return "name";
+  if (/^(empresa|company)$/i.test(block.key)) return "organization";
+  return "off";
+}
+
+function friendlyError(err: unknown, fallback: string): string {
+  if (err instanceof TypeError) return "Sem conexão no momento. Verifique a internet e tente de novo.";
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+function googleCalendarUrl(title: string, startsAt: string, endsAt: string): string {
+  const stamp = (iso: string) => new Date(iso).toISOString().replace(/[-:]|\.\d{3}/g, "");
+  const params = new URLSearchParams({ action: "TEMPLATE", text: title, dates: `${stamp(startsAt)}/${stamp(endsAt)}` });
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
 /** Bloco que representa o WhatsApp/telefone do lead. */
 function isPhoneBlock(block: { key: string; type: string }, value: unknown): boolean {
   if (typeof value !== "string" || !value.trim()) return false;
   return block.type === "phone" || /^(whatsapp|phone|telefone|celular)$/i.test(block.key);
 }
 
-export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
-  const [data, setData] = useState<PublicFormData | null>(null);
+export function PublicForm({ slug, nonce, preview }: {
+  slug: string;
+  nonce?: string;
+  /** Pré-visualização do editor: usa estes dados, sem rede, pixel nem envio real. */
+  preview?: PublicFormData;
+}) {
+  const [loaded, setData] = useState<PublicFormData | null>(null);
+  const data = preview ?? loaded;
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0);
+  const [rawStep, setStep] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [choosing, setChoosing] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [input, setInput] = useState("");
   const [multi, setMulti] = useState<string[]>([]);
@@ -115,35 +167,51 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   const partialRequest = useRef<Promise<string | null> | null>(null);
 
   const blocks = useMemo(() => (data?.blocks ?? []).filter((b) => b.type !== "meeting"), [data]);
+  // O editor pode remover perguntas enquanto a prévia está numa delas.
+  const step = Math.min(rawStep, Math.max(blocks.length - 1, 0));
   const theme = data?.form.theme;
-  const pixelId = data?.form.pixel_id;
+  const pixelId = preview ? null : data?.form.pixel_id;
+  const pixelEvents = data?.form.pixel_events;
   const accent = theme?.primary_color && /^#[0-9a-fA-F]{6}$/.test(theme.primary_color)
     ? theme.primary_color
     : "#4f46e5";
+  const onAccent = contrastOn(accent);
   // Fuso em que a agenda foi configurada. Todas as datas/horas da tela
   // são formatadas nele, não no fuso do visitante.
   const scheduleTz = data?.form.scheduling?.timezone || "America/Sao_Paulo";
 
   useEffect(() => {
+    if (preview) return;
     (async () => {
       try {
         const res = await fetch(`/api/public/forms/${slug}`, { cache: "no-store" });
         if (!res.ok) throw new Error("not found");
         const json = (await res.json()) as PublicFormData;
+        try {
+          const draft = JSON.parse(sessionStorage.getItem(draftStorageKey(slug)) ?? "null") as { answers?: Record<string, unknown>; step?: number } | null;
+          if (draft?.answers && typeof draft.step === "number") {
+            setAnswers(draft.answers);
+            setStep(draft.step);
+          }
+        } catch {
+          // Rascunho é conveniência: sem ele, o formulário começa do início.
+        }
         setData(json);
       } catch {
         setError("Formulário não encontrado ou fora do ar.");
       }
     })();
+    // `preview` só decide se busca; trocá-lo não recarrega o formulário.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   // ViewContent no funil assim que o formulário carrega (o PageView
   // já é disparado pelo próprio snippet do pixel acima).
   useEffect(() => {
-    if (!pixelId) return;
+    if (!pixelId || pixelEvents?.view_content === false) return;
     const t = setTimeout(() => trackFormPixel(pixelId, "ViewContent", { content_name: slug }), 800);
     return () => clearTimeout(t);
-  }, [pixelId, slug]);
+  }, [pixelId, pixelEvents, slug]);
 
   // Recupera o id do salvamento parcial após um reload (mesma aba), para
   // que o envio final atualize a mesma resposta em vez de duplicar.
@@ -174,6 +242,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     // sozinho a cada pergunta, empurrando o layout e piorando o UX.
     const t = setTimeout(() => {
       if (
+        !preview &&
         typeof window !== "undefined" &&
         typeof window.matchMedia === "function" &&
         window.matchMedia("(pointer: fine)").matches
@@ -198,7 +267,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     }
     if (b.type === "phone" && value) {
       const digits = String(value).replace(/\D/g, "");
-      if (digits.length < 10) return "Digite um WhatsApp válido com DDD.";
+      if (digits.length < 10 || digits.length > 15) return "Digite um WhatsApp válido com DDD.";
+    }
+    if (b.type === "number" && value !== "" && value !== undefined) {
+      const n = Number(value);
+      if (b.config.min !== undefined && n < b.config.min) return `O valor mínimo é ${b.config.min}.`;
+      if (b.config.max !== undefined && n > b.config.max) return `O valor máximo é ${b.config.max}.`;
     }
     return null;
   }
@@ -216,10 +290,17 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     setAnswers(next);
     setInput("");
     setMulti([]);
+    if (!preview) {
+      try {
+        sessionStorage.setItem(draftStorageKey(slug), JSON.stringify({ answers: next, step: step + 1 }));
+      } catch {
+        // Storage indisponível: segue sem rascunho.
+      }
+    }
     // Assim que o WhatsApp é respondido (e ainda restam perguntas),
     // envia o lead para o CRM. Não bloqueia o avanço; o envio final
     // aguarda esta requisição e reaproveita a mesma resposta.
-    if (step + 1 < blocks.length && isPhoneBlock(b, value)) {
+    if (!preview && step + 1 < blocks.length && isPhoneBlock(b, value)) {
       void savePartialLead(next);
     }
     if (step + 1 < blocks.length) {
@@ -230,6 +311,16 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks, step, busy, answers]);
+
+  /** Mostra a opção marcada por um instante antes de trocar de pergunta. */
+  function chooseOption(value: string) {
+    if (choosing) return;
+    setChoosing(value);
+    setTimeout(() => {
+      setChoosing(null);
+      advance(value);
+    }, 160);
+  }
 
   function goBack() {
     if (busy || step === 0) return;
@@ -308,6 +399,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   }
 
   async function submit(finalAnswers: Record<string, unknown>) {
+    if (preview) {
+      submittingRef.current = false;
+      setDone({ is_qualified: false, message: "Fim da pré-visualização. Nenhuma resposta foi salva.", response_id: "preview" });
+      return;
+    }
     setBusy(true);
     setSending(true);
     // Mesmo event_id no browser e no CAPI → a Meta deduplica
@@ -335,21 +431,41 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
           response_id: partialResponseId.current ?? undefined,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { error?: string }).error ?? "submit failed");
-      const r = json as { is_qualified: boolean; message: string; response_id: string; scheduling_enabled: boolean };
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          res.status === 429
+            ? "Muitas tentativas seguidas. Aguarde um minuto e tente de novo."
+            : (json as { error?: string }).error ?? "Não foi possível enviar. Tente de novo."
+        );
+      }
+      const r = json as { is_qualified: boolean; message: string; response_id: string; scheduling_enabled: boolean; redirect_url?: string | null };
       forgetPartialResponse();
+      try {
+        sessionStorage.removeItem(draftStorageKey(slug));
+      } catch {
+        // Best-effort.
+      }
       partialRequest.current = null;
       setDone({ is_qualified: r.is_qualified, message: r.message, response_id: r.response_id });
       if (pixelId) {
-        trackFormPixel(pixelId, "Lead", { content_name: slug }, clientEventId);
-        if (r.is_qualified) trackFormPixel(pixelId, "CompleteRegistration", { content_name: slug });
+        if (pixelEvents?.lead !== false) trackFormPixel(pixelId, "Lead", { content_name: slug }, clientEventId);
+        // Sufixo igual ao do CAPI: sem ele a Meta contava o evento duas vezes.
+        if (r.is_qualified && pixelEvents?.complete_registration !== false) {
+          trackFormPixel(pixelId, "CompleteRegistration", { content_name: slug }, `${clientEventId}_complete`);
+        }
+      }
+      // Com agenda, o redirecionamento atrapalharia a escolha do horário.
+      if (r.redirect_url && !(r.is_qualified && r.scheduling_enabled)) {
+        setRedirecting(true);
+        // Dá tempo de o pixel sair antes de trocar de página.
+        setTimeout(() => window.location.assign(r.redirect_url!), 900);
       }
       if (r.is_qualified && r.scheduling_enabled) {
         void loadSlots();
       }
     } catch (err) {
-      setFieldError(err instanceof Error ? err.message : "Ops, tente novamente.");
+      setFieldError(friendlyError(err, "Ops, tente novamente."));
     } finally {
       submittingRef.current = false;
       setSending(false);
@@ -391,9 +507,16 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     if (!picked || !done) return;
     setBusy(true);
     try {
-      const name = String(answers.nome ?? answers.name ?? "");
-      const email = typeof answers.email === "string" ? answers.email : undefined;
-      const phone = typeof answers.whatsapp === "string" ? answers.whatsapp : typeof answers.phone === "string" ? answers.phone : undefined;
+      // Pelo tipo do bloco, não pela chave: a chave é editável e, com outro
+      // nome, o agendamento era recusado por falta do nome.
+      const answerOf = (test: (b: PublicBlock) => boolean) => {
+        const value = answers[blocks.find(test)?.key ?? ""];
+        return typeof value === "string" && value ? value : undefined;
+      };
+      const name =
+        answerOf((b) => autoCompleteFor(b) === "name") ?? answerOf((b) => b.type === "short_text") ?? "Visitante";
+      const email = answerOf((b) => b.type === "email");
+      const phone = answerOf((b) => isPhoneBlock(b, answers[b.key]));
       const res = await fetch(`/api/public/forms/${slug}/book`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -412,9 +535,9 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       });
       setBooked(true);
       // event_id idêntico ao do CAPI (`booking_<id>`) para deduplicar.
-      if (pixelId && json.booking?.id) trackFormPixel(pixelId, "Schedule", { content_name: slug }, `booking_${json.booking.id}`);
+      if (pixelId && json.booking?.id && pixelEvents?.schedule !== false) trackFormPixel(pixelId, "Schedule", { content_name: slug }, `booking_${json.booking.id}`);
     } catch (err) {
-      setFieldError(err instanceof Error ? err.message : "Horário indisponível.");
+      setFieldError(friendlyError(err, "Horário indisponível."));
       setPicked(null);
       void loadSlots();
     } finally {
@@ -426,8 +549,17 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   useEffect(() => {
     if (done || !current) return;
     function onKey(e: KeyboardEvent) {
+      // Na prévia, o teclado do editor não pode responder o formulário.
+      if (preview && !rootRef.current?.contains(e.target as Node)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (document.activeElement?.tagName ?? "").toLowerCase();
       if (e.key === "Enter" && !busy) {
-        const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+        if (tag === "button" || tag === "a") return;
+        if (current.type === "statement") {
+          e.preventDefault();
+          advance("seen");
+          return;
+        }
         if (current.type === "choice_single") return;
         if (current.type === "choice_multi") {
           if (tag !== "input" && tag !== "textarea") {
@@ -440,12 +572,13 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
         e.preventDefault();
         advance(input.trim());
       }
-      if ((current.type === "choice_single" || current.type === "choice_multi") && /^[a-cA-C]$/.test(e.key)) {
+      if (current.type === "rating" && /^[1-5]$/.test(e.key)) advance(Number(e.key));
+      if ((current.type === "choice_single" || current.type === "choice_multi") && tag !== "input" && tag !== "textarea" && /^[a-lA-L]$/.test(e.key)) {
         const idx = e.key.toLowerCase().charCodeAt(0) - 97;
         const opt = current.config.options?.[idx];
         if (!opt) return;
         if (current.type === "choice_single") {
-          advance(opt.value);
+          chooseOption(opt.value);
         } else {
           setMulti((m) => (m.includes(opt.value) ? m.filter((x) => x !== opt.value) : [...m, opt.value]));
         }
@@ -453,6 +586,8 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // chooseOption e preview não mudam o que o atalho faz entre renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [done, current, busy, input, multi, advance]);
 
   const grouped = useMemo(() => groupByDay(slots, scheduleTz), [slots, scheduleTz]);
@@ -478,8 +613,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
   }
   if (!data || !theme) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-[#fafaf9]">
-        <Loader2 className="h-6 w-6 animate-spin text-stone-400" />
+      <div className="flex min-h-dvh items-center justify-center bg-[#fafaf9] px-6" aria-busy="true" aria-label="Carregando formulário">
+        <div className="w-full max-w-2xl animate-pulse space-y-4">
+          <div className="h-4 w-16 rounded bg-stone-200" />
+          <div className="h-9 w-4/5 rounded bg-stone-200" />
+          <div className="h-14 w-full rounded-xl bg-stone-200" />
+        </div>
       </div>
     );
   }
@@ -491,19 +630,29 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
 
   return (
     <div
-      className="flex min-h-dvh flex-col bg-[#fafaf9] text-stone-800 antialiased"
-      style={{ fontFamily: fontStack }}
+      ref={rootRef}
+      className={`relative flex flex-col bg-[#fafaf9] text-stone-800 antialiased ${preview ? "min-h-full" : "min-h-dvh"}`}
+      style={{ fontFamily: fontStack, "--pf-accent": accent } as React.CSSProperties}
     >
       <style>{`
         @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         .animate-rise { animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
         .animate-rise-d1 { animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
         .animate-rise-d2 { animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both; }
+        @media (prefers-reduced-motion: reduce) { .animate-rise, .animate-rise-d1, .animate-rise-d2 { animation: none; } }
+        button:focus-visible, a:focus-visible { outline: 2px solid var(--pf-accent); outline-offset: 2px; }
       `}</style>
       {pixelId && <MetaPixelSnippet pixelId={pixelId} nonce={nonce} />}
 
       {/* Barra de progresso fina */}
-      <div className="fixed inset-x-0 top-0 z-10 h-[3px] bg-stone-200/70">
+      <div
+        className={`${preview ? "absolute" : "fixed"} inset-x-0 top-0 z-10 h-1 bg-stone-200/70`}
+        role="progressbar"
+        aria-label="Progresso do formulário"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress}
+      >
         <div
           className="h-full transition-[width] duration-500 ease-out"
           style={{ width: `${progress}%`, background: accent }}
@@ -511,6 +660,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
       </div>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-6 py-16 sm:px-10">
+        {theme.avatar_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={theme.avatar_url} alt="" className="mb-6 h-14 w-14 self-start rounded-full object-cover" />
+        )}
         {theme.logo_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -544,10 +697,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                   Sua reunião está agendada
                 </h2>
                 <p className="mt-4 max-w-lg text-lg leading-relaxed text-stone-500">
-                  Está tudo certo{booking.attendee_name ? `, ${booking.attendee_name.split(" ")[0]}` : ""}. Anote os detalhes abaixo. Enviamos a confirmação para você.
+                  Está tudo certo{booking.attendee_name ? `, ${booking.attendee_name.split(" ")[0]}` : ""}. Anote os detalhes abaixo.
                 </p>
                 <div className="mt-8 max-w-lg rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-medium uppercase tracking-widest text-stone-400">
+                  <p className="text-xs font-medium uppercase tracking-widest text-stone-500">
                     {booking.meeting_title || scheduling?.meeting_title || "Reunião"}
                   </p>
                   <p className="mt-2 text-xl font-medium text-stone-900">
@@ -563,6 +716,27 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                       {tzLabel(scheduling?.timezone)}
                     </p>
                   </div>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <a
+                      href={googleCalendarUrl(booking.meeting_title || scheduling?.meeting_title || "Reunião", booking.starts_at, booking.ends_at)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-stone-200 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                    >
+                      <CalendarDays className="h-4 w-4" /> Adicionar à agenda
+                    </a>
+                    {scheduling?.meeting_link && /^https?:\/\//.test(scheduling.meeting_link) && (
+                      <a
+                        href={scheduling.meeting_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-[44px] items-center rounded-lg px-4 text-sm font-medium"
+                        style={{ background: accent, color: onAccent }}
+                      >
+                        Abrir link da reunião
+                      </a>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
@@ -573,6 +747,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                 <p className="mt-4 max-w-lg text-lg leading-relaxed text-stone-500">
                   {done.message}
                 </p>
+                {redirecting && (
+                  <p className="mt-3 flex items-center gap-2 text-sm text-stone-500" role="status">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Redirecionando…
+                  </p>
+                )}
 
                 {done.is_qualified && (
                   <div className="animate-rise-d1 mt-10 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
@@ -592,11 +771,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
 
                     {slotsLoading ? (
                       <div className="flex items-center gap-3 px-5 py-10 sm:px-6">
-                        <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
-                        <p className="text-sm text-stone-400">Carregando horários disponíveis…</p>
+                        <Loader2 className="h-5 w-5 animate-spin text-stone-500" />
+                        <p className="text-sm text-stone-500">Carregando horários disponíveis…</p>
                       </div>
                     ) : slots.length === 0 ? (
-                      <p className="px-5 py-10 text-sm text-stone-400 sm:px-6">
+                      <p className="px-5 py-10 text-sm text-stone-500 sm:px-6">
                         Sem horários livres nos próximos dias. Fique tranquilo, entraremos em contato.
                       </p>
                     ) : (
@@ -617,11 +796,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                         </div>
                         {/* Horários do dia */}
                         <div className="p-4 sm:p-5">
-                          <p className="text-xs font-medium uppercase tracking-widest text-stone-400">
+                          <p className="text-xs font-medium uppercase tracking-widest text-stone-500">
                             {selectedDay ? fmtShortDay(selectedDay) : "Horários"}
                           </p>
                           {selectedDaySlots.length === 0 ? (
-                            <p className="mt-3 text-sm text-stone-400">
+                            <p className="mt-3 text-sm text-stone-500">
                               Selecione um dia com disponibilidade no calendário.
                             </p>
                           ) : (
@@ -630,11 +809,13 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                                 const active = picked === s.start;
                                 return (
                                   <button
+                                    type="button"
                                     key={s.start}
                                     onClick={() => setPicked(s.start)}
+                                    aria-pressed={active}
                                     className="min-h-[44px] w-full rounded-lg border px-4 py-2.5 text-sm font-medium transition-all duration-150 active:scale-[0.98]"
                                     style={active
-                                      ? { background: accent, borderColor: accent, color: "#fff" }
+                                      ? { background: accent, borderColor: accent, color: onAccent }
                                       : { borderColor: "#e7e5e4", color: "#44403c", background: "#fff" }}
                                   >
                                     {fmtTime(s.start, scheduleTz)}
@@ -645,10 +826,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                           )}
                           {picked && (
                             <button
+                              type="button"
                               onClick={book}
                               disabled={busy}
-                              className="mt-4 w-full rounded-lg px-5 py-3 text-base font-medium text-white shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
-                              style={{ background: accent }}
+                              className="mt-4 w-full rounded-lg px-5 py-3 text-base font-medium shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+                              style={{ background: accent, color: onAccent }}
                             >
                               {busy ? "Agendando…" : "Confirmar"}
                             </button>
@@ -660,7 +842,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                 )}
               </>
             )}
-            {fieldError && <p className="mt-4 text-sm text-red-500">{fieldError}</p>}
+            {fieldError && <p role="alert" className="mt-4 text-sm text-red-600">{fieldError}</p>}
           </div>
         ) : sending ? (
           <div key="sending" className="animate-rise">
@@ -683,15 +865,15 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
           </div>
         ) : current ? (
           <div key={`${step}-${blocks.length}`} className="animate-rise">
-            <p className="text-sm font-medium text-stone-400">
+            <p className="text-sm font-medium text-stone-500" aria-live="polite">
               {step + 1} de {blocks.length}
-              {current.config.required && <span className="ml-2 text-stone-300">· obrigatória</span>}
+              {step === 0 && theme.welcome_subtitle && <span> · {theme.welcome_subtitle}</span>}
             </p>
-            <h2 className="mt-3 text-3xl font-medium leading-tight tracking-tight text-stone-900 sm:text-4xl">
+            <h2 id="pf-question" className="mt-3 text-3xl font-medium leading-tight tracking-tight text-stone-900 sm:text-4xl">
               {current.config.label}
             </h2>
             {current.config.help_text && (
-              <p className="mt-3 max-w-lg text-base leading-relaxed text-stone-400">
+              <p className="mt-3 max-w-lg text-base leading-relaxed text-stone-500">
                 {current.config.help_text}
               </p>
             )}
@@ -699,20 +881,24 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
             <div className="animate-rise-d1 mt-8">
               {current.type === "choice_single" && (
                 <div className="space-y-3">
-                  {(current.config.options ?? []).map((o, i) => (
+                  {(current.config.options ?? []).map((o, i) => {
+                    const selected = choosing === o.value || (!choosing && answers[current.key] === o.value);
+                    return (
                     <button
+                      type="button"
                       key={o.value}
-                      onClick={() => advance(o.value)}
+                      onClick={() => chooseOption(o.value)}
+                      aria-pressed={selected}
                       className="group flex w-full items-center gap-4 rounded-xl border bg-white px-4 py-4 text-left transition-all duration-150 hover:-translate-y-[1px] hover:shadow-sm active:scale-[0.99]"
-                      style={{ borderColor: "#e7e5e4" }}
+                      style={selected ? { borderColor: accent, background: `${accent}08` } : { borderColor: "#e7e5e4" }}
                       onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e7e5e4"; }}
+                      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.borderColor = "#e7e5e4"; }}
                     >
                       <span
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors duration-150"
-                        style={{ borderColor: "#d6d3d1", color: "#78716c", background: "#fafaf9" }}
+                        style={selected ? { background: accent, borderColor: accent, color: onAccent } : { borderColor: "#d6d3d1", color: "#78716c", background: "#fafaf9" }}
                       >
-                        {LETTERS[i] ?? i + 1}
+                        {selected ? <Check className="h-4 w-4" /> : (LETTERS[i] ?? i + 1)}
                       </span>
                       <span className="flex-1 text-lg text-stone-800">{o.label}</span>
                       <span
@@ -722,7 +908,8 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                         {LETTERS[i] ?? ""}
                       </span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -733,7 +920,9 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                       const selected = multi.includes(o.value);
                       return (
                         <button
+                          type="button"
                           key={o.value}
+                          aria-pressed={selected}
                           onClick={() => setMulti((m) => (m.includes(o.value) ? m.filter((x) => x !== o.value) : [...m, o.value]))}
                           className="flex w-full items-center gap-4 rounded-xl border bg-white px-4 py-4 text-left transition-all duration-150 hover:-translate-y-[1px] hover:shadow-sm active:scale-[0.99]"
                           style={selected
@@ -743,7 +932,7 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                           <span
                             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition-colors duration-150"
                             style={selected
-                              ? { background: accent, borderColor: accent, color: "#fff" }
+                              ? { background: accent, borderColor: accent, color: onAccent }
                               : { borderColor: "#d6d3d1", color: "#78716c", background: "#fafaf9" }}
                           >
                             {selected ? <Check className="h-4 w-4" /> : (LETTERS[i] ?? i + 1)}
@@ -755,13 +944,14 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                   </div>
                   <div className="mt-6 flex flex-wrap items-center gap-4">
                     <button
+                      type="button"
                       onClick={() => advance(multi)}
-                      className="rounded-lg px-7 py-3 text-base font-medium text-white shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
-                      style={{ background: accent }}
+                      className="rounded-lg px-7 py-3 text-base font-medium shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
+                      style={{ background: accent, color: onAccent }}
                     >
                       Continuar
                     </button>
-                    <span className="text-sm text-stone-400">Pressione Enter ↵</span>
+                    <span className="hidden text-sm text-stone-500 [@media(pointer:fine)]:inline">Pressione Enter ↵</span>
                   </div>
                 </div>
               )}
@@ -770,21 +960,31 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                 <div className="flex items-center gap-2">
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
+                      type="button"
                       key={n}
                       onClick={() => advance(n)}
+                      onMouseEnter={() => setHoverRating(n)}
+                      onMouseLeave={() => setHoverRating(0)}
                       aria-label={`${n} de 5`}
                       className="p-1 transition-transform duration-150 hover:scale-110 active:scale-95"
                     >
-                      <Star className="h-9 w-9" style={{ color: accent }} fill="none" strokeWidth={1.5} />
+                      <Star
+                        className="h-9 w-9"
+                        style={{ color: accent }}
+                        fill={n <= (hoverRating || Number(answers[current.key] ?? 0)) ? accent : "none"}
+                        strokeWidth={1.5}
+                      />
                     </button>
                   ))}
                 </div>
               )}
 
               {current.type === "nps" && (
-                <div className="flex max-w-lg flex-wrap gap-2">
+                <div className="max-w-lg">
+                <div className="flex flex-wrap gap-2">
                   {Array.from({ length: 11 }, (_, n) => (
                     <button
+                      type="button"
                       key={n}
                       onClick={() => advance(n)}
                       className="h-12 min-w-[44px] flex-1 rounded-lg border bg-white text-base font-medium text-stone-600 transition-all duration-150 hover:-translate-y-[1px] hover:shadow-sm active:scale-95"
@@ -796,6 +996,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                     </button>
                   ))}
                 </div>
+                <div className="mt-2 flex justify-between text-xs text-stone-500">
+                  <span>Nada provável</span>
+                  <span>Muito provável</span>
+                </div>
+                </div>
               )}
 
               {["short_text", "email", "phone", "number", "date", "file"].includes(current.type) && (
@@ -806,10 +1011,20 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                   <input
                     ref={inputRef as React.RefObject<HTMLInputElement>}
                     value={input}
-                    onChange={(e) => { setInput(e.target.value); setFieldError(null); }}
+                    onChange={(e) => { setInput(current.type === "phone" ? formatPhone(e.target.value) : e.target.value); setFieldError(null); }}
                     placeholder={current.config.placeholder ?? "Digite sua resposta…"}
+                    aria-labelledby="pf-question"
+                    aria-invalid={!!fieldError}
+                    aria-describedby={fieldError ? "pf-error" : undefined}
+                    aria-required={!!current.config.required}
+                    autoComplete={autoCompleteFor(current)}
+                    autoCapitalize={autoCompleteFor(current) === "name" ? "words" : current.type === "email" ? "none" : undefined}
+                    inputMode={current.type === "phone" ? "tel" : current.type === "email" ? "email" : current.type === "number" ? "decimal" : undefined}
+                    enterKeyHint={step + 1 < blocks.length ? "next" : "send"}
+                    min={current.config.min}
+                    max={current.config.max}
                     type={current.type === "email" ? "email" : current.type === "number" ? "number" : current.type === "date" ? "date" : current.type === "phone" ? "tel" : "text"}
-                    className="w-full border-0 border-b-2 bg-transparent pb-3 text-2xl text-stone-900 outline-none transition-colors duration-150 placeholder:text-stone-300 sm:text-[28px]"
+                    className="w-full border-0 border-b-2 bg-transparent pb-3 text-2xl text-stone-900 outline-none transition-colors duration-150 placeholder:text-stone-400 sm:text-[28px]"
                     style={{ borderColor: "#e7e5e4" }}
                     onFocus={(e) => { e.currentTarget.style.borderColor = accent; }}
                     onBlur={(e) => { e.currentTarget.style.borderColor = "#e7e5e4"; }}
@@ -818,12 +1033,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                     <button
                       type="submit"
                       disabled={busy}
-                      className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium text-white shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
-                      style={{ background: accent }}
+                      className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+                      style={{ background: accent, color: onAccent }}
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Responder <ArrowRight className="h-4 w-4" /></>}
                     </button>
-                    <span className="text-sm text-stone-400">Pressione Enter ↵</span>
+                    <span className="hidden text-sm text-stone-500 [@media(pointer:fine)]:inline">Pressione Enter ↵</span>
                   </div>
                 </form>
               )}
@@ -838,8 +1053,11 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                     value={input}
                     onChange={(e) => { setInput(e.target.value); setFieldError(null); }}
                     placeholder={current.config.placeholder ?? "Digite sua resposta…"}
+                    aria-labelledby="pf-question"
+                    aria-invalid={!!fieldError}
+                    aria-describedby={fieldError ? "pf-error" : undefined}
                     rows={3}
-                    className="w-full resize-none border-0 border-b-2 bg-transparent pb-3 text-2xl text-stone-900 outline-none transition-colors duration-150 placeholder:text-stone-300 sm:text-[28px]"
+                    className="w-full resize-none border-0 border-b-2 bg-transparent pb-3 text-2xl text-stone-900 outline-none transition-colors duration-150 placeholder:text-stone-400 sm:text-[28px]"
                     style={{ borderColor: "#e7e5e4" }}
                     onFocus={(e) => { e.currentTarget.style.borderColor = accent; }}
                     onBlur={(e) => { e.currentTarget.style.borderColor = "#e7e5e4"; }}
@@ -848,12 +1066,12 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
                     <button
                       type="submit"
                       disabled={busy}
-                      className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium text-white shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
-                      style={{ background: accent }}
+                      className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+                      style={{ background: accent, color: onAccent }}
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Responder <ArrowRight className="h-4 w-4" /></>}
                     </button>
-                    <span className="text-sm text-stone-400">Pressione Enter ↵</span>
+                    <span className="hidden text-sm text-stone-500 [@media(pointer:fine)]:inline">Pressione Enter ↵</span>
                   </div>
                 </form>
               )}
@@ -861,9 +1079,10 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
               {current.type === "statement" && (
                 <div className="mt-2">
                   <button
+                    type="button"
                     onClick={() => advance("seen")}
-                    className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium text-white shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
-                    style={{ background: accent }}
+                    className="inline-flex items-center gap-2 rounded-lg px-7 py-3 text-base font-medium shadow-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
+                    style={{ background: accent, color: onAccent }}
                   >
                     Continuar <ArrowRight className="h-4 w-4" />
                   </button>
@@ -872,26 +1091,36 @@ export function PublicForm({ slug, nonce }: { slug: string; nonce?: string }) {
             </div>
 
             {fieldError && (
-              <p className="animate-rise-d2 mt-5 max-w-lg text-sm text-red-500">{fieldError}</p>
+              <p id="pf-error" role="alert" className="animate-rise-d2 mt-5 max-w-lg text-sm text-red-600">{fieldError}</p>
+            )}
+            {!current.config.required && ["choice_single", "rating", "nps"].includes(current.type) && (
+              <button
+                type="button"
+                onClick={() => advance("")}
+                className="mt-5 min-h-[44px] text-sm font-medium text-stone-500 underline underline-offset-4 hover:text-stone-700"
+              >
+                Pular esta pergunta
+              </button>
             )}
           </div>
         ) : null}
       </main>
 
       {/* Navegação discreta */}
-      <footer className="mx-auto flex w-full max-w-2xl items-center justify-between px-6 pb-8 sm:px-10">
+      <footer className="mx-auto flex w-full max-w-2xl items-center justify-between px-6 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-10">
         <div>
           {!done && step > 0 && (
             <button
+              type="button"
               onClick={goBack}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-sm text-stone-400 transition-colors hover:text-stone-600"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2 py-2 text-sm text-stone-500 transition-colors hover:text-stone-600"
             >
               <ArrowLeft className="h-4 w-4" /> Voltar
             </button>
           )}
         </div>
         {theme.show_branding && (
-          <p className="text-xs text-stone-300">Feito com ProCRM</p>
+          <p className="text-xs text-stone-400">Feito com ProCRM</p>
         )}
       </footer>
     </div>
@@ -991,6 +1220,7 @@ function MonthCalendar({
   onSelect: (day: string) => void;
 }) {
   const { y, m } = view;
+  const onAccent = contrastOn(accent);
   const viewKey = `${y}-${pad2(m + 1)}`;
   const monthName = new Date(y, m, 1)
     .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
@@ -1015,6 +1245,7 @@ function MonthCalendar({
         <p className="text-sm font-medium text-stone-800">{monthName}</p>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={() => shift(-1)}
             disabled={!!minMonth && viewKey <= minMonth}
             aria-label="Mês anterior"
@@ -1023,6 +1254,7 @@ function MonthCalendar({
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
+            type="button"
             onClick={() => shift(1)}
             disabled={!!maxMonth && viewKey >= maxMonth}
             aria-label="Próximo mês"
@@ -1034,7 +1266,7 @@ function MonthCalendar({
       </div>
       <div className="mt-2 grid grid-cols-7 gap-y-1 text-center">
         {["D", "S", "T", "Q", "Q", "S", "S"].map((w, i) => (
-          <span key={i} className="pb-1 text-[11px] font-medium uppercase text-stone-400">
+          <span key={i} className="pb-1 text-[11px] font-medium uppercase text-stone-500">
             {w}
           </span>
         ))}
@@ -1046,13 +1278,16 @@ function MonthCalendar({
           const disabled = !has || isPast;
           return (
             <button
+              type="button"
               key={c.key}
               disabled={disabled}
               onClick={() => onSelect(c.key)}
+              aria-pressed={isSel}
+              aria-label={fmtShortDay(c.key)}
               className="mx-auto flex h-10 w-10 flex-col items-center justify-center rounded-full text-sm transition-all duration-150 active:scale-95"
               style={
                 isSel
-                  ? { background: accent, color: "#fff", fontWeight: 600 }
+                  ? { background: accent, color: onAccent, fontWeight: 600 }
                   : has && !isPast
                     ? { color: "#1c1917", fontWeight: 500 }
                     : { color: "#d6d3d1" }
@@ -1066,7 +1301,7 @@ function MonthCalendar({
             >
               {c.day}
               {has && !isPast && !isSel && (
-                <span className="mt-0.5 h-1 w-1 rounded-full" style={{ background: accent }} />
+                <span className="mt-0.5 h-1 w-1 rounded-full" style={{ background: accent, color: onAccent }} />
               )}
             </button>
           );

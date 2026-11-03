@@ -16,7 +16,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   const db = supabaseAdmin();
   const { data: form } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
   const f = form as {
-    id: string; name: string; status: string; theme_config: unknown;
+    id: string; account_id: string; name: string; status: string; theme_config: unknown;
     scheduling_config: unknown; meta_config: unknown; qualification_config: unknown;
   } | null;
   if (!f || f.status !== 'published') {
@@ -29,7 +29,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
     .order('position');
   // Conta view (fire-and-forget, com log em caso de falha)
   void bumpFormCounter(db, (form as { id: string }).id, 'view');
-  const meta = (f.meta_config ?? {}) as { pixel_id?: string | null };
+  const meta = (f.meta_config ?? {}) as {
+    pixel_id?: string | null;
+    fire_view_content?: boolean; fire_lead?: boolean;
+    fire_complete_registration?: boolean; fire_schedule?: boolean;
+  };
+  // Sem pixel próprio, usa o global da conta: é o mesmo fallback do CAPI, e
+  // sem ele o formulário no ar não carregava o pixel do navegador.
+  let pixelId = meta.pixel_id?.trim() || null;
+  if (!pixelId) {
+    const { data: cfg } = await db
+      .from('meta_ads_config')
+      .select('pixel_id')
+      .eq('account_id', f.account_id)
+      .maybeSingle();
+    pixelId = (cfg as { pixel_id: string | null } | null)?.pixel_id?.trim() || null;
+  }
   const scheduling = normalizeScheduling(f.scheduling_config);
   return NextResponse.json({
     form: {
@@ -48,7 +63,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
         max_days_ahead: scheduling.max_days_ahead,
         min_notice_min: scheduling.min_notice_min,
       },
-      pixel_id: meta.pixel_id ?? null,
+      pixel_id: pixelId,
+      pixel_events: {
+        view_content: meta.fire_view_content !== false,
+        lead: meta.fire_lead !== false,
+        complete_registration: meta.fire_complete_registration !== false,
+        schedule: meta.fire_schedule !== false,
+      },
     },
     blocks: (blocks ?? []).map((b) => {
       const row = b as { block_key: string; block_type: string; config: Record<string, unknown>; position: number };

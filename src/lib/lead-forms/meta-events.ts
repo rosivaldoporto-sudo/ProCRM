@@ -8,7 +8,8 @@
  *  - ViewContent          → browser (pixel)
  *  - Lead                 → browser + CAPI com o MESMO event_id (dedup)
  *  - CompleteRegistration → CAPI (qualificado, sem par browser)
- *  - QualifiedLead        → CAPI como Lead + lead_quality=qualified
+ *  - QualifiedLead        → CAPI como evento customizado (nunca como um
+ *                           segundo Lead, que duplicaria a conversão)
  *  - Schedule             → browser + CAPI com event_id `booking_<id>`
  */
 import {
@@ -16,6 +17,7 @@ import {
   sendCapiEvents,
   splitName,
   validFbp,
+  withBrazilDdi,
   type FormFunnelEvent,
 } from '@/lib/facebook/conversions-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
@@ -39,43 +41,53 @@ interface FireArgs {
   clientUa?: string;
   /** Id de dedup compartilhado com o browser (redundant setup). */
   eventId?: string;
+  /** Pixel próprio do formulário; sem ele, usa o pixel global da conta. */
+  pixelId?: string | null;
   custom?: Record<string, unknown>;
   value?: number;
 }
 
-/** Dispara CAPI server-side. Fire-and-forget — nunca quebra o submit. */
-export async function fireFormCapiEvent(args: FireArgs): Promise<string | null> {
+export interface CapiResult {
+  eventId: string | null;
+  /** Motivo da falha, gravado na resposta para o diagnóstico da aba Meta. */
+  error?: string;
+}
+
+/** Dispara CAPI server-side. Nunca lança — nunca quebra o submit. */
+export async function fireFormCapiEvent(args: FireArgs): Promise<CapiResult> {
   try {
     const db = supabaseAdmin();
     const { data: cfg } = await db
       .from('meta_ads_config')
-      .select('pixel_id, access_token, test_event_code')
+      .select('pixel_id, access_token')
       .eq('account_id', args.accountId)
       .maybeSingle();
-    const row = cfg as { pixel_id: string | null; access_token: string | null; test_event_code: string | null } | null;
-    if (!row?.pixel_id || !row?.access_token) return null;
+    const row = cfg as { pixel_id: string | null; access_token: string | null } | null;
+    const pixelId = args.pixelId?.trim() || row?.pixel_id;
+    if (!pixelId) return { eventId: null, error: 'Pixel não configurado' };
+    if (!row?.access_token) return { eventId: null, error: 'Token da Conversions API não configurado' };
     let token = row.access_token;
     if (token.includes(':')) {
       try {
         token = decrypt(token);
       } catch {
-        return null;
+        return { eventId: null, error: 'Token salvo não pode ser descriptografado. Salve-o novamente.' };
       }
     }
     const eventId =
       args.eventId ?? `form_${args.formId}_${args.event}_${args.responseId ?? Date.now()}_${Date.now()}`;
     const { first, last } = splitName(args.fullName);
     await sendCapiEvents(
-      { pixelId: row.pixel_id, accessToken: token, testEventCode: row.test_event_code ?? undefined },
+      { pixelId, accessToken: token },
       [
         {
-          event_name: args.event === 'QualifiedLead' ? 'Lead' : args.event,
+          event_name: args.event,
           event_time: Math.floor(Date.now() / 1000),
           action_source: 'website',
           event_id: eventId,
           event_source_url: args.eventSourceUrl,
           user_data: {
-            ...(args.phone ? { phones: [args.phone] } : {}),
+            ...(args.phone ? { phones: [withBrazilDdi(args.phone)] } : {}),
             ...(args.email ? { emails: [args.email] } : {}),
             ...(first ? { firstName: first } : {}),
             ...(last ? { lastName: last } : {}),
@@ -94,9 +106,10 @@ export async function fireFormCapiEvent(args: FireArgs): Promise<string | null> 
         },
       ],
     );
-    return eventId;
+    return { eventId };
   } catch (err) {
-    console.error('[lead-forms:capi]', err instanceof Error ? err.message : err);
-    return null;
+    const message = err instanceof Error ? err.message : 'Falha desconhecida';
+    console.error('[lead-forms:capi]', message);
+    return { eventId: null, error: message.slice(0, 300) };
   }
 }
