@@ -92,20 +92,20 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
-  { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
-  { href: "/notifications", labelKey: "notifications", icon: Bell },
-  { href: "/contacts", labelKey: "contacts", icon: Users },
-  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
-  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
-  { href: "/automations", labelKey: "automations", icon: Zap },
-  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
-  { href: "/lead-forms", labelKey: "leadForms", icon: Workflow },
-  { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  { href: "/painel", labelKey: "dashboard", icon: LayoutDashboard },
+  { href: "/conversas", labelKey: "inbox", icon: MessageSquare },
+  { href: "/notificacoes", labelKey: "notifications", icon: Bell },
+  { href: "/contatos", labelKey: "contacts", icon: Users },
+  { href: "/funis", labelKey: "pipelines", icon: GitBranch },
+  { href: "/transmissoes", labelKey: "broadcasts", icon: Radio },
+  { href: "/automacoes", labelKey: "automations", icon: Zap },
+  { href: "/fluxos", labelKey: "flows", icon: Workflow, beta: true },
+  { href: "/formularios", labelKey: "leadForms", icon: Workflow },
+  { href: "/agentes", labelKey: "aiAgents", icon: Bot },
 ];
 
 const bottomNavItems = [
-  { href: "/settings", labelKey: "settings", icon: Settings },
+  { href: "/configuracoes", labelKey: "settings", icon: Settings },
 ];
 
 interface SidebarProps {
@@ -207,7 +207,7 @@ export function Sidebar({
             collapsed && "lg:justify-center lg:px-0",
           )}
         >
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link href="/painel" className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <MessageSquare className="h-4 w-4" />
             </div>
@@ -236,17 +236,17 @@ export function Sidebar({
             {navItems.map((item) => {
               const isActive =
                 pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                (item.href !== "/painel" && pathname.startsWith(item.href));
 
               const showUnreadDot =
-                item.href === "/inbox" && totalUnread > 0 && !isActive;
+                item.href === "/conversas" && totalUnread > 0 && !isActive;
 
               // Unlike the inbox dot, the notifications count stays visible
               // even while the page is active — it reflects unread state
               // (cleared by marking notifications read), not "currently
               // viewing this section".
               const showNotificationBadge =
-                item.href === "/notifications" && unreadNotifications > 0;
+                item.href === "/notificacoes" && unreadNotifications > 0;
 
               return (
                 <li key={item.href}>
@@ -436,7 +436,7 @@ export function Sidebar({
               <DropdownMenuItem
                 render={
                   <Link
-                    href="/settings?tab=profile"
+                    href="/configuracoes?aba=perfil"
                     onClick={onClose}
                     className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                   />
@@ -448,7 +448,7 @@ export function Sidebar({
               <DropdownMenuItem
                 render={
                   <Link
-                    href="/settings?tab=whatsapp"
+                    href="/configuracoes?aba=whatsapp"
                     onClick={onClose}
                     className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                   />

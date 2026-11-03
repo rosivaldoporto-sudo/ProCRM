@@ -40,7 +40,7 @@ export function SessionsCard() {
         toast.error(t('signOutFailed', { message: error.message }));
         return;
       }
-      window.location.href = '/login';
+      window.location.href = '/entrar';
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       toast.error(msg);

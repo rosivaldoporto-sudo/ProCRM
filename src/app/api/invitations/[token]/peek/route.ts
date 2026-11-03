@@ -1,7 +1,7 @@
 // ============================================================
 // GET /api/invitations/[token]/peek
 //
-// Public — no auth required. Lets the /join/<token> page render
+// Public — no auth required. Lets the /convite/<token> page render
 // "You're being invited to <Account> as <Role>" before the
 // visitor signs up or signs in.
 //

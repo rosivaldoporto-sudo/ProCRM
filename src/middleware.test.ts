@@ -54,43 +54,43 @@ const ROTATED = {
 };
 
 describe('proxy — refreshed auth cookies survive redirects', () => {
-  it('carries the rotated token when redirecting a signed-in user off /login', async () => {
+  it('carries the rotated token when redirecting a signed-in user off /entrar', async () => {
     mockUser = { id: 'user-1' };
     refreshedCookies = [ROTATED];
 
-    const res = await proxy(new NextRequest('https://app.test/login'));
+    const res = await proxy(new NextRequest('https://app.test/entrar'));
 
-    // Redirect to /dashboard…
+    // Redirect to /painel…
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/dashboard');
+    expect(res.headers.get('location')).toContain('/painel');
     // …and the rotated cookie MUST ride along, otherwise the browser keeps
     // replaying the now-consumed refresh token and the session wedges until
     // the user manually clears cookies.
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
-  it('carries the rotated token when redirecting an unauth user to /login', async () => {
+  it('carries the rotated token when redirecting an unauth user to /entrar', async () => {
     mockUser = null;
     // Even on the logged-out path getUser() may emit cookie writes (e.g.
     // clearing a dead session); those must not be dropped on the redirect.
     refreshedCookies = [{ ...ROTATED, value: 'cleared' }];
 
-    const res = await proxy(new NextRequest('https://app.test/dashboard'));
+    const res = await proxy(new NextRequest('https://app.test/painel'));
 
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/login');
+    expect(res.headers.get('location')).toContain('/entrar');
     expect(res.cookies.get(ROTATED.name)?.value).toBe('cleared');
   });
 
-  it('redirects a signed-in user with an invite token to /join/<token>', async () => {
+  it('redirects a signed-in user with an invite token to /convite/<token>', async () => {
     mockUser = { id: 'user-1' };
     refreshedCookies = [ROTATED];
 
     const res = await proxy(
-      new NextRequest('https://app.test/login?invite=abc123')
+      new NextRequest('https://app.test/entrar?invite=abc123')
     );
 
-    expect(res.headers.get('location')).toContain('/join/abc123');
+    expect(res.headers.get('location')).toContain('/convite/abc123');
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
@@ -98,12 +98,33 @@ describe('proxy — refreshed auth cookies survive redirects', () => {
     mockUser = { id: 'user-1' };
     refreshedCookies = [ROTATED];
 
-    const res = await proxy(new NextRequest('https://app.test/dashboard'));
+    const res = await proxy(new NextRequest('https://app.test/painel'));
 
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get('location')).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
+});
+
+describe('proxy — protected pages', () => {
+  it.each(['/painel', '/formularios', '/formularios/agenda', '/configuracoes'])(
+    'sends a logged-out visitor from %s to /entrar',
+    async (path) => {
+      const res = await proxy(new NextRequest(`https://app.test${path}`));
+
+      expect(res.status).toBe(307);
+      expect(new URL(res.headers.get('location')!).pathname).toBe('/entrar');
+    }
+  );
+
+  it.each(['/f/meu-form', '/fluxos-publicos', '/convite/abc', '/entrar'])(
+    'leaves public path %s alone',
+    async (path) => {
+      const res = await proxy(new NextRequest(`https://app.test${path}`));
+
+      expect(res.status).toBe(200);
+    }
+  );
 });
 
 describe('proxy — API request hardening', () => {

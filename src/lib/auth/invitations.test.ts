@@ -58,26 +58,26 @@ describe("hashInviteToken", () => {
 describe("inviteUrl", () => {
   it("joins path correctly with no trailing slash", () => {
     expect(inviteUrl("abc", "https://wacrm.example")).toBe(
-      "https://wacrm.example/join/abc",
+      "https://wacrm.example/convite/abc",
     );
   });
 
   it("tolerates a trailing slash on baseUrl", () => {
     expect(inviteUrl("abc", "https://wacrm.example/")).toBe(
-      "https://wacrm.example/join/abc",
+      "https://wacrm.example/convite/abc",
     );
   });
 
   it("tolerates multiple trailing slashes", () => {
     expect(inviteUrl("abc", "https://wacrm.example///")).toBe(
-      "https://wacrm.example/join/abc",
+      "https://wacrm.example/convite/abc",
     );
   });
 
   it("preserves the entire token verbatim — including base64url symbols", () => {
     // The token may contain `-` and `_`. Both are URL-safe; the
     // function must NOT percent-encode them.
-    expect(inviteUrl("a-b_c", "https://x")).toBe("https://x/join/a-b_c");
+    expect(inviteUrl("a-b_c", "https://x")).toBe("https://x/convite/a-b_c");
   });
 });
 

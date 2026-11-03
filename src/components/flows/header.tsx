@@ -18,8 +18,8 @@
  *
  * Reads everything from the editor context (`useFlowEditor`) so it
  * stays in sync with whichever view is mutating state, and routes
- * router navigation locally (back to /flows, View runs to
- * /flows/[id]/runs) — those don't belong in the hook.
+ * router navigation locally (back to /fluxos, View runs to
+ * /fluxos/[id]/execucoes) — those don't belong in the hook.
  */
 
 import { useRouter } from "next/navigation";
@@ -63,7 +63,7 @@ export function EditorHeader() {
         {/* ---- left: back · icon · name · status · edited ---- */}
         <button
           type="button"
-          onClick={() => router.push("/flows")}
+          onClick={() => router.push("/fluxos")}
           title="Voltar para Fluxos"
           aria-label="Voltar para Fluxos"
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -98,7 +98,7 @@ export function EditorHeader() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push(`/flows/${flow.id}/runs`)}
+            onClick={() => router.push(`/fluxos/${flow.id}/execucoes`)}
           >
             <History className="h-3.5 w-3.5" />
             Execuções

@@ -702,7 +702,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
       }
       toast.success(isEditing ? t("toasts.saved") : t("toasts.created"))
       if (!isEditing && body?.automation?.id) {
-        router.replace(`/automations/${body.automation.id}/edit`)
+        router.replace(`/automacoes/${body.automation.id}/editar`)
       }
     } finally {
       setSaving(false)
@@ -717,7 +717,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
       <header className="flex flex-shrink-0 items-center gap-2 border-b border-border bg-card/80 px-3 py-3 sm:gap-3 sm:px-4">
         <button
           type="button"
-          onClick={() => router.push("/automations")}
+          onClick={() => router.push("/automacoes")}
           className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label={t("backToAutomations")}
         >

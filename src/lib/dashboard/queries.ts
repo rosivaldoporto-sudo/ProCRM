@@ -321,7 +321,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
       kind: 'message',
       text: `Nova mensagem de ${who}`,
       at: m.created_at,
-      href: `/inbox?c=${m.conversation_id}`,
+      href: `/conversas?c=${m.conversation_id}`,
     })
   }
 
@@ -331,7 +331,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
       kind: 'contact',
       text: `Novo contato: ${c.name || c.phone}`,
       at: c.created_at,
-      href: '/contacts',
+      href: '/contatos',
     })
   }
 
@@ -349,7 +349,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
         ? `Negócio "${d.title}" em ${stage.name}`
         : `Negócio "${d.title}" atualizado`,
       at: d.updated_at,
-      href: '/pipelines',
+      href: '/funis',
     })
   }
 
@@ -369,7 +369,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
       kind: 'broadcast',
       text: `Transmissão "${b.name}" ${label}`,
       at: b.created_at,
-      href: '/broadcasts',
+      href: '/transmissoes',
     })
   }
 

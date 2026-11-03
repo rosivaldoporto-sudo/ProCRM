@@ -21,9 +21,8 @@ import {
  * Settings information architecture for the redesigned page.
  *
  * The flat tab strip became a grouped left rail with a new Overview
- * landing. The URL query param stays `?tab=` (deep-linkable, and it
- * keeps the existing links in sidebar.tsx / header.tsx working) — we
- * just map the old values onto the new sections.
+ * landing. The URL query param is `?aba=<slug em português>`
+ * (deep-linkable); the old `?tab=<id>` links still resolve.
  */
 export const SETTINGS_SECTIONS = [
   'overview',
@@ -44,6 +43,25 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** Slug de cada seção na URL (`/configuracoes?aba=<slug>`). */
+export const SECTION_SLUGS: Record<SettingsSection, string> = {
+  overview: 'visao-geral',
+  profile: 'perfil',
+  security: 'seguranca',
+  appearance: 'aparencia',
+  notifications: 'notificacoes',
+  whatsapp: 'whatsapp',
+  'whatsapp-qr': 'whatsapp-qr',
+  'meta-ads': 'meta-ads',
+  templates: 'modelos',
+  'quick-replies': 'respostas-rapidas',
+  fields: 'campos',
+  deals: 'negocios',
+  members: 'membros',
+  api: 'api',
+  logs: 'registros',
+};
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
 
@@ -85,13 +103,15 @@ function isSection(value: string | null): value is SettingsSection {
 }
 
 /**
- * Resolve a raw `?tab=` value to a section. Legacy tabs from the old
- * flat layout collapse onto their new home (Tags + Custom fields → the
- * merged "Fields & tags" section). Anything unknown falls back to the
- * Overview landing.
+ * Resolve a raw `?aba=` (or legacy `?tab=`) value to a section. Legacy
+ * tabs from the old flat layout collapse onto their new home (Tags +
+ * Custom fields → the merged "Fields & tags" section). Anything unknown
+ * falls back to the Overview landing.
  */
 export function resolveSection(raw: string | null): SettingsSection {
   if (raw === 'tags' || raw === 'custom-fields') return 'fields';
+  const bySlug = SETTINGS_SECTIONS.find((id) => SECTION_SLUGS[id] === raw);
+  if (bySlug) return bySlug;
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
 }

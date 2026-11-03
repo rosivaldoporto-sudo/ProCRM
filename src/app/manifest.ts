@@ -18,7 +18,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "ProCRM",
     description:
       "CRM completo para WhatsApp com painel compartilhado, contatos, pipeline de vendas, transmissões e automações.",
-    start_url: "/dashboard",
+    start_url: "/painel",
     scope: "/",
     display: "standalone",
     background_color: "#020617",

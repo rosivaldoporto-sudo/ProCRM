@@ -220,7 +220,7 @@ export async function notifyInboundMessage(args: {
     await deliver(args.db, rows, {
       title: args.contactName?.trim() || "Nova mensagem",
       body: args.preview,
-      url: `/inbox?c=${args.conversationId}`,
+      url: `/conversas?c=${args.conversationId}`,
       tag: `conversation-${args.conversationId}`,
     });
   } catch (err) {

@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 /**
- * GET /api/flows/[id]/runs
+ * GET /api/fluxos/[id]/execucoes
  *
  * Newest-first list of flow runs for a single flow, with the latest
  * event timeline embedded for each. Used by the run-history viewer
- * page (`/flows/[id]/runs`) to give the owner end-to-end visibility
+ * page (`/fluxos/[id]/execucoes`) to give the owner end-to-end visibility
  * into what the bot did with each customer.
  *
  * RLS does the ownership check (flow_runs has a `user_id` policy);

@@ -300,7 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!session) {
           clearSessionState();
-          window.location.replace('/login');
+          window.location.replace('/entrar');
           return;
         }
 
@@ -313,7 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           (!error || [400, 401, 403].includes(error.status ?? 0))
         ) {
           clearSessionState();
-          window.location.replace('/login');
+          window.location.replace('/entrar');
         }
       } catch (error) {
         // A transient network failure must not masquerade as a logout.
@@ -377,7 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setAccount(null);
-    window.location.href = '/login';
+    window.location.href = '/entrar';
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -440,7 +440,7 @@ export function useAuth(): AuthContextValue {
       loading: false,
       profileLoading: false,
       signOut: async () => {
-        window.location.href = '/login';
+        window.location.href = '/entrar';
       },
       refreshProfile: async () => {},
       account: null,

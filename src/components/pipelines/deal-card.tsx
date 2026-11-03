@@ -74,7 +74,7 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
           )}
           {deal.conversation_id && (
             <Link
-              href={`/inbox?c=${deal.conversation_id}`}
+              href={`/conversas?c=${deal.conversation_id}`}
               onClick={(e) => e.stopPropagation()}
               title={t("openChat")}
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-primary/10 hover:text-primary group-hover:opacity-100"

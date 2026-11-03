@@ -161,27 +161,27 @@ export async function proxy(request: NextRequest) {
 
   // Auth pages - redirect to dashboard if already logged in.
   // Exception: when an invite token is in the query string we
-  // send the already-signed-in user to /join/<token> instead so
+  // send the already-signed-in user to /convite/<token> instead so
   // they can accept the invitation in one click. Without this,
   // a forwarded invite link to someone who's already signed in
   // would silently drop them on /dashboard.
   if (
     user &&
-    (request.nextUrl.pathname === '/login' ||
-      request.nextUrl.pathname === '/signup' ||
-      request.nextUrl.pathname === '/forgot-password')
+    (request.nextUrl.pathname === '/entrar' ||
+      request.nextUrl.pathname === '/cadastro' ||
+      request.nextUrl.pathname === '/recuperar-senha')
   ) {
     const url = request.nextUrl.clone();
     const inviteToken = request.nextUrl.searchParams.get('invite');
     if (
       inviteToken &&
-      (request.nextUrl.pathname === '/login' ||
-        request.nextUrl.pathname === '/signup')
+      (request.nextUrl.pathname === '/entrar' ||
+        request.nextUrl.pathname === '/cadastro')
     ) {
-      url.pathname = `/join/${encodeURIComponent(inviteToken)}`;
+      url.pathname = `/convite/${encodeURIComponent(inviteToken)}`;
       url.search = '';
     } else {
-      url.pathname = '/dashboard';
+      url.pathname = '/painel';
       url.search = '';
     }
     return withRefreshedCookies(NextResponse.redirect(url));
@@ -189,23 +189,28 @@ export async function proxy(request: NextRequest) {
 
   // Protected pages - redirect to login if not authenticated
   const protectedPaths = [
-    '/dashboard',
-    '/inbox',
-    '/contacts',
-    '/pipelines',
-    '/broadcasts',
-    '/automations',
-    '/flows',
-    '/notifications',
-    '/agents',
-    '/settings',
+    '/painel',
+    '/conversas',
+    '/contatos',
+    '/funis',
+    '/transmissoes',
+    '/automacoes',
+    '/fluxos',
+    '/formularios',
+    '/notificacoes',
+    '/agentes',
+    '/configuracoes',
   ];
   if (
     !user &&
-    protectedPaths.some((path) => request.nextUrl.pathname.startsWith(path))
+    protectedPaths.some(
+      (path) =>
+        request.nextUrl.pathname === path ||
+        request.nextUrl.pathname.startsWith(`${path}/`)
+    )
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = '/login';
+    url.pathname = '/entrar';
     return withRefreshedCookies(NextResponse.redirect(url));
   }
 

@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       typeof body?.body === "string" && body.body.trim()
         ? body.body.trim()
         : "Notificações ativadas neste dispositivo.",
-    url: "/inbox",
+    url: "/conversas",
     tag: "push-test",
   });
 

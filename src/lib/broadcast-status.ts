@@ -2,7 +2,7 @@
  * Shared status badge config for broadcasts + recipients.
  *
  * Previously `statusConfig` was defined inline in both
- * /broadcasts/page.tsx and /broadcasts/[id]/page.tsx with slight
+ * /transmissoes/page.tsx and /transmissoes/[id]/page.tsx with slight
  * drift risk. One source of truth now.
  *
  * Badge shape: bg-*-500/10 + text-*-400 + border-*-500/20. The

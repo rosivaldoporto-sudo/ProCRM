@@ -46,7 +46,7 @@ self.addEventListener("push", (event) => {
 
   const title = typeof data.title === "string" && data.title ? data.title : "ProCRM";
   const body = typeof data.body === "string" ? data.body : "Nova mensagem no inbox";
-  const url = typeof data.url === "string" && data.url ? data.url : "/inbox";
+  const url = typeof data.url === "string" && data.url ? data.url : "/conversas";
   const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
 
   event.waitUntil(
@@ -68,13 +68,13 @@ self.addEventListener("notificationclick", (event) => {
 
   // Same-origin only: a notification must never open a third-party page.
   const requestedUrl = new URL(
-    (event.notification.data && event.notification.data.url) || "/inbox",
+    (event.notification.data && event.notification.data.url) || "/conversas",
     self.location.origin,
   );
   const targetUrl =
     requestedUrl.origin === self.location.origin
       ? requestedUrl.href
-      : new URL("/inbox", self.location.origin).href;
+      : new URL("/conversas", self.location.origin).href;
 
   event.waitUntil(
     (async () => {

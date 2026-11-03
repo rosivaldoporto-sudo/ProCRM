@@ -69,7 +69,7 @@ export function hashInviteToken(token: string): string {
  */
 export function inviteUrl(token: string, baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
-  return `${trimmed}/join/${token}`;
+  return `${trimmed}/convite/${token}`;
 }
 
 /**

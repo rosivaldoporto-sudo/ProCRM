@@ -411,7 +411,7 @@ export function FlowEditorProvider({
         method: "DELETE",
       });
       if (!res.ok) throw new Error(`Falha ao excluir: ${res.status}`);
-      router.push("/flows");
+      router.push("/fluxos");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Falha ao excluir";
       toast.error(msg);

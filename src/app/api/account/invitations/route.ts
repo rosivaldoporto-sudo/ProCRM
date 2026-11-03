@@ -71,7 +71,7 @@ import {
 // Previous implementation hard-defaulted to `https://wacrm.tech`
 // (the docs/marketing site, a different repo). Forks that didn't
 // set `NEXT_PUBLIC_SITE_URL` got invite links pointing at the
-// marketing site, which 404s on `/join/<token>`. This resolution
+// marketing site, which 404s on `/convite/<token>`. This resolution
 // chain removes the foot-gun.
 function parseAllowedHosts(): readonly string[] | null {
   const raw = process.env.ALLOWED_INVITE_HOSTS?.trim();

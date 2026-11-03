@@ -12,7 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Pipelines page), we seed the same default pipeline the UI seeds.
 // ============================================================
 
-/** Mirrors SPEC_DEFAULT_STAGES in src/app/(dashboard)/pipelines/page.tsx. */
+/** Mirrors SPEC_DEFAULT_STAGES in src/app/(dashboard)/funis/page.tsx. */
 const DEFAULT_PIPELINE_NAME = 'Funil de Vendas'
 const DEFAULT_STAGES = [
   { name: 'Novo Lead', color: '#3b82f6', position: 0 },
