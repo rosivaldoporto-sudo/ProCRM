@@ -48,13 +48,14 @@ const DEFAULT_TEMPLATE_ROW: Record<string, unknown> = {
 };
 
 let templateRow: Record<string, unknown> = { ...DEFAULT_TEMPLATE_ROW };
+let mockRole = 'agent';
 
 function makeSupabaseMock() {
   function builder(table: string) {
     const result = () => {
       switch (table) {
         case 'profiles':
-          return { data: { account_id: 'acct-1' }, error: null };
+          return { data: { account_id: 'acct-1', account_role: mockRole }, error: null };
         case 'whatsapp_config':
           return {
             data: {
@@ -120,12 +121,23 @@ function postBroadcast(body: Record<string, unknown>) {
 
 beforeEach(() => {
   __resetRateLimitForTests();
+  mockRole = 'agent';
   templateRow = { ...DEFAULT_TEMPLATE_ROW };
   mocks.sendTemplateMessage.mockReset().mockResolvedValue({
     messageId: 'wamid-1',
   });
   mocks.resolveMetaMediaId.mockReset().mockResolvedValue(null);
   mocks.persistBroadcastMessage.mockReset().mockResolvedValue(false);
+});
+
+describe('POST /api/whatsapp/broadcast — authorization', () => {
+  it('rejects a viewer before anything is sent', async () => {
+    mockRole = 'viewer';
+    const res = await postBroadcast({ phone_numbers: ['+5511999999999'] });
+
+    expect(res.status).toBe(403);
+    expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/whatsapp/broadcast — media id resolution', () => {

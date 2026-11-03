@@ -6,7 +6,9 @@ import { normalizeAttribution, sanitizeTracking, type TrackingBag } from '@/lib/
 import { getClientIp } from '@/lib/request-ip';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
 import { syncLeadRecords, type LeadSyncSettings } from '@/lib/lead-forms/contact-sync';
-import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { findPublishedFormBySlug } from '@/lib/lead-forms/public-form';
+import { deliverFormWebhook } from '@/lib/lead-forms/webhook';
+import { checkDistributedRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { isUuid } from '@/lib/api-validate';
 
 interface LeadFormResponseRow {
@@ -21,7 +23,7 @@ interface LeadFormResponseRow {
  */
 export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
-  const limit = checkRateLimit(`leadform-submit:${getClientIp(req)}`, RATE_LIMITS.invitationPeek);
+  const limit = await checkDistributedRateLimit(`leadform-submit:${getClientIp(req)}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
 
   const body = (await req.json().catch(() => null)) as {
@@ -67,13 +69,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   const db = supabaseAdmin();
-  const { data: formRow } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
-  const form = formRow as {
-    id: string; account_id: string; user_id: string; name: string; status: string;
+  const form = (await findPublishedFormBySlug(db, slug)) as unknown as {
+    id: string; account_id: string; user_id: string; name: string;
     settings: Record<string, unknown>; qualification_config: Parameters<typeof evaluateQualification>[2];
     meta_config: Record<string, unknown>; scheduling_config?: { enabled?: boolean };
   } | null;
-  if (!form || form.status !== 'published') {
+  if (!form) {
     return NextResponse.json({ error: 'Formulário não encontrado' }, { status: 404 });
   }
 
@@ -412,14 +413,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     });
   }
 
-  // Webhook externo (fire-and-forget) — só na primeira conclusão.
+  // Webhook externo — só na primeira conclusão. Roda em after(): uma promise
+  // solta poderia morrer junto com o request, e destino lento não trava o form.
   const webhook = (form.settings as { webhook_url?: string | null }).webhook_url;
   if (isFirstCompletion && webhook) {
-    fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ form_id: form.id, form_name: form.name, response_id: responseId, answers: body.answers, score, is_qualified: isQualified, contact, tracking, attribution }),
-    }).catch(() => undefined);
+    const webhookPayload = JSON.stringify({ form_id: form.id, form_name: form.name, response_id: responseId, answers: body.answers, score, is_qualified: isQualified, contact, tracking, attribution });
+    after(() => deliverFormWebhook(webhook, webhookPayload));
   }
 
   const qual = form.qualification_config as { qualified_message?: string; disqualified_message?: string };

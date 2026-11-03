@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { getVapidPublicKey, isPushConfigured } from "@/lib/push/send";
+import { isDeliverableUrl } from "@/lib/webhooks/ssrf";
 
 export const runtime = "nodejs";
 
@@ -85,7 +86,9 @@ export async function POST(request: Request) {
     | SubscriptionBody
     | null;
   const subscription = parseSubscription(body ?? {});
-  if (!subscription) {
+  // `web-push` POSTs to this URL from our server, so a member could otherwise
+  // point it at an internal https service (SSRF).
+  if (!subscription || !(await isDeliverableUrl(subscription.endpoint))) {
     return NextResponse.json(
       { error: "Invalid push subscription" },
       { status: 400 },

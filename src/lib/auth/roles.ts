@@ -90,6 +90,14 @@ export function canSendMessages(role: AccountRole): boolean {
 }
 
 /**
+ * `canSendMessages` for routes that read `account_role` straight from a
+ * `profiles` row. Fails closed: a missing or unknown role can't write.
+ */
+export function canWriteWithRole(role: unknown): boolean {
+  return isAccountRole(role) && canSendMessages(role);
+}
+
+/**
  * Viewer: read-only across everything. Provided as a positive
  * predicate so UI gates read naturally (`if (canViewOnly(role))`
  * shows the "Read-only" tooltip without inverting `canSendMessages`).

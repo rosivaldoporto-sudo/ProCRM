@@ -148,6 +148,7 @@ export function PublicForm({ slug, nonce, preview }: {
     ends_at: string;
     meeting_title?: string | null;
     attendee_name?: string | null;
+    meeting_link?: string | null;
   } | null>(null);
   // Dia selecionado no calendário (yyyy-mm-dd) + mês em exibição.
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -523,7 +524,7 @@ export function PublicForm({ slug, nonce, preview }: {
         body: JSON.stringify({ response_id: done.response_id, starts_at: picked, name, email, phone }),
       });
       const json = (await res.json()) as {
-        booking?: { id: string; starts_at: string; ends_at: string; meeting_title?: string | null; attendee_name?: string | null };
+        booking?: { id: string; starts_at: string; ends_at: string; meeting_title?: string | null; attendee_name?: string | null; meeting_link?: string | null };
         error?: string;
       };
       if (!res.ok) throw new Error(json.error ?? "book failed");
@@ -532,6 +533,7 @@ export function PublicForm({ slug, nonce, preview }: {
         ends_at: json.booking!.ends_at,
         meeting_title: json.booking?.meeting_title ?? null,
         attendee_name: json.booking?.attendee_name ?? name,
+        meeting_link: json.booking?.meeting_link ?? null,
       });
       setBooked(true);
       // event_id idêntico ao do CAPI (`booking_<id>`) para deduplicar.
@@ -627,6 +629,7 @@ export function PublicForm({ slug, nonce, preview }: {
     ? Math.round(((done || sending ? blocks.length : step) / blocks.length) * 100)
     : 0;
   const fontStack = `${theme.font}, Inter, ui-sans-serif, system-ui, -apple-system, sans-serif`;
+  const meetingLink = booking?.meeting_link ?? scheduling?.meeting_link;
 
   return (
     <div
@@ -725,9 +728,9 @@ export function PublicForm({ slug, nonce, preview }: {
                     >
                       <CalendarDays className="h-4 w-4" /> Adicionar à agenda
                     </a>
-                    {scheduling?.meeting_link && /^https?:\/\//.test(scheduling.meeting_link) && (
+                    {meetingLink && /^https?:\/\//.test(meetingLink) && (
                       <a
-                        href={scheduling.meeting_link}
+                        href={meetingLink}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex min-h-[44px] items-center rounded-lg px-4 text-sm font-medium"

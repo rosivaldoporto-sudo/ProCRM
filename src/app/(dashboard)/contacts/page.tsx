@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { searchPattern } from '@/lib/inbox/query';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Contact, Tag as TagType, ContactTag } from '@/types';
@@ -326,7 +327,7 @@ export default function ContactsPage() {
         .range(from, to);
 
       if (term) {
-        const like = `%${term}%`;
+        const like = searchPattern(term);
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
       }
 

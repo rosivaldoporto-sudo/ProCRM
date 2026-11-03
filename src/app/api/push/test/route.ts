@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { isPushConfigured, sendPushToUser } from "@/lib/push/send";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,9 @@ export async function POST(request: Request) {
   } catch (err) {
     return toErrorResponse(err);
   }
+
+  const limit = checkRateLimit(`push-test:${ctx.userId}`, RATE_LIMITS.adminAction);
+  if (!limit.success) return rateLimitResponse(limit);
 
   if (!isPushConfigured()) {
     return NextResponse.json(

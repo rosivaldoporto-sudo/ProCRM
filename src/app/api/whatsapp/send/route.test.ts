@@ -28,6 +28,8 @@ const CONTACT = {
 // Chainable Supabase mock. A fresh builder per `.from()` call tracks whether
 // `.insert()` ran so the terminal resolves to the inserted row for creates
 // and the canned select row otherwise.
+let mockRole = 'agent'
+
 function makeSupabaseMock() {
   function builder(table: string) {
     let didInsert = false
@@ -35,7 +37,7 @@ function makeSupabaseMock() {
     const selectResult = () => {
       switch (table) {
         case 'profiles':
-          return { data: { account_id: 'acct-1' }, error: null }
+          return { data: { account_id: 'acct-1', account_role: mockRole }, error: null }
         case 'contacts':
           return { data: contactRow, error: null }
         case 'conversations':
@@ -170,12 +172,22 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     existingConversation = null
     createdConversation = null
     contactRow = CONTACT
+    mockRole = 'agent'
     supabaseMock = makeSupabaseMock()
     sendTemplateMessage.mockClear()
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('rejects a viewer before touching conversations or Meta', async () => {
+    mockRole = 'viewer'
+    const res = await postContactTemplate()
+
+    expect(res.status).toBe(403)
+    expect(conversationInserts).toHaveLength(0)
+    expect(sendTemplateMessage).not.toHaveBeenCalled()
   })
 
   it('creates a conversation for a contact with none, then sends the template', async () => {

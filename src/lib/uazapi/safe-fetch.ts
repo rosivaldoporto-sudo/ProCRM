@@ -15,6 +15,35 @@ export function isSameOrigin(candidate: string, trustedBase: string): boolean {
   }
 }
 
+/**
+ * Read a response body, giving up as soon as it passes `maxBytes`. The
+ * limit has to be enforced while streaming: `Content-Length` is optional
+ * and a chunked response from a hostile host could otherwise exhaust memory.
+ */
+export async function readBodyWithLimit(
+  response: Response,
+  maxBytes: number
+): Promise<Buffer<ArrayBuffer> | null> {
+  const declared = Number(response.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+}
+
 export async function fetchRemoteBytes(args: {
   url: string;
   headers?: Record<string, string>;
@@ -66,25 +95,8 @@ export async function fetchRemoteBytes(args: {
     return null;
   }
 
-  const declared = Number(response.headers.get('content-length') ?? 0);
-  if (Number.isFinite(declared) && declared > maxBytes) return null;
-  if (!response.body) return null;
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-
-  const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  const bytes = await readBodyWithLimit(response, maxBytes);
+  if (!bytes) return null;
   return {
     buffer: bytes.buffer.slice(
       bytes.byteOffset,

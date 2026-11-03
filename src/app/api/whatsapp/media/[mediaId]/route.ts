@@ -4,6 +4,7 @@ import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { mediaResponseHeaders } from '@/lib/storage/media-response'
 
 export async function GET(
   request: Request,
@@ -12,7 +13,9 @@ export async function GET(
   try {
     const { mediaId } = await params
 
-    if (!mediaId) {
+    // The id is interpolated into a Graph API path sent with the account's
+    // token, so an encoded `../` must not reach other Graph endpoints.
+    if (!mediaId || !/^[A-Za-z0-9_-]{1,128}$/.test(mediaId)) {
       return NextResponse.json(
         { error: 'Media ID is required' },
         { status: 400 }
@@ -82,10 +85,7 @@ export async function GET(
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
-      headers: {
-        'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
-      },
+      headers: mediaResponseHeaders(contentType || mediaInfo.mimeType),
     })
   } catch (error) {
     console.error('Error in WhatsApp media GET:', error)

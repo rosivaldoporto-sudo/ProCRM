@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { normalizeScheduling } from '@/lib/lead-forms/availability';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
+import { findPublishedFormBySlug } from '@/lib/lead-forms/public-form';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/request-ip';
 
@@ -14,21 +15,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   const limit = checkRateLimit(`leadform-view:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
   const db = supabaseAdmin();
-  const { data: form } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
-  const f = form as {
+  const form = await findPublishedFormBySlug(db, slug);
+  const f = form as unknown as {
     id: string; account_id: string; name: string; status: string; theme_config: unknown;
     scheduling_config: unknown; meta_config: unknown; qualification_config: unknown;
   } | null;
-  if (!f || f.status !== 'published') {
+  if (!f) {
     return NextResponse.json({ error: 'Formulário não encontrado' }, { status: 404 });
   }
   const { data: blocks } = await db
     .from('lead_form_blocks')
     .select('block_key, block_type, config, position')
-    .eq('form_id', (form as { id: string }).id)
+    .eq('form_id', f.id)
     .order('position');
   // Conta view (fire-and-forget, com log em caso de falha)
-  void bumpFormCounter(db, (form as { id: string }).id, 'view');
+  void bumpFormCounter(db, f.id, 'view');
   const meta = (f.meta_config ?? {}) as {
     pixel_id?: string | null;
     fire_view_content?: boolean; fire_lead?: boolean;
@@ -52,14 +53,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
       name: f.name,
       theme: f.theme_config,
       // Só o necessário para montar a tela. A grade de horários fica no
-      // endpoint /slots, que aplica as regras no servidor.
+      // endpoint /slots, que aplica as regras no servidor. O link da reunião
+      // só sai na resposta do /book: aqui ele vazaria para qualquer visitante.
       scheduling: {
         enabled: scheduling.enabled,
         duration_min: scheduling.duration_min,
         timezone: scheduling.timezone,
         meeting_title: scheduling.meeting_title,
         owner_name: scheduling.owner_name,
-        meeting_link: scheduling.meeting_link,
         max_days_ahead: scheduling.max_days_ahead,
         min_notice_min: scheduling.min_notice_min,
       },

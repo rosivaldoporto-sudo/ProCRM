@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { canWriteWithRole } from '@/lib/auth/roles'
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -38,13 +39,20 @@ export async function POST(request: Request) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('account_id')
+      .select('account_id, account_role')
       .eq('user_id', user.id)
       .maybeSingle()
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
         { error: 'Your profile is not linked to an account.' },
+        { status: 403 },
+      )
+    }
+    // Viewers are read-only: the role is enforced here, not only in the UI.
+    if (!canWriteWithRole(profile?.account_role)) {
+      return NextResponse.json(
+        { error: "This action requires the 'agent' role or higher" },
         { status: 403 },
       )
     }

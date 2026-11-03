@@ -1,5 +1,7 @@
+import { readBodyWithLimit } from '@/lib/uazapi/safe-fetch'
 import { uploadResumableMedia } from '@/lib/whatsapp/meta-api'
 import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
+import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 
 /**
  * Meta requires an `example.header_handle` (from the Resumable Upload
@@ -17,6 +19,7 @@ import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
 // Meta's image-header sample limits.
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png']
+const HEADER_FETCH_TIMEOUT_MS = 15_000
 
 export async function ensureImageHeaderHandle(
   payload: TemplatePayload,
@@ -33,11 +36,21 @@ export async function ensureImageHeaderHandle(
     )
   }
 
+  // The URL is typed by the user and our server makes the request, so
+  // guard against SSRF: public destinations only, no redirects (a 3xx could
+  // bounce to an internal address after this check), bounded in time and size.
+  if (!(await isDeliverableUrl(payload.header_media_url))) {
+    throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
+  }
+
   // Fetch the sample image bytes (works for our uploaded chat-media URL
   // and for a manually-pasted public link).
   let res: Response
   try {
-    res = await fetch(payload.header_media_url)
+    res = await fetch(payload.header_media_url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(HEADER_FETCH_TIMEOUT_MS),
+    })
   } catch {
     throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
   }
@@ -50,14 +63,13 @@ export async function ensureImageHeaderHandle(
     throw new Error(`Header image must be JPEG or PNG (got ${contentType}).`)
   }
 
-  const bytes = new Uint8Array(await res.arrayBuffer())
+  const body = await readBodyWithLimit(res, IMAGE_MAX_BYTES)
+  if (!body) {
+    throw new Error("Header image is larger than Meta's limit of 5 MB.")
+  }
+  const bytes = new Uint8Array(body)
   if (bytes.byteLength === 0) {
     throw new Error('Header image is empty.')
-  }
-  if (bytes.byteLength > IMAGE_MAX_BYTES) {
-    throw new Error(
-      `Header image is ${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB — Meta's limit is 5 MB.`,
-    )
   }
 
   const mimeType = ALLOWED_IMAGE_TYPES.includes(contentType) ? contentType : 'image/jpeg'

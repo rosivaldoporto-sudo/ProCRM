@@ -10,6 +10,7 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { isUuid } from '@/lib/api-validate';
+import { canWriteWithRole } from '@/lib/auth/roles';
 
 /**
  * POST /api/whatsapp/react
@@ -42,13 +43,20 @@ export async function POST(request: Request) {
     // lookups work for teammates who didn't author the rows directly.
     const { data: profile } = await supabase
       .from('profiles')
-      .select('account_id')
+      .select('account_id, account_role')
       .eq('user_id', user.id)
       .maybeSingle();
     const accountId = profile?.account_id as string | undefined;
     if (!accountId) {
       return NextResponse.json(
         { error: 'Your profile is not linked to an account.' },
+        { status: 403 },
+      );
+    }
+    // Viewers are read-only: the role is enforced here, not only in the UI.
+    if (!canWriteWithRole(profile?.account_role)) {
+      return NextResponse.json(
+        { error: "This action requires the 'agent' role or higher" },
         { status: 403 },
       );
     }

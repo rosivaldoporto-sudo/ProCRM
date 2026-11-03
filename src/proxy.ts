@@ -62,7 +62,10 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/api/uazapi/webhook') ||
     pathname === '/api/automations/cron' ||
     pathname === '/api/flows/cron' ||
-    pathname.startsWith('/api/v1/');
+    // `/api/v1/*` authenticates with bearer API keys, so it needs no Origin
+    // check. `/api/v1/capi/*` is the exception: the pipelines page calls it
+    // with the session cookie, so it must stay behind the CSRF check below.
+    (pathname.startsWith('/api/v1/') && !pathname.startsWith('/api/v1/capi/'));
 
   if (pathname.startsWith('/api/') && isMutation && !isExternalIntegration) {
     const origin = request.headers.get('origin');

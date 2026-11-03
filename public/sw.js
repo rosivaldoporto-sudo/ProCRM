@@ -66,10 +66,15 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const targetUrl = new URL(
+  // Same-origin only: a notification must never open a third-party page.
+  const requestedUrl = new URL(
     (event.notification.data && event.notification.data.url) || "/inbox",
     self.location.origin,
-  ).href;
+  );
+  const targetUrl =
+    requestedUrl.origin === self.location.origin
+      ? requestedUrl.href
+      : new URL("/inbox", self.location.origin).href;
 
   event.waitUntil(
     (async () => {

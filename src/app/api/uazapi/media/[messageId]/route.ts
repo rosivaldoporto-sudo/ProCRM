@@ -7,6 +7,7 @@ import {
 } from '@/lib/uazapi/runtime-config';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { mediaResponseHeaders } from '@/lib/storage/media-response';
 
 /**
  * GET /api/uazapi/media/[messageId]
@@ -112,10 +113,7 @@ export async function GET(
 
     return new Response(new Uint8Array(file.buffer), {
       status: 200,
-      headers: {
-        'Content-Type': file.contentType,
-        'Cache-Control': 'public, max-age=86400',
-      },
+      headers: mediaResponseHeaders(file.contentType),
     });
   } catch (error) {
     console.error('Error in Uazapi media GET:', error);

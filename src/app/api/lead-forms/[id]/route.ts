@@ -6,6 +6,7 @@ import { normalizeScheduling } from '@/lib/lead-forms/availability';
 import { isValidTimeZone } from '@/lib/lead-forms/timezone';
 import { slugify, BLOCK_TYPE_LABELS } from '@/lib/lead-forms/types';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { isDeliverableUrl } from '@/lib/webhooks/ssrf';
 
 const VALID_BLOCK_TYPES = new Set(Object.keys(BLOCK_TYPE_LABELS));
 const MAX_BLOCKS = 60;
@@ -69,7 +70,29 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   }
   if (body.slug !== undefined) {
     const s = slugify(String(body.slug || patch.name || 'form'));
+    // Único entre todas as contas (ver POST /api/lead-forms). Só confere quando
+    // o slug muda, para não travar o salvamento de quem já tem o mesmo link.
+    const { data: current } = await admin.from('lead_forms').select('slug').eq('id', id).maybeSingle();
+    if ((current as { slug: string } | null)?.slug !== s) {
+      const { data: taken } = await admin.from('lead_forms').select('id').eq('slug', s).neq('id', id).limit(1);
+      if (taken && taken.length > 0) {
+        return NextResponse.json({ error: 'Este link já está em uso. Escolha outro.' }, { status: 409 });
+      }
+    }
     patch.slug = s;
+  }
+  if (patch.settings !== undefined) {
+    const settings = (patch.settings ?? {}) as { webhook_url?: unknown; redirect_url?: unknown };
+    const webhookUrl = settings.webhook_url;
+    if (webhookUrl) {
+      if (typeof webhookUrl !== 'string' || webhookUrl.length > 2048 || !(await isDeliverableUrl(webhookUrl))) {
+        return bad('URL do webhook inválida: use um endereço http(s) público');
+      }
+    }
+    const redirectUrl = settings.redirect_url;
+    if (redirectUrl && (typeof redirectUrl !== 'string' || redirectUrl.length > 2048 || !/^https?:\/\//i.test(redirectUrl))) {
+      return bad('URL de redirecionamento inválida: use um endereço http(s)');
+    }
   }
   if (patch.status && !['draft', 'published', 'archived'].includes(patch.status as string)) {
     return NextResponse.json({ error: 'status inválido' }, { status: 400 });

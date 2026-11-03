@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { generateSlots, normalizeScheduling, type BookingInterval } from '@/lib/lead-forms/availability';
+import { findPublishedFormBySlug } from '@/lib/lead-forms/public-form';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/request-ip';
 
@@ -13,13 +14,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   if (!limit.success) return rateLimitResponse(limit);
 
   const db = supabaseAdmin();
-  const { data: formRow } = await db
-    .from('lead_forms')
-    .select('id, status, scheduling_config')
-    .eq('slug', slug)
-    .maybeSingle();
-  const form = formRow as { id: string; status: string; scheduling_config: unknown } | null;
-  if (!form || form.status !== 'published') {
+  const form = (await findPublishedFormBySlug(db, slug, 'id, scheduling_config')) as unknown as {
+    id: string; scheduling_config: unknown;
+  } | null;
+  if (!form) {
     return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
   }
 

@@ -62,11 +62,11 @@ export async function POST(request: Request) {
 
   const admin = supabaseAdmin();
   const baseSlug = slugify(body.name);
-  // Garante slug único dentro da conta
+  // Slug único entre TODAS as contas: a URL pública /f/<slug> não carrega a
+  // conta, então um homônimo derrubaria ou sequestraria o formulário alheio.
   const { data: existing } = await admin
     .from('lead_forms')
     .select('slug')
-    .eq('account_id', accountId)
     .like('slug', `${baseSlug}%`);
   const taken = new Set((existing ?? []).map((r) => (r as { slug: string }).slug));
   let slug = baseSlug;

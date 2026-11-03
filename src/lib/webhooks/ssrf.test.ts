@@ -29,6 +29,38 @@ describe('isPrivateOrReservedIp', () => {
     }
     expect(isPrivateOrReservedIp('2606:4700:4700::1111')).toBe(false);
   });
+
+  it('flags every spelling of an embedded private IPv4', () => {
+    for (const ip of [
+      '::ffff:7f00:1', // how the URL parser rewrites ::ffff:127.0.0.1
+      '::ffff:a9fe:a9fe', // ::ffff:169.254.169.254
+      '[::ffff:7f00:1]',
+      '::7f00:1', // IPv4-compatible
+      '::ffff:0:7f00:1', // IPv4-translated
+      '64:ff9b::7f00:1', // NAT64
+      '64:ff9b:1::1', // NAT64 local-use
+      '2002:7f00:1::', // 6to4
+    ]) {
+      expect(isPrivateOrReservedIp(ip)).toBe(true);
+    }
+    expect(isPrivateOrReservedIp('::ffff:808:808')).toBe(false); // 8.8.8.8
+    expect(isPrivateOrReservedIp('64:ff9b::808:808')).toBe(false);
+  });
+
+  it('flags reserved, multicast and unparseable addresses', () => {
+    for (const ip of [
+      '198.18.0.1',
+      '224.0.0.1',
+      '255.255.255.255',
+      'ff02::1',
+      'fec0::1',
+      '2001:db8::1',
+      'not-an-ip',
+      '1:2:3',
+    ]) {
+      expect(isPrivateOrReservedIp(ip)).toBe(true);
+    }
+  });
 });
 
 describe('isDeliverableUrl', () => {
@@ -38,6 +70,18 @@ describe('isDeliverableUrl', () => {
     expect(await isDeliverableUrl('https://[::1]/hook')).toBe(false);
     expect(await isDeliverableUrl('https://localhost/hook')).toBe(false);
     expect(await isDeliverableUrl('https://foo.internal/hook')).toBe(false);
+    expect(await isDeliverableUrl('https://localhost./hook')).toBe(false);
+  });
+
+  it('rejects IPv4-mapped literals rewritten by the URL parser', async () => {
+    expect(await isDeliverableUrl('http://[::ffff:127.0.0.1]/hook')).toBe(false);
+    expect(await isDeliverableUrl('http://[::ffff:169.254.169.254]/')).toBe(false);
+    expect(await isDeliverableUrl('http://[64:ff9b::7f00:1]/')).toBe(false);
+  });
+
+  it('rejects non-http(s) schemes', async () => {
+    expect(await isDeliverableUrl('ftp://8.8.8.8/hook')).toBe(false);
+    expect(await isDeliverableUrl('file:///etc/passwd')).toBe(false);
   });
 
   it('rejects a malformed URL', async () => {

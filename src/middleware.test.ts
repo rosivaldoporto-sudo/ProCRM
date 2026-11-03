@@ -153,6 +153,31 @@ describe('proxy — API request hardening', () => {
     expect(res.status).toBe(413);
   });
 
+  it('keeps cookie-authenticated /api/v1/capi behind the origin check', async () => {
+    const res = await proxy(
+      new NextRequest('https://app.test/api/v1/capi/qualified-lead', {
+        method: 'POST',
+        headers: {
+          origin: 'https://evil.example',
+          'sec-fetch-site': 'cross-site',
+        },
+      })
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it('does not apply browser-origin checks to bearer-authenticated /api/v1', async () => {
+    const res = await proxy(
+      new NextRequest('https://app.test/api/v1/messages', {
+        method: 'POST',
+        headers: { origin: 'https://integration.example' },
+      })
+    );
+
+    expect(res.status).toBe(200);
+  });
+
   it('does not apply browser-origin checks to signed external webhooks', async () => {
     const res = await proxy(
       new NextRequest('https://app.test/api/uazapi/webhook/account-id', {

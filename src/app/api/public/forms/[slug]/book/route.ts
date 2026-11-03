@@ -7,7 +7,8 @@ import {
 } from '@/lib/lead-forms/availability';
 import { fireFormCapiEvent } from '@/lib/lead-forms/meta-events';
 import { bumpFormCounter } from '@/lib/lead-forms/counters';
-import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { findPublishedFormBySlug } from '@/lib/lead-forms/public-form';
+import { checkDistributedRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/request-ip';
 
 /** POST público — agenda reunião para resposta qualificada. */
@@ -17,13 +18,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   // faria DoS do agendamento para todos os visitantes do formulário.
   // IP via getClientIp (x-real-ip antes do XFF falsificável).
   const ip = getClientIp(req);
-  const limit = checkRateLimit(`leadform-book:${slug}:${ip}`, RATE_LIMITS.invitationPeek);
+  const limit = await checkDistributedRateLimit(`leadform-book:${slug}:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
 
   const body = (await req.json().catch(() => null)) as {
     response_id?: string; starts_at?: string; name?: string; email?: string; phone?: string; notes?: string;
   } | null;
-  if (!body?.response_id || !body?.starts_at || !body?.name) {
+  if (
+    typeof body?.response_id !== 'string' ||
+    typeof body?.starts_at !== 'string' ||
+    typeof body?.name !== 'string' ||
+    !body.response_id ||
+    !body.starts_at
+  ) {
     return NextResponse.json({ error: 'response_id, starts_at e name são obrigatórios' }, { status: 400 });
   }
   // Tetos: campos de texto livres sem limite viram vetor de DoS de armazenamento.
@@ -39,13 +46,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   const db = supabaseAdmin();
-  const { data: formRow } = await db.from('lead_forms').select('*').eq('slug', slug).maybeSingle();
-  const form = formRow as {
-    id: string; account_id: string; status: string; name: string;
+  const form = (await findPublishedFormBySlug(db, slug)) as unknown as {
+    id: string; account_id: string; name: string;
     scheduling_config: unknown;
     meta_config: { fire_schedule?: boolean; pixel_id?: string | null };
   } | null;
-  if (!form || form.status !== 'published') {
+  if (!form) {
     return NextResponse.json({ error: 'Agendamento indisponível' }, { status: 404 });
   }
   const config = normalizeScheduling(form.scheduling_config);
@@ -141,5 +147,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     }));
   }
 
-  return NextResponse.json({ booking }, { status: 201 });
+  // Só o que a tela de confirmação usa: os demais campos (conta, formulário,
+  // dados do participante) não precisam sair para o navegador anônimo.
+  const confirmed = booking as {
+    id: string; starts_at: string; ends_at: string; meeting_title: string | null; attendee_name: string | null;
+  };
+  return NextResponse.json(
+    {
+      booking: {
+        id: confirmed.id,
+        starts_at: confirmed.starts_at,
+        ends_at: confirmed.ends_at,
+        meeting_title: confirmed.meeting_title,
+        attendee_name: confirmed.attendee_name,
+        meeting_link: config.meeting_link ?? null,
+      },
+    },
+    { status: 201 },
+  );
 }
