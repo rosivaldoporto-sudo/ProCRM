@@ -8,6 +8,7 @@ import {
   isUniqueViolation,
   normalizeKey,
 } from '@/lib/contacts/dedupe';
+import { fetchExistingPhones } from '@/lib/contacts/contact-list';
 import {
   parseContactCsv,
   type ParsedContactRow,
@@ -226,18 +227,12 @@ export function ImportModal({
       const { unique, duplicates: inFileDupes } = dedupeByPhone(parsedRows);
       skipped += inFileDupes;
 
-      // 2) Skip numbers already in this account. One read of the
-      //    generated `phone_normalized` column (migration 022) → Set.
-      const { data: existingRows } = await supabase
-        .from('contacts')
-        .select('phone_normalized')
-        .eq('account_id', accountId);
-      const existing = new Set(
-        (existingRows ?? [])
-          .map(
-            (r) => (r as { phone_normalized: string | null }).phone_normalized
-          )
-          .filter((p): p is string => !!p)
+      // 2) Skip numbers already in this account, looked up through the
+      //    generated `phone_normalized` column (migration 022).
+      const existing = await fetchExistingPhones(
+        supabase,
+        accountId,
+        unique.map((row) => normalizeKey(row.phone)).filter(Boolean)
       );
 
       const toInsert = unique.filter((row) => {

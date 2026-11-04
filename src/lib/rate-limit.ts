@@ -212,6 +212,10 @@ export const RATE_LIMITS = {
    *  while still bounding accidental abuse from a script run in a
    *  loop or a compromised admin session spamming role flips. */
   adminAction: { limit: 30, windowMs: 60_000 },
+  /** One batch of a bulk tag action on the Contacts page. The page sends
+   *  100 contacts per call, one call at a time, so 3 000 selected contacts
+   *  take 30 calls. 120/min leaves room to run a few such lots in a row. */
+  bulkTagBatch: { limit: 120, windowMs: 60_000 },
   /** Public REST API (`/api/v1/*`), keyed per API key. 120/min ≈ 2
    *  req/s sustained — comfortable for a polling integration or an
    *  automation firing on inbound events, while bounding a runaway

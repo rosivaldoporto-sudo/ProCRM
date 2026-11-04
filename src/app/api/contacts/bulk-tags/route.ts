@@ -1,74 +1,78 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { addContactTagIfAbsent, removeContactTag } from '@/lib/contacts/tag-write';
+import { BULK_TAG_BATCH_SIZE } from '@/lib/contacts/bulk-tags';
+import {
+  applyBulkContactTag,
+  ContactTagWriteError,
+} from '@/lib/contacts/tag-write';
 import { bad, isUuid } from '@/lib/api-validate';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
+/**
+ * One batch of a bulk tag action. The dashboard splits the selection with
+ * `runBulkTagAction`, so a request is a single statement in the database.
+ */
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('agent');
-    const tagLimit = checkRateLimit(`tags:${ctx.userId}`, RATE_LIMITS.adminAction);
+    const tagLimit = checkRateLimit(
+      `bulk-tags:${ctx.userId}`,
+      RATE_LIMITS.bulkTagBatch
+    );
     if (!tagLimit.success) return rateLimitResponse(tagLimit);
-    const body = await request.json().catch(() => null) as {
-      contact_ids?: string[];
-      tag_id?: string;
-      action?: 'add' | 'remove';
+    const body = (await request.json().catch(() => null)) as {
+      contact_ids?: unknown;
+      tag_id?: unknown;
+      action?: unknown;
     } | null;
 
-    if (!body?.contact_ids?.length || !body?.tag_id) {
-      return NextResponse.json(
-        { error: 'Informe os contatos e a etiqueta' },
-        { status: 400 }
-      );
-    }
+    const contactIds = body?.contact_ids;
+    const tagId = body?.tag_id;
+    const action = body?.action ?? 'add';
 
-    if (
-      !Array.isArray(body.contact_ids) ||
-      body.contact_ids.length === 0 ||
-      body.contact_ids.length > 500 ||
-      !body.contact_ids.every((v) => isUuid(v))
-    ) {
-      return bad('contact_ids must be an array of 1-500 UUIDs');
+    if (!Array.isArray(contactIds) || contactIds.length === 0 || !tagId) {
+      return bad('Informe os contatos e a etiqueta');
     }
-    if (!isUuid(body.tag_id)) {
+    if (
+      contactIds.length > BULK_TAG_BATCH_SIZE ||
+      !contactIds.every((id) => isUuid(id))
+    ) {
+      return bad(`Envie de 1 a ${BULK_TAG_BATCH_SIZE} contatos por requisição`);
+    }
+    if (!isUuid(tagId)) {
       return bad('Etiqueta inválida');
     }
-
-    const { contact_ids, tag_id, action = 'add' } = body;
-
-    if (action === 'add') {
-      let addedCount = 0;
-      for (const contactId of contact_ids) {
-        const added = await addContactTagIfAbsent(ctx.supabase, {
-          accountId: ctx.accountId,
-          contactId,
-          tagId: tag_id,
-        });
-        if (added) addedCount++;
-      }
-      return NextResponse.json({ ok: true, added: addedCount });
+    if (action !== 'add' && action !== 'remove') {
+      return bad('Ação inválida');
     }
 
-    if (action === 'remove') {
-      let removedCount = 0;
-      for (const contactId of contact_ids) {
-        try {
-          await removeContactTag(ctx.supabase, {
-            accountId: ctx.accountId,
-            contactId,
-            tagId: tag_id,
-          });
-          removedCount++;
-        } catch {
-          // Ignore individual errors
-        }
-      }
-      return NextResponse.json({ ok: true, removed: removedCount });
-    }
+    const result = await applyBulkContactTag(ctx.supabase, {
+      accountId: ctx.accountId,
+      contactIds,
+      tagId,
+      action,
+    });
 
-    return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
+    return NextResponse.json({
+      ok: true,
+      changed: result.changed,
+      unchanged: result.unchanged,
+      not_found: result.notFound,
+    });
   } catch (error) {
+    if (error instanceof ContactTagWriteError) {
+      if (error.status >= 500) console.error('[bulk-tags]', error.message);
+      return NextResponse.json(
+        {
+          error:
+            error.status >= 500
+              ? 'Não foi possível gravar as etiquetas. Tente novamente.'
+              : error.message,
+        },
+        { status: error.status }
+      );
+    }
     return toErrorResponse(error);
   }
 }

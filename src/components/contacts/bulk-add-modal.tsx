@@ -210,6 +210,7 @@ export function BulkAddContactsModal({
       let imported = 0;
       let skipped = 0;
       let failed = 0;
+      let tagFailures = 0;
 
       // Insert contacts in chunks
       const chunkSize = 50;
@@ -244,10 +245,13 @@ export function BulkAddContactsModal({
                   contact_id: singleData.id,
                   tag_id: tagId,
                 }));
-                await supabase.from('contact_tags').upsert(tagRows, {
-                  onConflict: 'contact_id,tag_id',
-                  ignoreDuplicates: true,
-                });
+                const { error: tagError } = await supabase
+                  .from('contact_tags')
+                  .upsert(tagRows, {
+                    onConflict: 'contact_id,tag_id',
+                    ignoreDuplicates: true,
+                  });
+                if (tagError) tagFailures++;
               }
             } else if (
               singleErr &&
@@ -270,10 +274,13 @@ export function BulkAddContactsModal({
                 tag_id: tagId,
               }))
             );
-            await supabase.from('contact_tags').upsert(tagRows, {
-              onConflict: 'contact_id,tag_id',
-              ignoreDuplicates: true,
-            });
+            const { error: tagError } = await supabase
+              .from('contact_tags')
+              .upsert(tagRows, {
+                onConflict: 'contact_id,tag_id',
+                ignoreDuplicates: true,
+              });
+            if (tagError) tagFailures++;
           }
         }
       }
@@ -289,6 +296,9 @@ export function BulkAddContactsModal({
       }
       if (failed > 0) {
         toast.error(t('toastFailed', { count: failed }));
+      }
+      if (tagFailures > 0) {
+        toast.warning(t('toastTagsWarning'));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('toastError');

@@ -90,3 +90,87 @@ export async function removeContactTag(
     );
   }
 }
+
+interface BulkContactTagInput {
+  accountId: string;
+  contactIds: string[];
+  tagId: string;
+  action: 'add' | 'remove';
+}
+
+export interface BulkContactTagResult {
+  changed: number;
+  unchanged: number;
+  notFound: number;
+}
+
+/**
+ * Add or remove one tag on a batch of contacts in a single statement, so
+ * the batch lands whole or not at all. Callers cap the batch size, because
+ * the ids travel in the URL (see BULK_TAG_BATCH_SIZE).
+ *
+ * The contacts are filtered first, so one contact deleted in the meantime
+ * doesn't fail the whole statement on the foreign key. Like the rest of
+ * this route, a bulk add does not dispatch `tag_added` automations.
+ */
+export async function applyBulkContactTag(
+  db: SupabaseClient,
+  { accountId, contactIds, tagId, action }: BulkContactTagInput
+): Promise<BulkContactTagResult> {
+  const uniqueIds = [...new Set(contactIds)];
+
+  const [tagResult, contactsResult] = await Promise.all([
+    db
+      .from('tags')
+      .select('id')
+      .eq('id', tagId)
+      .eq('account_id', accountId)
+      .maybeSingle(),
+    db
+      .from('contacts')
+      .select('id')
+      .eq('account_id', accountId)
+      .in('id', uniqueIds),
+  ]);
+
+  if (tagResult.error || contactsResult.error) {
+    throw new ContactTagWriteError('Não foi possível verificar os contatos');
+  }
+  if (!tagResult.data) {
+    throw new ContactTagWriteError('Etiqueta não encontrada', 404);
+  }
+
+  const ownedIds = (contactsResult.data ?? []).map(
+    (row: { id: string }) => row.id
+  );
+  const notFound = uniqueIds.length - ownedIds.length;
+  if (ownedIds.length === 0) return { changed: 0, unchanged: 0, notFound };
+
+  // `ignoreDuplicates` + `select`: only the rows really inserted come back.
+  const { data, error } =
+    action === 'add'
+      ? await db
+          .from('contact_tags')
+          .upsert(
+            ownedIds.map((id) => ({ contact_id: id, tag_id: tagId })),
+            { onConflict: 'contact_id,tag_id', ignoreDuplicates: true }
+          )
+          .select('contact_id')
+      : await db
+          .from('contact_tags')
+          .delete()
+          .eq('tag_id', tagId)
+          .in('contact_id', ownedIds)
+          .select('contact_id');
+
+  if (error) {
+    throw new ContactTagWriteError(
+      action === 'add'
+        ? `Falha ao adicionar a etiqueta: ${error.message}`
+        : `Falha ao remover a etiqueta: ${error.message}`
+    );
+  }
+
+  const changed = data?.length ?? 0;
+  return { changed, unchanged: ownedIds.length - changed, notFound };
+}
