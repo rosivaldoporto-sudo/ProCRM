@@ -6,7 +6,43 @@ import {
   phoneVariants,
   phonesMatch,
   sanitizePhoneForMeta,
+  standardizePhoneInput,
 } from "./phone-utils";
+
+describe("standardizePhoneInput", () => {
+  it("adds + to full Brazilian numbers that have only the 55 country code", () => {
+    expect(standardizePhoneInput("5511999998888")).toBe("+5511999998888");
+    expect(standardizePhoneInput("551133334444")).toBe("+551133334444");
+    expect(standardizePhoneInput("  55 (11) 99999-8888 ")).toBe("+5511999998888");
+  });
+
+  it("keeps + and removes the formatting from numbers that already have it", () => {
+    expect(standardizePhoneInput("+55 11 99999-8888")).toBe("+5511999998888");
+    expect(standardizePhoneInput("+1 (415) 555-1212")).toBe("+14155551212");
+  });
+
+  it("is idempotent", () => {
+    const once = standardizePhoneInput("5511999998888");
+    expect(standardizePhoneInput(once)).toBe(once);
+  });
+
+  it("does not treat area code 55 without a country code as Brazil's 55", () => {
+    expect(standardizePhoneInput("55999887766")).toBe("55999887766");
+    expect(standardizePhoneInput("5533334444")).toBe("5533334444");
+  });
+
+  it("leaves numbers from an unknown country as typed", () => {
+    expect(standardizePhoneInput("14155551212")).toBe("14155551212");
+    expect(standardizePhoneInput("(11) 99999-8888")).toBe("(11) 99999-8888");
+  });
+
+  it("does not invent a phone from empty or digitless input", () => {
+    expect(standardizePhoneInput("")).toBe("");
+    expect(standardizePhoneInput("   ")).toBe("");
+    expect(standardizePhoneInput("+")).toBe("+");
+    expect(standardizePhoneInput(undefined as unknown as string)).toBe("");
+  });
+});
 
 describe("sanitizePhoneForMeta", () => {
   it("strips +, spaces, and dashes leaving only digits", () => {

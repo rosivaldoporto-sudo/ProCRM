@@ -16,6 +16,8 @@
 // way to finish them.
 // ============================================================
 
+import { CONTACT_ID_CHUNK } from '@/lib/broadcast-audience';
+import { fetchAllInboxPages } from '@/lib/inbox/pagination';
 import { createClient } from '@/lib/supabase/client';
 import type { Contact } from '@/types';
 
@@ -59,6 +61,42 @@ export const SEND_BATCH_DELAY_MS = 1000;
 
 /** `broadcast_recipients` inserts are independent of the send rate. */
 export const INSERT_BATCH_SIZE = 200;
+
+export type HeaderMediaKind = 'image' | 'video' | 'document';
+
+/** The template header types that carry a media file. */
+export function headerMediaKind(headerType: unknown): HeaderMediaKind | null {
+  return headerType === 'image' ||
+    headerType === 'video' ||
+    headerType === 'document'
+    ? headerType
+    : null;
+}
+
+/**
+ * Uploads a campaign's header media to Meta once and returns the id its
+ * batches will reference. Throws when that fails, so the campaign stops
+ * before any message goes out instead of Meta downloading the file from
+ * our storage for every recipient.
+ */
+export async function prepareBroadcastMedia(
+  url: string,
+  kind: HeaderMediaKind,
+): Promise<string> {
+  const res = await fetch('/api/whatsapp/broadcast/media', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, kind }),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    media_id?: string;
+    error?: string;
+  } | null;
+  if (!res.ok || !data?.media_id) {
+    throw new Error(data?.error || 'Falha ao preparar a mídia do cabeçalho.');
+  }
+  return data.media_id;
+}
 
 /** contactId → (customFieldId → value). */
 type CustomValueIndex = Map<string, Map<string, string>>;
@@ -116,15 +154,25 @@ async function fetchCustomValueIndex(
   const index: CustomValueIndex = new Map();
   if (contactIds.length === 0) return index;
 
-  // Supabase PostgREST caps the .in(...) IN-clause roughly at 1000
-  // values. Page through to stay safe.
-  const PAGE = 500;
-  for (let i = 0; i < contactIds.length; i += PAGE) {
-    const slice = contactIds.slice(i, i + PAGE);
-    const { data } = await supabase
-      .from('contact_custom_values')
-      .select('contact_id, custom_field_id, value')
-      .in('contact_id', slice);
+  // Chunked for the URL length, paginated for the row cap: each contact
+  // can hold several values. A failure throws, because sending would
+  // otherwise deliver messages with blank variables.
+  for (let i = 0; i < contactIds.length; i += CONTACT_ID_CHUNK) {
+    const slice = contactIds.slice(i, i + CONTACT_ID_CHUNK);
+    const { data, error } = await fetchAllInboxPages<
+      { contact_id: string; custom_field_id: string; value: string | null },
+      { message: string }
+    >((from, to) =>
+      supabase
+        .from('contact_custom_values')
+        .select('contact_id, custom_field_id, value')
+        .in('contact_id', slice)
+        .order('id')
+        .range(from, to),
+    );
+    if (error) {
+      throw new Error(`Falha ao buscar os campos personalizados: ${error.message}`);
+    }
 
     for (const row of data ?? []) {
       const bucket = index.get(row.contact_id) ?? new Map<string, string>();
@@ -157,11 +205,16 @@ export interface SendPendingResult {
  * whatever is still pending. Best-effort per recipient — one failure
  * never aborts the rest; the broadcast is finalized to a terminal
  * status only when nothing is left pending.
+ *
+ * Header media is the exception: if it can't be prepared this throws
+ * before sending, and every recipient stays pending. Pass `headerMediaId`
+ * when the caller has already prepared it.
  */
 export async function sendPendingRecipients(
   supabase: ReturnType<typeof createClient>,
   broadcastId: string,
   onProgress?: (percent: number) => void,
+  options: { headerMediaId?: string } = {},
 ): Promise<SendPendingResult> {
   const {
     data: { session },
@@ -191,27 +244,37 @@ export async function sendPendingRecipients(
     .maybeSingle();
   const templateRow = rawTemplateRow ?? null;
 
-  const headerType = templateRow?.header_type;
-  const isMediaHeader =
-    headerType === 'image' || headerType === 'video' || headerType === 'document';
+  const mediaKind = headerMediaKind(templateRow?.header_type);
   const headerMediaUrl =
     (broadcast.header_media_url as string | null)?.trim() ||
     (templateRow?.header_media_url as string | null) ||
     undefined;
-  const messageParams =
-    isMediaHeader && headerMediaUrl ? { headerMediaUrl } : undefined;
 
-  const { data: recipients, error: rErr } = await supabase
-    .from('broadcast_recipients')
-    .select('*, contact:contacts(*)')
-    .eq('broadcast_id', broadcastId)
-    .eq('status', 'pending');
+  // Paginated: a response cut at the server's row cap would leave the
+  // remaining recipients stuck as pending, with no error to explain it.
+  const { data: recipients, error: rErr } = await fetchAllInboxPages((from, to) =>
+    supabase
+      .from('broadcast_recipients')
+      .select('*, contact:contacts(*)')
+      .eq('broadcast_id', broadcastId)
+      .eq('status', 'pending')
+      .order('created_at')
+      .order('id')
+      .range(from, to),
+  );
   if (rErr) {
     throw new Error('Falha ao buscar os destinatários pendentes');
   }
   if (!recipients || recipients.length === 0) {
     return { sent: 0, failed: 0, pendingRemaining: 0 };
   }
+
+  const headerMediaId =
+    mediaKind && headerMediaUrl
+      ? (options.headerMediaId ??
+        (await prepareBroadcastMedia(headerMediaUrl, mediaKind)))
+      : undefined;
+  const messageParams = headerMediaId ? { headerMediaId } : undefined;
 
   const variables = (broadcast.template_variables ?? {}) as Record<
     string,
@@ -222,7 +285,12 @@ export async function sendPendingRecipients(
   const contactIds = recipients
     .map((r) => r.contact?.id)
     .filter((id): id is string => Boolean(id));
-  const customValueIndex = await fetchCustomValueIndex(supabase, contactIds);
+  const usesCustomFields = Object.values(variables).some(
+    (variable) => variable.type === 'custom_field',
+  );
+  const customValueIndex: CustomValueIndex = usesCustomFields
+    ? await fetchCustomValueIndex(supabase, contactIds)
+    : new Map();
 
   let failedCount = 0;
   const totalPending = recipients.length;

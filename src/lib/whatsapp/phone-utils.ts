@@ -18,6 +18,23 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
+ * Standardize a phone typed, pasted or imported by the user.
+ *
+ * A number that already has `+` keeps it and loses only the formatting.
+ * A Brazilian number sent without the `+` gains it, but only when it has
+ * the full length (55 + area code + 8 or 9 digits): "55999887766" is area
+ * code 55 with no country code, so adding `+` would produce a wrong number.
+ * Anything else is returned as typed, since its country can't be inferred.
+ */
+export function standardizePhoneInput(phone: string): string {
+  const trimmed = phone?.trim() ?? ''
+  const digits = normalizePhone(trimmed)
+  if (trimmed.startsWith('+') && digits) return `+${digits}`
+  if (/^55\d{10,11}$/.test(digits)) return `+${digits}`
+  return trimmed
+}
+
+/**
  * Compare two phone numbers accounting for trunk prefix differences.
  * e.g. "370063949836" (with trunk 0) matches "37063949836" (without trunk 0)
  * by comparing the last 8 digits.

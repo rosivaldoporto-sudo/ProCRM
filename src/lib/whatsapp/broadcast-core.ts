@@ -19,7 +19,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
-import { resolveMetaMediaId } from '@/lib/whatsapp/media-id-resolver';
+import {
+  MEDIA_UNAVAILABLE_ERROR,
+  resolveMetaMediaId,
+} from '@/lib/whatsapp/media-id-resolver';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   sanitizePhoneForMeta,
@@ -73,6 +76,8 @@ export interface BroadcastPlan {
   phoneNumberId: string;
   accessToken: string;
   templateRow: MessageTemplate | null;
+  /** Meta media id for a media-header template; null when it has none. */
+  headerMediaId: string | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
@@ -146,6 +151,32 @@ export async function createBroadcast(
     );
   }
   const templateRow = (rawTemplateRow as MessageTemplate | null) ?? null;
+
+  // Media-header templates: resolve the public media URL to a Meta media
+  // id ONCE for the whole fan-out. Sending by `link` makes Meta download
+  // the file from our storage for EVERY recipient — the Storage egress
+  // blow-up on the Oct-15 video broadcast. So a failure here rejects the
+  // request before anything is persisted or sent.
+  const headerType = templateRow?.header_type;
+  const mediaHeaderKind =
+    headerType === 'image' || headerType === 'video' || headerType === 'document'
+      ? headerType
+      : null;
+  const mediaUrl = templateRow?.header_media_url?.trim();
+  let headerMediaId: string | null = null;
+  if (mediaHeaderKind && mediaUrl) {
+    headerMediaId = await resolveMetaMediaId({
+      db,
+      accountId,
+      phoneNumberId: config.phone_number_id,
+      accessToken,
+      sourceUrl: mediaUrl,
+      kind: mediaHeaderKind,
+    });
+    if (!headerMediaId) {
+      throw new BroadcastError('media_unavailable', MEDIA_UNAVAILABLE_ERROR, 502);
+    }
+  }
 
   // Resolve each recipient to a contact. Invalid phones are dropped
   // (counted as rejected) rather than aborting the whole broadcast.
@@ -247,6 +278,7 @@ export async function createBroadcast(
     phoneNumberId: config.phone_number_id,
     accessToken,
     templateRow,
+    headerMediaId,
     planned,
     rejected,
   };
@@ -270,29 +302,7 @@ export async function deliverBroadcast(
   plan: BroadcastPlan
 ): Promise<void> {
   let sentCount = 0;
-
-  // Media-header templates: resolve the public media URL to a Meta
-  // media id ONCE for the whole fan-out. Sending by `link` makes Meta
-  // download the file from our storage for EVERY recipient — the
-  // Storage egress blow-up on the Oct-15 video broadcast. Null (no
-  // media header, or any resolution failure) keeps the link path.
-  const headerType = plan.templateRow?.header_type;
-  const mediaHeaderKind =
-    headerType === 'image' || headerType === 'video' || headerType === 'document'
-      ? headerType
-      : null;
-  const mediaUrl = plan.templateRow?.header_media_url?.trim();
-  const headerMediaId =
-    mediaHeaderKind && mediaUrl
-      ? await resolveMetaMediaId({
-          db,
-          accountId: plan.accountId,
-          phoneNumberId: plan.phoneNumberId,
-          accessToken: plan.accessToken,
-          sourceUrl: mediaUrl,
-          kind: mediaHeaderKind,
-        })
-      : null;
+  const { headerMediaId } = plan;
 
   for (const recipient of plan.planned) {
     const variants = phoneVariants(recipient.phone);

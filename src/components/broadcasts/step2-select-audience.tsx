@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { CustomField, Tag } from '@/types';
-import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import { normalizePhone, standardizePhoneInput } from '@/lib/whatsapp/phone-utils';
+import {
+  countListRecipients,
+  estimateAudienceCount,
+  fetchExistingListContacts,
+  type ExistingListContact,
+} from '@/lib/broadcast-audience';
 import { Button } from '@/components/ui/button';
 import {
   Users,
@@ -23,6 +29,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -123,9 +130,7 @@ export function Step2SelectAudience({
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [existingContacts, setExistingContacts] = useState<
-    { phone: string; name?: string; normalized: string }[]
-  >([]);
+  const [existingContacts, setExistingContacts] = useState<ExistingListContact[]>([]);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const { accountId } = useAuth();
 
@@ -173,69 +178,31 @@ export function Step2SelectAudience({
       csvContacts.length === 0
     ) {
       setExistingContacts([]);
+      setIsCheckingDuplicates(false);
       return;
     }
+    if (!accountId) return;
 
     let cancelled = false;
+    setIsCheckingDuplicates(true);
 
-    async function checkDuplicates() {
-      if (!accountId || !csvContacts) return;
-      setIsCheckingDuplicates(true);
-      try {
-        const supabase = createClient();
-        const phones = csvContacts.map((c) => c.phone);
-        const LOOKUP_CHUNK = 200;
-        const found: { phone: string; name?: string; normalized: string }[] = [];
-
-        for (let i = 0; i < phones.length; i += LOOKUP_CHUNK) {
-          const chunk = phones.slice(i, i + LOOKUP_CHUNK);
-          const normalizedChunk = chunk.map((p) => normalizePhone(p));
-
-          const { data } = await supabase
-            .from('contacts')
-            .select('phone, name, phone_normalized')
-            .eq('account_id', accountId)
-            .in('phone_normalized', normalizedChunk);
-
-          if (cancelled) return;
-
-          for (const row of data ?? []) {
-            const normalized = (row as { phone_normalized: string | null }).phone_normalized;
-            if (normalized) {
-              const csvRow = csvContacts.find(
-                (c) => normalizePhone(c.phone) === normalized
-              );
-              if (csvRow) {
-                found.push({
-                  phone: csvRow.phone,
-                  name: csvRow.name ?? (row as { name?: string }).name ?? undefined,
-                  normalized,
-                });
-              }
-            }
-          }
-        }
-
-        if (!cancelled) {
-          // Deduplicate by normalized phone
-          const seen = new Set<string>();
-          const unique = found.filter((c) => {
-            if (seen.has(c.normalized)) return false;
-            seen.add(c.normalized);
-            return true;
-          });
-          setExistingContacts(unique);
-        }
-      } finally {
+    fetchExistingListContacts(createClient(), accountId, csvContacts, () => cancelled)
+      .then((found) => {
+        if (found && !cancelled) setExistingContacts(found);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to check existing contacts:', err);
+        toast.error(t('selectAudience.errorCheckExisting'));
+      })
+      .finally(() => {
         if (!cancelled) setIsCheckingDuplicates(false);
-      }
-    }
+      });
 
-    checkDuplicates();
     return () => {
       cancelled = true;
     };
-  }, [audience.csvContacts, audience.type, accountId]);
+  }, [audience.csvContacts, audience.type, accountId, t]);
 
   function discardExistingContacts() {
     if (!audience.csvContacts) return;
@@ -256,98 +223,52 @@ export function Step2SelectAudience({
     setExistingContacts((prev) => prev.filter((c) => c.normalized !== normalized));
   }
 
-  const fetchEstimatedCount = useCallback(async () => {
-    setLoadingCount(true);
-    try {
-      const supabase = createClient();
+  const isListAudience = audience.type === 'csv' || audience.type === 'manual_list';
 
-      // Base query — produces the superset before exclude is applied.
-      let baseIds: Set<string> | null = null; // null means "all contacts"
-
-      if (audience.type === 'all') {
-        // Handled below — full-table count adjusted by excludes.
-      } else if (
-        audience.type === 'tags' &&
-        audience.tagIds &&
-        audience.tagIds.length > 0
-      ) {
-        const { data } = await supabase
-          .from('contact_tags')
-          .select('contact_id')
-          .in('tag_id', audience.tagIds);
-        baseIds = new Set((data ?? []).map((r) => r.contact_id));
-      } else if (
-        audience.type === 'custom_field' &&
-        audience.customField?.fieldId &&
-        audience.customField.value
-      ) {
-        const { fieldId, operator, value } = audience.customField;
-        let q = supabase
-          .from('contact_custom_values')
-          .select('contact_id')
-          .eq('custom_field_id', fieldId);
-        if (operator === 'is') q = q.eq('value', value);
-        else if (operator === 'is_not') q = q.neq('value', value);
-        else q = q.ilike('value', `%${value}%`);
-        const { data } = await q;
-        baseIds = new Set((data ?? []).map((r) => r.contact_id));
-      } else if (
-        audience.type === 'csv' &&
-        audience.csvContacts &&
-        audience.csvContacts.length > 0
-      ) {
-        setEstimatedCount(audience.csvContacts.length);
-        return;
-      } else if (
-        audience.type === 'manual_list' &&
-        audience.csvContacts &&
-        audience.csvContacts.length > 0
-      ) {
-        setEstimatedCount(audience.csvContacts.length);
-        return;
-      } else {
-        // Partially-configured audience — wait for the user to finish.
-        setEstimatedCount(null);
-        return;
-      }
-
-      // Apply exclude tags
-      let excludeSet: Set<string> | null = null;
-      if (audience.excludeTagIds && audience.excludeTagIds.length > 0) {
-        const { data: excludeRows } = await supabase
-          .from('contact_tags')
-          .select('contact_id')
-          .in('tag_id', audience.excludeTagIds);
-        excludeSet = new Set((excludeRows ?? []).map((r) => r.contact_id));
-      }
-
-      if (baseIds) {
-        const effective = [...baseIds].filter(
-          (id) => !excludeSet?.has(id),
-        );
-        setEstimatedCount(effective.length);
-      } else {
-        // "All" — fetch the total, then subtract exclude set if any.
-        const { count } = await supabase
-          .from('contacts')
-          .select('*', { count: 'exact', head: true });
-        const total = count ?? 0;
-        setEstimatedCount(excludeSet ? Math.max(0, total - excludeSet.size) : total);
-      }
-    } finally {
-      setLoadingCount(false);
-    }
-  }, [
-    audience.type,
-    audience.tagIds,
-    audience.customField,
-    audience.csvContacts,
-    audience.excludeTagIds,
-  ]);
+  // Lists are counted locally from the contacts found above, so toggling
+  // an exclude tag updates the number instantly, with no network request.
+  const listRecipientCount = useMemo(
+    () =>
+      isListAudience && audience.csvContacts?.length
+        ? countListRecipients(
+            audience.csvContacts,
+            existingContacts,
+            audience.excludeTagIds,
+          )
+        : null,
+    [isListAudience, audience.csvContacts, audience.excludeTagIds, existingContacts],
+  );
 
   useEffect(() => {
-    fetchEstimatedCount();
-  }, [fetchEstimatedCount]);
+    if (isListAudience) return;
+
+    let cancelled = false;
+    setLoadingCount(true);
+
+    estimateAudienceCount(createClient(), accountId, audience)
+      .then((count) => {
+        if (!cancelled) setEstimatedCount(count);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to estimate audience:', err);
+        setEstimatedCount(null);
+        toast.error(t('selectAudience.errorEstimate'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCount(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audience, accountId, isListAudience, t]);
+
+  const recipientCount = isListAudience ? listRecipientCount : estimatedCount;
+  // A list's count is only final once its contacts' tags have loaded.
+  const isCountLoading = isListAudience
+    ? isCheckingDuplicates && Boolean(audience.excludeTagIds?.length)
+    : loadingCount;
 
   function toggleTag(tagId: string) {
     const current = audience.tagIds ?? [];
@@ -379,7 +300,10 @@ export function Step2SelectAudience({
     const current = audience.csvContacts ?? [];
     onUpdate({
       ...audience,
-      csvContacts: [...current, { name: name.trim() || undefined, phone: phone.trim() }],
+      csvContacts: [
+        ...current,
+        { name: name.trim() || undefined, phone: standardizePhoneInput(phone) },
+      ],
     });
   }
 
@@ -397,9 +321,12 @@ export function Step2SelectAudience({
     for (const line of lines) {
       const parts = line.split(',').map((p) => p.trim());
       if (parts.length >= 2 && parts[1]) {
-        contacts.push({ name: parts[0] || undefined, phone: parts[1] });
+        contacts.push({
+          name: parts[0] || undefined,
+          phone: standardizePhoneInput(parts[1]),
+        });
       } else if (parts.length === 1 && parts[0]) {
-        contacts.push({ phone: parts[0] });
+        contacts.push({ phone: standardizePhoneInput(parts[0]) });
       }
     }
     const current = audience.csvContacts ?? [];
@@ -432,7 +359,7 @@ export function Step2SelectAudience({
         .slice(1)
         .map((l) => l.trim())
         .filter((l) => l.length > 0)
-        .map((phone) => ({ phone }));
+        .map((phone) => ({ phone: standardizePhoneInput(phone) }));
     }
 
     const contacts: { phone: string; name?: string }[] = [];
@@ -445,7 +372,7 @@ export function Step2SelectAudience({
       if (!phone) continue;
 
       contacts.push({
-        phone,
+        phone: standardizePhoneInput(phone),
         name:
           nameIdx >= 0
             ? values[nameIdx]?.replace(/["']/g, '').trim() || undefined
@@ -910,26 +837,57 @@ export function Step2SelectAudience({
               {t('selectAudience.existingContactsDesc')}
             </p>
             <div className="max-h-40 space-y-1 overflow-y-auto">
-              {existingContacts.map((contact) => (
-                <div
-                  key={contact.normalized}
-                  className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-foreground">
-                      {contact.name || '(sem nome)'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{contact.phone}</p>
-                  </div>
-                  <button
-                    onClick={() => discardSingleExisting(contact.normalized)}
-                    className="ml-2 shrink-0 rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
-                    title={t('selectAudience.discardExisting')}
+              {existingContacts.map((contact) => {
+                const contactTags = tags.filter((tag) => contact.tagIds.includes(tag.id));
+                return (
+                  <div
+                    key={contact.normalized}
+                    className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
+                    <div className="w-32 min-w-0 shrink-0 sm:w-44">
+                      <p className="truncate text-sm text-foreground">
+                        {contact.name || '(sem nome)'}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                      {contactTags.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">
+                          {t('selectAudience.existingContactNoTags')}
+                        </span>
+                      ) : (
+                        contactTags.map((tag) => {
+                          const isExcluded = audience.excludeTagIds?.includes(tag.id);
+                          return (
+                            <span
+                              key={tag.id}
+                              title={tag.name}
+                              className={`inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                                isExcluded
+                                  ? 'border-red-500/30 bg-red-500/10 text-red-500'
+                                  : 'border-border bg-muted text-muted-foreground'
+                              }`}
+                            >
+                              <span
+                                className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: tag.color }}
+                              />
+                              <span className="truncate">{tag.name}</span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </div>
+                    <button
+                      onClick={() => discardSingleExisting(contact.normalized)}
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                      title={t('selectAudience.discardExisting')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -984,16 +942,16 @@ export function Step2SelectAudience({
       {/* Audience Summary */}
       <div className="rounded-xl border border-border bg-card/50 p-4">
         <p className="mb-2 text-sm font-medium text-foreground">{t('selectAudience.audienceSummary')}</p>
-        {loadingCount ? (
+        {isCountLoading ? (
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-xs text-muted-foreground">{t('selectAudience.calculating')}</span>
           </div>
-        ) : estimatedCount !== null ? (
+        ) : recipientCount !== null ? (
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
             <span className="text-sm text-foreground">
-              {estimatedCount.toLocaleString()}
+              {recipientCount.toLocaleString()}
             </span>
             <span className="text-xs text-muted-foreground">{t('selectAudience.estimatedRecipients')}</span>
           </div>

@@ -888,7 +888,10 @@
         "existingContactsDesc": "Estes contatos já estão cadastrados. Revise e descarte os que não devem receber a transmissão.",
         "discardAllExisting": "Descartar todos",
         "discardExisting": "Descartar",
-        "checkingDuplicates": "Verificando contatos existentes…"
+        "checkingDuplicates": "Verificando contatos existentes…",
+        "existingContactNoTags": "Sem etiquetas",
+        "errorCheckExisting": "Não foi possível verificar os contatos existentes.",
+        "errorEstimate": "Não foi possível calcular o público estimado."
       },
       "personalize": {
         "title": "Personalizar Variáveis",

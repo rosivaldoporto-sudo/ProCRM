@@ -494,7 +494,7 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci;
 }
 
-async function handleStatusUpdate(status: {
+export async function handleStatusUpdate(status: {
   id: string;
   status: string;
   timestamp: string;
@@ -503,17 +503,18 @@ async function handleStatusUpdate(status: {
 }) {
   // Meta delivers the failure reason on `status.errors` (e.g. #131026
   // media download failed, #131047 blocked domain). Surface it loudly
-  // here — nothing downstream persists it, so a failed delivery would
-  // otherwise be a silent red X in the thread.
-  if (status.status === 'failed' && status.errors?.length) {
-    console.warn(
-      `[webhook] message ${status.id} failed delivery:`,
-      status.errors
-        .map(
-          (e) => `#${e.code} ${e.title}${e.details ? ` — ${e.details}` : ''}`
-        )
-        .join('; ')
-    );
+  // here and keep it on the broadcast recipient below. The inbox doesn't
+  // persist it, so there a failed delivery is still a silent red X.
+  const failureReason =
+    status.status === 'failed' && status.errors?.length
+      ? status.errors
+          .map(
+            (e) => `(#${e.code}) ${e.title}${e.details ? ` — ${e.details}` : ''}`
+          )
+          .join('; ')
+      : null;
+  if (failureReason) {
+    console.warn(`[webhook] message ${status.id} failed delivery:`, failureReason);
   }
 
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
@@ -559,6 +560,7 @@ async function handleStatusUpdate(status: {
       update.sent_at = tsIso;
     if (status.status === 'delivered') update.delivered_at = tsIso;
     if (status.status === 'read') update.read_at = tsIso;
+    if (failureReason) update.error_message = failureReason;
 
     const { error: recUpdateErr } = await supabaseAdmin()
       .from('broadcast_recipients')

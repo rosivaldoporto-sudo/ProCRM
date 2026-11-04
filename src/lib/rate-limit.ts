@@ -182,10 +182,16 @@ export const RATE_LIMITS = {
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
-  /** Broadcast dispatch. 5/min per user — even a 1 000-recipient
-   *  broadcast is one call; this caps the rate at which a single user
-   *  can launch campaigns, not the messages inside one. */
+  /** Starting a campaign: a public-API broadcast, or preparing a
+   *  dashboard campaign's header media (one download + upload on a cache
+   *  miss). 5/min caps how often campaigns start, not the messages inside
+   *  one. */
   broadcast: { limit: 5, windowMs: 60_000 },
+  /** One batch of a dashboard campaign. The wizard posts 10 recipients at
+   *  a time and waits at least 1 s between batches, so one campaign stays
+   *  at or below 60 calls/min. With the route's cap of 50 recipients per
+   *  call, this ceiling is 6 000 messages/min per user. */
+  broadcastBatch: { limit: 120, windowMs: 60_000 },
   /** Reaction add/swap/remove. More permissive than send — users
    *  fidget with reactions and a single "swap" is actually two calls
    *  (remove + add) under the hood. */

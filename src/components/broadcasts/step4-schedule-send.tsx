@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import { estimateAudienceCount } from '@/lib/broadcast-audience';
+import type { AudienceConfig } from '@/lib/broadcast-send';
 import { MessageTemplate, Tag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,12 +19,6 @@ import {
 } from '@/components/ui/dialog';
 import { ArrowLeft, Send, Loader2, Users, Save, Tags } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-
-interface AudienceConfig {
-  type: string;
-  tagIds?: string[];
-  csvContacts?: { phone: string; name?: string }[];
-}
 
 interface Step4Props {
   name: string;
@@ -54,6 +51,7 @@ export function Step4ScheduleSend({
   progress,
 }: Step4Props) {
   const t = useTranslations('Broadcasts.wizard');
+  const { accountId } = useAuth();
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
@@ -63,36 +61,24 @@ export function Step4ScheduleSend({
   const hasMediaHeader = MEDIA_HEADER_TYPES.includes(template.header_type ?? '');
 
   useEffect(() => {
+    let cancelled = false;
     async function calculateReach() {
       setLoadingReach(true);
       try {
-        const supabase = createClient();
-
-        if (audience.type === 'all') {
-          const { count } = await supabase
-            .from('contacts')
-            .select('*', { count: 'exact', head: true });
-          setEstimatedReach(count ?? 0);
-        } else if (audience.type === 'tags' && audience.tagIds && audience.tagIds.length > 0) {
-          const { data: contactTags } = await supabase
-            .from('contact_tags')
-            .select('contact_id')
-            .in('tag_id', audience.tagIds);
-
-          const uniqueIds = new Set((contactTags ?? []).map((ct) => ct.contact_id));
-          setEstimatedReach(uniqueIds.size);
-        } else if ((audience.type === 'csv' || audience.type === 'manual_list') && audience.csvContacts) {
-          setEstimatedReach(audience.csvContacts.length);
-        } else {
-          setEstimatedReach(0);
-        }
+        const count = await estimateAudienceCount(createClient(), accountId, audience);
+        if (!cancelled) setEstimatedReach(count ?? 0);
+      } catch (err) {
+        console.error('Failed to estimate broadcast reach:', err);
       } finally {
-        setLoadingReach(false);
+        if (!cancelled) setLoadingReach(false);
       }
     }
 
     calculateReach();
-  }, [audience]);
+    return () => {
+      cancelled = true;
+    };
+  }, [audience, accountId]);
 
   // Tags to mark sent contacts after the dispatch — same account-scoped
   // list the audience step uses.

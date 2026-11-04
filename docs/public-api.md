@@ -162,7 +162,9 @@ Response (201):
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
 (400), `meta_error` (502 — the request reached Meta and it rejected the
-send), `template_malformed` (500).
+send), `template_malformed` (500), `media_unavailable` (502 — the
+template's header media couldn't be prepared, so nothing was persisted
+or sent).
 
 ### `GET /api/v1/contacts`
 

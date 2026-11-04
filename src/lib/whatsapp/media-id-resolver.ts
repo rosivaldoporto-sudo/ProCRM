@@ -14,8 +14,9 @@
 //      → reuse the id. No storage traffic at all.
 //   2. Miss → download the URL ONCE (SSRF-guarded, size + MIME checked),
 //      upload it to Meta, and memoize the id.
-//   3. ANY failure → return null; callers fall back to sending by link
-//      exactly as before. A resolver failure must never drop a message.
+//   3. ANY failure → return null. Callers must NOT fall back to sending
+//      by link, which is the egress this module exists to avoid: they
+//      stop and show MEDIA_UNAVAILABLE_ERROR before sending anything.
 //
 // Source URLs are user-supplied (template header_media_url / campaign
 // upload), so the download reuses the same SSRF guard as webhook
@@ -27,6 +28,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchRemoteBytes } from '@/lib/uazapi/safe-fetch';
 import { uploadMediaToMeta, type MediaKind } from '@/lib/whatsapp/meta-api';
 
+/** Shown when a campaign can't start because its media couldn't be prepared. */
+export const MEDIA_UNAVAILABLE_ERROR =
+  'Não foi possível preparar a mídia do cabeçalho, então nada foi enviado. Confira o formato e o tamanho do arquivo e tente novamente.';
+
 /** Meta media ids expire after 30 days; refresh a few days early. */
 const CACHE_TTL_MS = 25 * 24 * 60 * 60 * 1000;
 
@@ -36,7 +41,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
  * Per-kind download caps + accepted MIME types, mirroring Meta's
  * media-reference limits (image 5 MB, video/audio 16 MB, document
  * 100 MB). Enforced during the ONE download, so an oversized file
- * simply falls back to the link path.
+ * is refused.
  */
 const MEDIA_KIND_SPECS: Record<
   MediaKind,
@@ -96,8 +101,8 @@ const inflightResolutions = new Map<string, Promise<string | null>>();
 
 /**
  * Resolve a public media URL to a Meta media id, uploading + caching on
- * a miss. Returns null on ANY failure so the caller can fall back to
- * the link-based send.
+ * a miss. Returns null on ANY failure; the caller must then stop instead
+ * of sending by link.
  */
 export async function resolveMetaMediaId(
   args: ResolveMetaMediaIdArgs

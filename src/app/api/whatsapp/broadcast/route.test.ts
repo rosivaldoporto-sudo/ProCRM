@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Tests for the media-id resolution wiring in the dashboard broadcast
 // route: a media-header template must be resolved to a Meta media id
 // ONCE per request (instead of Meta downloading the file from our
-// storage for every recipient), with an untouched link fallback when
-// resolution fails.
+// storage for every recipient), and a failure must stop the request
+// instead of falling back to sending by link.
 // ---------------------------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +20,7 @@ vi.mock('@/lib/whatsapp/meta-api', () => ({
 
 vi.mock('@/lib/whatsapp/media-id-resolver', () => ({
   resolveMetaMediaId: mocks.resolveMetaMediaId,
+  MEDIA_UNAVAILABLE_ERROR: 'media-unavailable',
 }));
 
 vi.mock('@/lib/whatsapp/broadcast-inbox', () => ({
@@ -140,6 +141,44 @@ describe('POST /api/whatsapp/broadcast — authorization', () => {
   });
 });
 
+describe('POST /api/whatsapp/broadcast — limits', () => {
+  const batch = Array.from({ length: 10 }, (_, i) => ({
+    phone: `+1555123456${i}`,
+    messageParams: { headerMediaId: 'media-123' },
+  }));
+
+  it('lets one campaign post far more than 5 batches a minute', async () => {
+    for (let i = 0; i < 60; i++) {
+      const res = await postBroadcast({ recipients: batch });
+      expect(res.status).toBe(200);
+    }
+
+    expect(mocks.sendTemplateMessage).toHaveBeenCalledTimes(600);
+  });
+
+  it('stops a caller going beyond the batch budget', async () => {
+    for (let i = 0; i < 120; i++) {
+      await postBroadcast({ recipients: [batch[0]] });
+    }
+
+    const res = await postBroadcast({ recipients: [batch[0]] });
+
+    expect(res.status).toBe(429);
+    expect(mocks.sendTemplateMessage).toHaveBeenCalledTimes(120);
+  });
+
+  it('rejects more recipients than a batch may carry', async () => {
+    const recipients = Array.from({ length: 51 }, (_, i) => ({
+      phone: `+1555000${String(i).padStart(4, '0')}`,
+    }));
+
+    const res = await postBroadcast({ recipients });
+
+    expect(res.status).toBe(400);
+    expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/whatsapp/broadcast — media id resolution', () => {
   it('resolves the template media URL once and injects the Meta id', async () => {
     mocks.resolveMetaMediaId.mockResolvedValue('media-123');
@@ -204,21 +243,31 @@ describe('POST /api/whatsapp/broadcast — media id resolution', () => {
     }
   });
 
-  it('keeps the link path when resolution fails', async () => {
+  it('sends nothing by link when resolution fails', async () => {
     mocks.resolveMetaMediaId.mockResolvedValue(null);
     const override = 'https://cdn.example.com/chat-media/campaign-2.mp4';
 
     const res = await postBroadcast({
       recipients: [
         { phone: '+15551234567', messageParams: { headerMediaUrl: override } },
+        { phone: '+15557654321', messageParams: { headerMediaUrl: override } },
       ],
     });
-    const body = await res.json();
 
-    expect(body.sent).toBe(1);
-    expect(mocks.sendTemplateMessage.mock.calls[0][0].messageParams).toEqual({
-      headerMediaUrl: override,
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'media-unavailable' });
+    expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when the template media fails to resolve', async () => {
+    mocks.resolveMetaMediaId.mockResolvedValue(null);
+
+    const res = await postBroadcast({
+      recipients: [{ phone: '+15551234567', params: ['Ana'] }],
     });
+
+    expect(res.status).toBe(502);
+    expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
   });
 
   it('leaves a caller-supplied headerMediaId untouched', async () => {

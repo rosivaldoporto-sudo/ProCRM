@@ -3,7 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { canWriteWithRole } from '@/lib/auth/roles'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
-import { resolveMetaMediaId } from '@/lib/whatsapp/media-id-resolver'
+import {
+  MEDIA_UNAVAILABLE_ERROR,
+  resolveMetaMediaId,
+} from '@/lib/whatsapp/media-id-resolver'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { persistBroadcastMessageIfConversationExists } from '@/lib/whatsapp/broadcast-inbox'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
@@ -75,10 +78,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
     }
 
-    // Per-user broadcast budget. Note: this limits how often a user
-    // can *start* a campaign, not how many messages go out inside
-    // one — the fan-out loop below runs without additional gating.
-    const limit = checkRateLimit(`broadcast:${user.id}`, RATE_LIMITS.broadcast)
+    // Per-user budget per batch: a campaign makes one call for every 10
+    // recipients, so this can't be a budget of campaigns per minute.
+    const limit = checkRateLimit(
+      `broadcast-batch:${user.id}`,
+      RATE_LIMITS.broadcastBatch,
+    )
     if (!limit.success) {
       return rateLimitResponse(limit)
     }
@@ -138,12 +143,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Teto de fan-out (igual ao núcleo v1): sem ele, um POST com 100k
-    // números vira loop sequencial à Meta + conta telefônica gigante.
-    const MAX_RECIPIENTS = 1000
+    // Teto de fan-out por chamada: o assistente envia lotes de 10. Junto
+    // com RATE_LIMITS.broadcastBatch, limita as mensagens por minuto.
+    const MAX_RECIPIENTS = 50
     if (recipients.length > MAX_RECIPIENTS) {
       return NextResponse.json(
-        { error: `Too many recipients (max ${MAX_RECIPIENTS} per campaign)` },
+        { error: `Cada chamada aceita até ${MAX_RECIPIENTS} destinatários` },
         { status: 400 }
       )
     }
@@ -237,8 +242,9 @@ export async function POST(request: Request) {
     // Media-header sends: resolve each public media URL to a Meta
     // media id ONCE per request. Sending by `link` makes Meta download
     // the file from our storage for EVERY recipient — the Storage
-    // egress blow-up on the Oct-15 video broadcast. Any failure here
-    // leaves the send on the existing link path.
+    // egress blow-up on the Oct-15 video broadcast. So a failure here
+    // stops the request before anything is sent. The wizard normally
+    // arrives with the id already prepared (see ./media/route.ts).
     // ============================================================
     const headerType = templateRow?.header_type as string | undefined
     const mediaHeaderKind =
@@ -272,7 +278,13 @@ export async function POST(request: Request) {
           sourceUrl: url,
           kind: mediaHeaderKind,
         })
-        if (mediaId) mediaIdByUrl.set(url, mediaId)
+        if (!mediaId) {
+          return NextResponse.json(
+            { error: MEDIA_UNAVAILABLE_ERROR },
+            { status: 502 },
+          )
+        }
+        mediaIdByUrl.set(url, mediaId)
       }
     }
 
