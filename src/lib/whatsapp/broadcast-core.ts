@@ -335,6 +335,18 @@ export async function deliverBroadcast(
     if (sentMessageId) {
       sentCount++;
 
+      // First thing after the send: a Meta receipt the webhook can't match
+      // to a recipient by this id is lost.
+      await db
+        .from('broadcast_recipients')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          whatsapp_message_id: sentMessageId,
+          error_message: null,
+        })
+        .eq('id', recipient.recipientRowId);
+
       // Transmissão não cria conversa no inbox: a conversa nasce na
       // resposta do cliente (webhook inbound). Se o número já tem
       // conversa aberta, a mensagem aparece na thread existente.
@@ -361,16 +373,6 @@ export async function deliverBroadcast(
           err instanceof Error ? err.message : err,
         )
       }
-
-      await db
-        .from('broadcast_recipients')
-        .update({
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-          whatsapp_message_id: sentMessageId,
-          error_message: null,
-        })
-        .eq('id', recipient.recipientRowId);
     } else {
       await db
         .from('broadcast_recipients')

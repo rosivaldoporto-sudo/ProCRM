@@ -757,15 +757,15 @@
       "retry": "Tentar novamente"
     },
     "status": {
-      "draft": "Rascunho",
-      "scheduled": "Agendada",
-      "sending": "Enviando",
-      "sent": "Enviada",
-      "failed": "Falhou",
-      "pending": "Pendente",
-      "delivered": "Entregue",
-      "read": "Lida",
-      "replied": "Respondeu",
+      "rascunho": "Rascunho",
+      "agendada": "Agendada",
+      "enviando": "Enviando",
+      "enviada": "Enviada",
+      "falhou": "Falhou",
+      "pendente": "Pendente",
+      "entregue": "Entregue",
+      "lida": "Lida",
+      "respondida": "Respondeu",
       "unknown": "Desconhecido"
     },
     "detail": {

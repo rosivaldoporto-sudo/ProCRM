@@ -27,6 +27,8 @@ interface BroadcastResult {
   phone: string
   status: 'sent' | 'failed'
   whatsapp_message_id?: string
+  /** True once this route has saved the Meta id on the recipient row. */
+  recorded?: boolean
   error?: string
 }
 
@@ -63,6 +65,46 @@ interface NewRecipient {
    * sendTemplateMessage for the merge rules.
    */
   messageParams?: SendTimeParams
+  /**
+   * The `broadcast_recipients` row this send belongs to. When set, the
+   * Meta id is saved on it right after the send.
+   */
+  recipient_id?: string
+}
+
+/**
+ * Saves the Meta id on the recipient as soon as Meta returns it. The webhook
+ * finds a recipient only by this id, and a receipt it can't match is lost, so
+ * this can't wait for the batch to return to the browser.
+ *
+ * Runs on the caller's session, so RLS limits the write to their account.
+ * Returns false when nothing was saved; the browser then records it instead.
+ */
+async function recordSentRecipient(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  recipientId: string,
+  messageId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('broadcast_recipients')
+    .update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      whatsapp_message_id: messageId,
+      error_message: null,
+    })
+    .eq('id', recipientId)
+    .eq('status', 'pending')
+    .select('id')
+
+  if (error) {
+    console.error(
+      `Failed to record broadcast recipient ${recipientId}:`,
+      error.message,
+    )
+    return false
+  }
+  return (data?.length ?? 0) > 0
 }
 
 export async function POST(request: Request) {
@@ -153,12 +195,16 @@ export async function POST(request: Request) {
       )
     }
     for (const raw of recipients) {
-      const r = raw as { phone?: unknown; params?: unknown } | null | undefined;
+      const r = raw as
+        | { phone?: unknown; params?: unknown; recipient_id?: unknown }
+        | null
+        | undefined;
       const params = typeof r === 'object' && r !== null ? r.params : undefined;
       if (
         r == null ||
         typeof r !== 'object' ||
         typeof r.phone !== 'string' ||
+        (r.recipient_id !== undefined && typeof r.recipient_id !== 'string') ||
         (params !== undefined &&
           (!Array.isArray(params) ||
             params.length > 20 ||
@@ -350,6 +396,14 @@ export async function POST(request: Request) {
       }
 
       if (sentMessageId) {
+        const recorded = recipient.recipient_id
+          ? await recordSentRecipient(
+              supabase,
+              recipient.recipient_id,
+              sentMessageId,
+            )
+          : false
+
         // Transmissão não cria conversa no inbox: a conversa nasce na
         // resposta do cliente (webhook inbound). Se o número já tem
         // conversa aberta, a mensagem aparece na thread existente.
@@ -384,6 +438,7 @@ export async function POST(request: Request) {
           phone: recipient.phone,
           status: 'sent',
           whatsapp_message_id: sentMessageId,
+          recorded,
         })
         sentCount++
       } else {

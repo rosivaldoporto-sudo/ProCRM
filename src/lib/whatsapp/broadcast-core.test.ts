@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resolveMetaMediaId: vi.fn(),
   sendTemplateMessage: vi.fn(),
   findOrCreateContact: vi.fn(),
+  events: [] as string[],
 }));
 
 vi.mock('@/lib/whatsapp/media-id-resolver', () => ({
@@ -21,7 +22,9 @@ vi.mock('@/lib/api/v1/contacts', () => ({
   findOrCreateContact: mocks.findOrCreateContact,
 }));
 vi.mock('@/lib/whatsapp/broadcast-inbox', () => ({
-  persistBroadcastMessageIfConversationExists: vi.fn(),
+  persistBroadcastMessageIfConversationExists: vi.fn(async () => {
+    mocks.events.push('inbox');
+  }),
 }));
 
 import { createBroadcast, deliverBroadcast, BroadcastError } from './broadcast-core';
@@ -46,7 +49,10 @@ describe('media-header templates', () => {
         const builder = {
           select: () => builder,
           eq: () => builder,
-          update: () => builder,
+          update() {
+            if (table === 'broadcast_recipients') mocks.events.push('record');
+            return builder;
+          },
           insert(rows: Record<string, unknown>[]) {
             inserted = rows;
             return builder;
@@ -115,6 +121,17 @@ describe('media-header templates', () => {
     for (const [args] of mocks.sendTemplateMessage.mock.calls) {
       expect(args.messageParams).toEqual({ headerMediaId: 'media-123' });
     }
+  });
+
+  it('records the Meta id before copying the message to the inbox', async () => {
+    mocks.resolveMetaMediaId.mockResolvedValue('media-123');
+    mocks.events.length = 0;
+    const { client } = fakeDb(videoTemplate);
+
+    const plan = await createBroadcast(client, 'acct-1', 'u1', params);
+    await deliverBroadcast(client, plan);
+
+    expect(mocks.events).toEqual(['record', 'inbox', 'record', 'inbox']);
   });
 
   it('skips media preparation for a template without a media header', async () => {

@@ -5,9 +5,9 @@
 // broadcast detail page run the SAME dispatch loop: fetch the
 // pending recipients for a broadcast, POST them to
 // /api/whatsapp/broadcast in small batches (respecting Meta's
-// per-phone messaging rate), stamp each recipient row, apply the
-// post-send tags, and finalize the broadcast status once nothing
-// is left pending.
+// per-phone messaging rate; the route stamps each recipient row as
+// it sends), apply the post-send tags, and finalize the broadcast
+// status once nothing is left pending.
 //
 // Splitting it here keeps the two call sites from drifting — the
 // wizard previously owned this loop exclusively, so a broadcast
@@ -187,6 +187,8 @@ interface BroadcastApiResult {
   phone: string;
   status: 'sent' | 'failed';
   whatsapp_message_id?: string;
+  /** The route already saved this send on the recipient row. */
+  recorded?: boolean;
   error?: string;
 }
 
@@ -296,12 +298,23 @@ export async function sendPendingRecipients(
   const totalPending = recipients.length;
   const sentContactIds = new Set<string>();
 
+  // The route stamps each recipient as it sends, and a Meta webhook can move
+  // it past 'sent' right after, so only a row still pending is written here.
+  const updateIfPending = (recipientId: string, values: Record<string, unknown>) =>
+    supabase
+      .from('broadcast_recipients')
+      .update(values)
+      .eq('id', recipientId)
+      .eq('status', 'pending')
+      .select('id');
+
   for (let i = 0; i < recipients.length; i += SEND_BATCH_SIZE) {
     const batch = recipients.slice(i, i + SEND_BATCH_SIZE);
 
     const apiRecipients = batch
       .filter((r) => r.contact?.phone)
       .map((r) => ({
+        recipient_id: r.id as string,
         phone: r.contact!.phone as string,
         params: r.contact
           ? resolveVariables(
@@ -355,48 +368,39 @@ export async function sendPendingRecipients(
 
         if (!result) {
           failedCount++;
-          await supabase
-            .from('broadcast_recipients')
-            .update({
-              status: 'failed',
-              error_message: 'Contato sem telefone',
-            })
-            .eq('id', recipient.id);
+          await updateIfPending(recipient.id, {
+            status: 'failed',
+            error_message: 'Contato sem telefone',
+          });
           continue;
         }
 
         if (result.status === 'sent') {
           if (recipient.contact?.id) sentContactIds.add(recipient.contact.id);
-          await supabase
-            .from('broadcast_recipients')
-            .update({
+          if (!result.recorded) {
+            await updateIfPending(recipient.id, {
               status: 'sent',
               sent_at: new Date().toISOString(),
               whatsapp_message_id: result.whatsapp_message_id ?? null,
               error_message: null,
-            })
-            .eq('id', recipient.id);
+            });
+          }
         } else {
           failedCount++;
-          await supabase
-            .from('broadcast_recipients')
-            .update({
-              status: 'failed',
-              error_message: result.error ?? 'Erro desconhecido',
-            })
-            .eq('id', recipient.id);
+          await updateIfPending(recipient.id, {
+            status: 'failed',
+            error_message: result.error ?? 'Erro desconhecido',
+          });
         }
       }
     } catch (err) {
+      // The response is lost, but the route may have sent part of the batch.
       for (const recipient of batch) {
-        failedCount++;
-        await supabase
-          .from('broadcast_recipients')
-          .update({
-            status: 'failed',
-            error_message: err instanceof Error ? err.message : 'Erro desconhecido',
-          })
-          .eq('id', recipient.id);
+        const { data: failed } = await updateIfPending(recipient.id, {
+          status: 'failed',
+          error_message: err instanceof Error ? err.message : 'Erro desconhecido',
+        });
+        if (failed?.length) failedCount++;
       }
     }
 

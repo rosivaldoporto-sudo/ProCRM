@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   sendTemplateMessage: vi.fn(),
   resolveMetaMediaId: vi.fn(),
   persistBroadcastMessage: vi.fn(),
+  events: [] as string[],
+  stamps: [] as { values: Record<string, unknown>; filters: Record<string, unknown> }[],
+  stampResult: (id: unknown): { data: unknown; error: unknown } => ({
+    data: [{ id }],
+    error: null,
+  }),
 }));
 
 vi.mock('@/lib/whatsapp/meta-api', () => ({
@@ -74,9 +80,24 @@ function makeSupabaseMock() {
       }
     };
 
+    const filters: Record<string, unknown> = {};
+    let patch: Record<string, unknown> | null = null;
+
     const b: Record<string, unknown> = {};
     b.select = vi.fn(() => b);
-    b.eq = vi.fn(() => b);
+    b.eq = vi.fn((column: string, value: unknown) => {
+      filters[column] = value;
+      return b;
+    });
+    b.update = vi.fn((values: Record<string, unknown>) => {
+      patch = values;
+      return b;
+    });
+    b.then = (resolve: (result: unknown) => void) => {
+      mocks.events.push(`stamp:${String(filters.id)}`);
+      mocks.stamps.push({ values: patch ?? {}, filters: { ...filters } });
+      resolve(mocks.stampResult(filters.id));
+    };
     b.single = vi.fn(async () => result());
     b.maybeSingle = vi.fn(async () => result());
     return b;
@@ -137,6 +158,103 @@ describe('POST /api/whatsapp/broadcast — authorization', () => {
     const res = await postBroadcast({ phone_numbers: ['+5511999999999'] });
 
     expect(res.status).toBe(403);
+    expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/whatsapp/broadcast — recording the Meta id', () => {
+  const recipients = [
+    { phone: '+15551234567', recipient_id: 'r1' },
+    { phone: '+15557654321', recipient_id: 'r2' },
+  ];
+
+  beforeEach(() => {
+    templateRow = { ...DEFAULT_TEMPLATE_ROW, header_type: 'text', header_media_url: undefined };
+    mocks.events.length = 0;
+    mocks.stamps.length = 0;
+    mocks.stampResult = (id) => ({ data: [{ id }], error: null });
+    mocks.sendTemplateMessage.mockImplementation(async () => {
+      mocks.events.push('send');
+      return { messageId: `wamid-${mocks.stamps.length}` };
+    });
+    mocks.persistBroadcastMessage.mockImplementation(async () => {
+      mocks.events.push('inbox');
+      return false;
+    });
+  });
+
+  it('records each id right after its send, before anything else', async () => {
+    await postBroadcast({ recipients });
+
+    expect(mocks.events).toEqual([
+      'send',
+      'stamp:r1',
+      'inbox',
+      'send',
+      'stamp:r2',
+      'inbox',
+    ]);
+  });
+
+  it('only touches a recipient that is still pending', async () => {
+    await postBroadcast({ recipients: [recipients[0]] });
+
+    expect(mocks.stamps[0].filters).toMatchObject({ id: 'r1', status: 'pending' });
+    expect(mocks.stamps[0].values).toMatchObject({
+      status: 'sent',
+      whatsapp_message_id: 'wamid-0',
+      error_message: null,
+    });
+    expect(mocks.stamps[0].values.sent_at).toEqual(expect.any(String));
+  });
+
+  it('tells the browser which recipients it recorded', async () => {
+    const res = await postBroadcast({ recipients: [recipients[0]] });
+
+    expect((await res.json()).results).toEqual([
+      {
+        phone: recipients[0].phone,
+        status: 'sent',
+        whatsapp_message_id: 'wamid-0',
+        recorded: true,
+      },
+    ]);
+  });
+
+  it('keeps sending when a write fails, and reports it as not recorded', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.stampResult = () => ({ data: null, error: { message: 'boom' } });
+
+    const res = await postBroadcast({ recipients });
+    const body = await res.json();
+    logged.mockRestore();
+
+    expect(mocks.sendTemplateMessage).toHaveBeenCalledTimes(2);
+    expect(body).toMatchObject({ sent: 2, failed: 0 });
+    expect(body.results.map((r: { recorded: boolean }) => r.recorded)).toEqual([false, false]);
+  });
+
+  it('reports not recorded when no row was updated', async () => {
+    mocks.stampResult = () => ({ data: [], error: null });
+
+    const res = await postBroadcast({ recipients: [recipients[0]] });
+
+    expect((await res.json()).results[0].recorded).toBe(false);
+  });
+
+  it('writes nothing for a caller without recipient ids', async () => {
+    const res = await postBroadcast({ phone_numbers: ['+15551234567'] });
+
+    expect(mocks.stamps).toEqual([]);
+    expect((await res.json()).results[0].recorded).toBe(false);
+  });
+
+  it('rejects a recipient id that is not text', async () => {
+    const res = await postBroadcast({
+      recipients: [{ phone: '+15551234567', recipient_id: 123 }],
+    });
+
+    expect(res.status).toBe(400);
     expect(mocks.sendTemplateMessage).not.toHaveBeenCalled();
   });
 });

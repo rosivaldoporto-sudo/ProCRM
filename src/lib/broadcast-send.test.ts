@@ -33,6 +33,7 @@ function fakeDb(recipientCount: number, options: FakeOptions = {}) {
     status: 'sending',
   };
   const queried: string[] = [];
+  const updates: Row[] = [];
 
   const client = {
     auth: {
@@ -74,6 +75,7 @@ function fakeDb(recipientCount: number, options: FakeOptions = {}) {
         },
         update(values: Row) {
           patch = values;
+          updates.push(values);
           return builder;
         },
         single() {
@@ -89,7 +91,7 @@ function fakeDb(recipientCount: number, options: FakeOptions = {}) {
           const matched = rowsOf().filter((row) => filters.every((f) => f(row)));
           if (patch) {
             matched.forEach((row) => Object.assign(row, patch));
-            return resolve({ data: null, error: null });
+            return resolve({ data: matched, error: null });
           }
           if (head) return resolve({ data: null, count: matched.length, error: null });
           const [from, to] = range ?? [0, matched.length];
@@ -106,6 +108,7 @@ function fakeDb(recipientCount: number, options: FakeOptions = {}) {
     recipients,
     broadcast,
     queried,
+    updates,
   };
 }
 
@@ -234,6 +237,105 @@ describe('sendPendingRecipients', () => {
 
       expect(mediaCalls).toEqual([]);
       expect(dispatched[0].messageParams).toBeUndefined();
+    });
+  });
+
+  describe('recording the Meta id', () => {
+    /** The send route: `during` runs while the batch is in flight. */
+    function stubSendRoute(during: () => void, recorded?: boolean) {
+      const dispatched: { phone: string; recipient_id?: string }[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init: { body: string }) => {
+          const body = JSON.parse(init.body) as { recipients: typeof dispatched };
+          dispatched.push(...body.recipients);
+          during();
+          return {
+            ok: true,
+            json: async () => ({
+              results: body.recipients.map((r) => ({
+                phone: r.phone,
+                status: 'sent',
+                whatsapp_message_id: `wamid-${r.recipient_id}`,
+                ...(recorded === undefined ? {} : { recorded }),
+              })),
+            }),
+          };
+        }),
+      );
+      return dispatched;
+    }
+
+    it('tells the route which recipient each send belongs to', async () => {
+      const dispatched = stubSendRoute(() => {});
+      const { client } = fakeDb(2);
+
+      await run(sendPendingRecipients(client, 'b1'));
+
+      expect(dispatched.map((r) => r.recipient_id)).toEqual(['r0000', 'r0001']);
+    });
+
+    it('leaves alone a recipient the route already recorded', async () => {
+      const { client, recipients, updates } = fakeDb(2);
+      stubSendRoute(() => {
+        Object.assign(recipients[0], {
+          status: 'delivered',
+          whatsapp_message_id: 'from-route',
+        });
+        Object.assign(recipients[1], {
+          status: 'sent',
+          whatsapp_message_id: 'from-route',
+        });
+      }, true);
+
+      const result = await run(sendPendingRecipients(client, 'b1'));
+
+      expect(recipients[0]).toMatchObject({
+        status: 'delivered',
+        whatsapp_message_id: 'from-route',
+      });
+      expect(result).toMatchObject({ sent: 2, failed: 0, pendingRemaining: 0 });
+      // Not even a harmless write: each one would slow the batch down.
+      expect(updates.filter((update) => 'whatsapp_message_id' in update)).toEqual([]);
+    });
+
+    it('records the id itself when the route could not', async () => {
+      const { client, recipients } = fakeDb(1);
+      stubSendRoute(() => {}, false);
+
+      await run(sendPendingRecipients(client, 'b1'));
+
+      expect(recipients[0]).toMatchObject({
+        status: 'sent',
+        whatsapp_message_id: 'wamid-r0000',
+      });
+    });
+
+    it('never moves a recipient back to sent', async () => {
+      const { client, recipients } = fakeDb(1);
+      stubSendRoute(() => {
+        recipients[0].status = 'delivered';
+      }, false);
+
+      await run(sendPendingRecipients(client, 'b1'));
+
+      expect(recipients[0].status).toBe('delivered');
+    });
+
+    it('fails only the recipients not sent when the request dies midway', async () => {
+      const { client, recipients } = fakeDb(2);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          recipients[0].status = 'sent';
+          throw new TypeError('Failed to fetch');
+        }),
+      );
+
+      const result = await run(sendPendingRecipients(client, 'b1'));
+
+      expect(recipients.map((r) => r.status)).toEqual(['sent', 'failed']);
+      expect(result.failed).toBe(1);
     });
   });
 

@@ -14,6 +14,10 @@
 import type { BroadcastStatus, RecipientStatus } from "@/types";
 
 export interface StatusDisplay {
+  /**
+   * Key under `Broadcasts.status` in messages/pt-BR.json. The dashboard
+   * activity feed prints it untranslated, so it stays readable Portuguese.
+   */
   label: string;
   classes: string;
   /**
