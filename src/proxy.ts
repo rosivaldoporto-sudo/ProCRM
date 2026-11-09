@@ -18,10 +18,18 @@ export async function proxy(request: NextRequest) {
   //      quando frame-ancestors está presente, os browsers ignoram o
   //      X-Frame-Options (spec), então `frame-ancestors *` libera o
   //      embed só nesta rota pública (sem dados sensíveis).
+  //
+  // Nota de voz (todas as rotas): o codificador Ogg/Opus
+  // (/opus/encoderWorker.min.js) roda como AudioWorklet, que herda o CSP
+  // da página, e compila WebAssembly. Sem 'wasm-unsafe-eval' o módulo
+  // quebra ao carregar, o 'encoder-worklet' nunca é registrado e a
+  // gravação falha — só em produção, porque no dev o 'unsafe-eval' já
+  // cobria o wasm. 'wasm-unsafe-eval' libera apenas a compilação de
+  // WebAssembly; eval() e new Function() continuam bloqueados.
   const isPublicForm = request.nextUrl.pathname.startsWith('/f/');
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https://*.supabase.co",

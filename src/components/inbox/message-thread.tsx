@@ -147,14 +147,17 @@ function groupMessagesByDate(messages: Message[]) {
   return groups;
 }
 
+// `labelKey` is the full key in Inbox.messageThread — never build it from
+// a display word (the old `status${'Aberta'}` asked for keys that don't
+// exist and logged MISSING_MESSAGE on every render).
 const STATUS_OPTIONS: {
-  label: string;
+  labelKey: 'statusOpen' | 'statusPending' | 'statusClosed';
   value: ConversationStatus;
   color: string;
 }[] = [
-  { label: 'Aberta', value: 'open', color: 'text-primary' },
-  { label: 'Pendente', value: 'pending', color: 'text-amber-400' },
-  { label: 'Fechada', value: 'closed', color: 'text-muted-foreground' },
+  { labelKey: 'statusOpen', value: 'open', color: 'text-primary' },
+  { labelKey: 'statusPending', value: 'pending', color: 'text-amber-400' },
+  { labelKey: 'statusClosed', value: 'closed', color: 'text-muted-foreground' },
 ];
 
 /**
@@ -1117,7 +1120,7 @@ export function MessageThread({
                 currentStatus?.color ?? 'text-muted-foreground'
               )}
             >
-              {currentStatus ? t(`status${currentStatus.label}`) : t('status')}
+              {currentStatus ? t(currentStatus.labelKey) : t('status')}
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -1130,7 +1133,7 @@ export function MessageThread({
                   onClick={() => handleStatusChange(opt.value)}
                   className={cn('text-sm', opt.color)}
                 >
-                  {t(`status${opt.label}`)}
+                  {t(opt.labelKey)}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
