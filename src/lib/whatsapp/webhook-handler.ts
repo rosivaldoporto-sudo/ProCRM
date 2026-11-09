@@ -25,6 +25,10 @@ import {
   readWebhookBody,
   WebhookPayloadTooLargeError,
 } from '@/lib/uazapi/webhook-auth';
+import {
+  isMissingReferralColumnError,
+  parseCloudApiReferral,
+} from '@/lib/whatsapp/ad-referral';
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +101,10 @@ interface WhatsAppMessage {
     source_url?: string;
     headline?: string;
     body?: string;
+    media_type?: string;
+    image_url?: string;
+    video_url?: string;
+    thumbnail_url?: string;
   };
   /**
    * Present when the customer replies to an ad via the built-in
@@ -864,23 +872,43 @@ async function processMessage(
     .eq('sender_type', 'customer');
   const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
 
-  const { error: msgError } = await supabaseAdmin()
+  const messageRow: Record<string, unknown> = {
+    conversation_id: conversation.id,
+    sender_type: 'customer',
+    content_type: contentType,
+    content_text: contentText,
+    media_url: mediaUrl,
+    message_id: message.id,
+    status: 'delivered',
+    created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+    reply_to_message_id: replyToInternalId,
+    // Only populated for content_type='interactive'. Migration 010 added
+    // the column; null for every other content_type so existing inserts
+    // behave identically.
+    interactive_reply_id: interactiveReplyId,
+  };
+
+  // Anúncio de origem (Click-to-WhatsApp), exibido no inbox acima da
+  // mensagem. Só entra no insert quando existe: mensagens comuns não
+  // dependem da coluna da migration 064.
+  const referral = parseCloudApiReferral(message.referral);
+  if (referral) messageRow.referral = referral;
+
+  let { error: msgError } = await supabaseAdmin()
     .from('messages')
-    .insert({
-      conversation_id: conversation.id,
-      sender_type: 'customer',
-      content_type: contentType,
-      content_text: contentText,
-      media_url: mediaUrl,
-      message_id: message.id,
-      status: 'delivered',
-      created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
-      reply_to_message_id: replyToInternalId,
-      // Only populated for content_type='interactive'. Migration 010 added
-      // the column; null for every other content_type so existing inserts
-      // behave identically.
-      interactive_reply_id: interactiveReplyId,
-    });
+    .insert(messageRow);
+
+  // Código publicado antes da migration 064: grava a mensagem sem o
+  // anúncio em vez de perdê-la.
+  if (msgError && referral && isMissingReferralColumnError(msgError)) {
+    console.warn(
+      '[webhook] messages.referral column missing (migration 064); saving message without the ad'
+    );
+    delete messageRow.referral;
+    ({ error: msgError } = await supabaseAdmin()
+      .from('messages')
+      .insert(messageRow));
+  }
 
   if (msgError) {
     console.error('Error inserting message:', msgError);

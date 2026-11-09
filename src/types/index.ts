@@ -239,6 +239,29 @@ export type ContentType =
   | 'interactive';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+/**
+ * Anúncio ou publicação que originou a mensagem (Click-to-WhatsApp).
+ * Mesmos nomes do objeto `referral` da Cloud API; a Uazapi é convertida
+ * para esse formato. Todos os campos são opcionais e as URLs gravadas
+ * são sempre `https:`. Migration 064.
+ */
+export interface MessageReferral {
+  /** Link do anúncio ou da publicação no Facebook/Instagram. */
+  source_url?: string;
+  /** ID do anúncio (ou da publicação). */
+  source_id?: string;
+  /** 'ad' (anúncio) ou 'post' (publicação). */
+  source_type?: string;
+  headline?: string;
+  body?: string;
+  /** 'image' ou 'video'. */
+  media_type?: string;
+  image_url?: string;
+  video_url?: string;
+  thumbnail_url?: string;
+  ctwa_clid?: string;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -279,6 +302,11 @@ export interface Message {
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /**
+   * Anúncio que originou esta mensagem do cliente (Click-to-WhatsApp).
+   * Null na maioria das mensagens. Migration 064.
+   */
+  referral?: MessageReferral | null;
 }
 
 export type ReactionActor = 'customer' | 'agent';

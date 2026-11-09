@@ -280,6 +280,16 @@
       "aiBadge": "IA",
       "aiBadgeTitle": "Enviado automaticamente pelo assistente de IA"
     },
+    "adReferral": {
+      "fromAd": "Veio de um anúncio",
+      "fromPost": "Veio de uma publicação",
+      "typeAd": "Anúncio",
+      "typePost": "Publicação",
+      "openAd": "Ver anúncio",
+      "openPost": "Ver publicação",
+      "openHint": "Abre no navegador, numa nova aba",
+      "thumbnailAlt": "Miniatura do anúncio"
+    },
     "actions": {
       "reply": "Responder",
       "copyText": "Copiar texto",

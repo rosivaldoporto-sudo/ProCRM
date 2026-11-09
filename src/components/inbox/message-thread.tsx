@@ -49,6 +49,7 @@ import {
 import { ContactSidebar } from './contact-sidebar';
 import { MessageBubble } from './message-bubble';
 import { MessageActions } from './message-actions';
+import { AdReferralCard } from './ad-referral-card';
 import {
   MessageComposer,
   CHAT_MEDIA_BUCKET,
@@ -1266,7 +1267,7 @@ export function MessageThread({
                       const next = own?.emoji === emoji ? '' : emoji;
                       void postReaction(msg.id, next);
                     };
-                    return (
+                    const bubble = (
                       <MessageActions
                         key={msg.id}
                         message={msg}
@@ -1283,6 +1284,21 @@ export function MessageThread({
                           onToggleReaction={handlePillToggle}
                         />
                       </MessageActions>
+                    );
+                    // Mensagem que veio de um anúncio (Click-to-WhatsApp):
+                    // o cartão do anúncio aparece logo acima dela.
+                    const referral =
+                      msg.sender_type === 'customer' &&
+                      msg.referral &&
+                      typeof msg.referral === 'object'
+                        ? msg.referral
+                        : null;
+                    if (!referral) return bubble;
+                    return (
+                      <div key={msg.id} className="space-y-1">
+                        <AdReferralCard referral={referral} />
+                        {bubble}
+                      </div>
                     );
                   })}
                 </div>

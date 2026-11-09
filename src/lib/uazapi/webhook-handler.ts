@@ -28,6 +28,11 @@ import {
   mapUazapiStatus,
   uazapiTimestampToIso,
 } from '@/lib/uazapi/message-mapping';
+import {
+  isMissingReferralColumnError,
+  parseUazapiReferral,
+} from '@/lib/whatsapp/ad-referral';
+import type { MessageReferral } from '@/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null;
@@ -359,22 +364,42 @@ export async function handleWebhook(request: Request, accountId?: string) {
       }
 
       // Persist the message
-      const { data: inserted, error: insertError } = await db
+      const messageRow: Record<string, unknown> = {
+        conversation_id: conversation.id,
+        sender_type: isOutbound ? 'agent' : 'customer',
+        content_type: contentType,
+        content_text: contentText,
+        media_url: mediaUrl,
+        message_id: msg.id || null,
+        status: isOutbound ? mapUazapiStatus(msg.status || '') : 'delivered',
+        source: 'uazapi',
+        reply_to_message_id: replyToInternalId,
+        created_at: msg.createdAt ?? new Date().toISOString(),
+      };
+      // Anúncio de origem: só entra no insert quando existe, para que as
+      // mensagens comuns não dependam da coluna da migration 064.
+      const referral = !isOutbound ? (msg.referral ?? null) : null;
+      if (referral) messageRow.referral = referral;
+
+      let { data: inserted, error: insertError } = await db
         .from('messages')
-        .insert({
-          conversation_id: conversation.id,
-          sender_type: isOutbound ? 'agent' : 'customer',
-          content_type: contentType,
-          content_text: contentText,
-          media_url: mediaUrl,
-          message_id: msg.id || null,
-          status: isOutbound ? mapUazapiStatus(msg.status || '') : 'delivered',
-          source: 'uazapi',
-          reply_to_message_id: replyToInternalId,
-          created_at: msg.createdAt ?? new Date().toISOString(),
-        })
+        .insert(messageRow)
         .select('id')
         .single();
+
+      // Código publicado antes da migration 064: grava sem o anúncio em
+      // vez de perder a mensagem.
+      if (insertError && referral && isMissingReferralColumnError(insertError)) {
+        console.warn(
+          '[uazapi-webhook] messages.referral column missing (migration 064); saving message without the ad'
+        );
+        delete messageRow.referral;
+        ({ data: inserted, error: insertError } = await db
+          .from('messages')
+          .insert(messageRow)
+          .select('id')
+          .single());
+      }
 
       if (insertError) {
         console.error(
@@ -609,9 +634,17 @@ interface ExtractedMessage {
    * call needed.
    */
   chatImage?: string;
+  /**
+   * Anúncio de origem (Click-to-WhatsApp), lido de
+   * `contextInfo.externalAdReply`. Só em mensagens recebidas.
+   */
+  referral?: MessageReferral | null;
 }
 
-function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
+/** Exportada para os testes da extração do anúncio. */
+export function extractMessages(
+  payload: UazapiWebhookPayload
+): ExtractedMessage[] {
   const result: ExtractedMessage[] = [];
   const seenIds = new Set<string>();
   // v2 webhooks carry the chat's profile picture right on the payload.
@@ -672,6 +705,9 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
             status: flatMessage.status,
             messageType: flatMessage.messageType || flatMessage.type || '',
             mediaType: flatMessage.mediaType || '',
+            referral: flatMessage.fromMe
+              ? null
+              : parseUazapiReferral(flatMessage),
           });
         }
       }
@@ -752,6 +788,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
       contentText,
       mediaUrl,
       quotedId,
+      referral: isOutbound ? null : parseUazapiReferral(msg),
     });
   }
 
@@ -809,6 +846,7 @@ function extractMessages(payload: UazapiWebhookPayload): ExtractedMessage[] {
           status: String(flat.status ?? ''),
           messageType: String(flat.messageType ?? flat.type ?? ''),
           mediaType: String(flat.mediaType ?? ''),
+          referral: flat.fromMe === true ? null : parseUazapiReferral(flat),
         });
       }
     }
