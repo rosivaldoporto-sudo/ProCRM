@@ -105,11 +105,14 @@ export interface Contact {
   utm_content?: string;
   /** Click-to-WhatsApp ad attribution (migration 041). Set when the
    *  first inbound message carries Meta's `referral` payload; the
-   *  ad/campaign names are enriched asynchronously via GET message
-   *  details. */
+   *  ad / ad set / campaign names are read afterwards from the Marketing
+   *  API (src/lib/facebook/ctwa-ads.ts). */
   ctwa_clid?: string;
   ad_id?: string;
   ad_name?: string;
+  /** Conjunto de anúncios (migration 065). */
+  adset_id?: string;
+  adset_name?: string;
   campaign_id?: string;
   campaign_name?: string;
   ad_source_type?: string;
@@ -260,6 +263,16 @@ export interface MessageReferral {
   video_url?: string;
   thumbnail_url?: string;
   ctwa_clid?: string;
+  /**
+   * Nomes lidos depois na API de Marketing pelo ID do anúncio (exige
+   * token com ads_read). Ausentes enquanto a busca não terminou ou
+   * quando a Meta recusou. Migration 065.
+   */
+  ad_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
 }
 
 export interface Message {

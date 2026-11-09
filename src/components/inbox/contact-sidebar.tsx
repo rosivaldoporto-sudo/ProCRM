@@ -540,7 +540,12 @@ export function ContactSidebar({ contact, className }: ContactSidebarProps) {
                 </p>
                 {contact.campaign_name && (
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {contact.campaign_name}
+                    {tSidebar("campaignName", { name: contact.campaign_name })}
+                  </p>
+                )}
+                {contact.adset_name && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {tSidebar("adsetName", { name: contact.adset_name })}
                   </p>
                 )}
                 {(contact.ad_id || contact.campaign_id) && (

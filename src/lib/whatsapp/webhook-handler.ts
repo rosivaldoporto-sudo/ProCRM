@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
-import { getMediaUrl, getMessageDetails } from '@/lib/whatsapp/meta-api';
+import { getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import {
   findExistingContact,
@@ -29,6 +29,11 @@ import {
   isMissingReferralColumnError,
   parseCloudApiReferral,
 } from '@/lib/whatsapp/ad-referral';
+import {
+  captureAdsAttribution,
+  enrichAdReferral,
+  isValidAdId,
+} from '@/lib/facebook/ctwa-ads';
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -450,10 +455,7 @@ async function processWebhook(
           // inserts that need it for NOT NULL FK compliance. Always
           // the admin who saved the WhatsApp config.
           config.user_id,
-          decryptedAccessToken,
-          // Needed for CTWA attribution enrichment (GET message
-          // details resolves the ad/campaign names).
-          phoneNumberId
+          decryptedAccessToken
         );
       }
     }
@@ -741,8 +743,7 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string,
-  phoneNumberId: string
+  accessToken: string
 ) {
   const senderPhone = normalizePhone(message.from);
   const contactName = contact.profile.name;
@@ -766,23 +767,21 @@ async function processMessage(
   if (!convResult) return;
   const conversation = convResult.conversation;
 
-  // Click-to-WhatsApp ad attribution — capture the click id on the
-  // FIRST message that carries it (first ad wins; later organic
-  // messages must not overwrite it), then enrich asynchronously with
-  // the ad/campaign names via GET message details so it never blocks
-  // the webhook ack. Runs BEFORE the message insert so the CAPI lead
-  // event below already sees the utm_* columns populated.
+  // Click-to-WhatsApp ad attribution — capture the click id / ad id on
+  // the FIRST message that carries it (first ad wins; later organic
+  // messages must not overwrite it). Runs BEFORE the message insert so
+  // the CAPI lead event below already sees the utm_* columns populated.
+  // The campaign / ad set / ad names are fetched after the insert.
   const attribution = extractCtwaAttribution(message);
-  if (attribution.ctwaClid) {
-    await captureAdsAttribution(contactRecord.id, conversation.id, attribution);
-    after(() =>
-      enrichAdsAttribution({
-        phoneNumberId,
-        accessToken,
-        messageId: message.id,
-        contactId: contactRecord.id,
-      }).catch((err) => console.warn('[webhook] CTWA enrichment failed:', err))
-    );
+  if (attribution.ctwaClid || isValidAdId(attribution.adId)) {
+    await captureAdsAttribution({
+      db: supabaseAdmin(),
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      ctwaClid: attribution.ctwaClid,
+      adId: isValidAdId(attribution.adId) ? attribution.adId : undefined,
+      sourceType: attribution.sourceType,
+    });
   }
 
   // Emit conversation.created as soon as the thread is opened — BEFORE
@@ -900,11 +899,13 @@ async function processMessage(
 
   // Código publicado antes da migration 064: grava a mensagem sem o
   // anúncio em vez de perdê-la.
+  let referralSaved = !!referral;
   if (msgError && referral && isMissingReferralColumnError(msgError)) {
     console.warn(
       '[webhook] messages.referral column missing (migration 064); saving message without the ad'
     );
     delete messageRow.referral;
+    referralSaved = false;
     ({ error: msgError } = await supabaseAdmin()
       .from('messages')
       .insert(messageRow));
@@ -913,6 +914,25 @@ async function processMessage(
   if (msgError) {
     console.error('Error inserting message:', msgError);
     return;
+  }
+
+  // Nomes da campanha, do conjunto e do anúncio (API de Marketing),
+  // depois do ack: gravados no referral da mensagem e no contato. O
+  // inbox recebe a atualização pelo realtime.
+  if (referral && isValidAdId(referral.source_id)) {
+    after(() =>
+      enrichAdReferral({
+        db: supabaseAdmin(),
+        accountId,
+        contactId: contactRecord.id,
+        referral,
+        message: {
+          conversationId: conversation.id,
+          whatsappMessageId: message.id,
+        },
+        saveOnMessage: referralSaved,
+      })
+    );
   }
 
   // Update conversation — set source to null if this channel doesn't
@@ -1423,12 +1443,11 @@ async function findOrCreateConversation(
 // conversation that started from a Click-to-WhatsApp ad. It carries
 // `ctwa_clid` (unique per click — later required by the Conversions
 // API to match the lead to the ad) and `source_id` (the ad id). The
-// human-readable ad/campaign names only come from a follow-up
-// GET /{phone_number_id}/messages/{message_id} call, done here
-// fire-and-forget via `after()` so it never blocks the webhook ack.
+// campaign / ad set / ad names come from the Marketing API, read after
+// the insert (see src/lib/facebook/ctwa-ads.ts).
 //
-// First ad wins: an existing ctwa_clid is never overwritten, so
-// later organic messages can't erase attribution.
+// First ad wins: an existing attribution is never overwritten, so
+// later organic messages can't erase it.
 // ============================================================
 
 interface CtwaAttribution {
@@ -1452,68 +1471,6 @@ function extractCtwaAttribution(message: WhatsAppMessage): CtwaAttribution {
     adBody: referral?.body,
     sourceUrl: referral?.source_url,
   };
-}
-
-async function captureAdsAttribution(
-  contactId: string,
-  conversationId: string,
-  attribution: CtwaAttribution
-) {
-  const supabase = supabaseAdmin();
-
-  // First ad wins — don't clobber an attribution set earlier.
-  const { data: existing } = await supabase
-    .from('contacts')
-    .select('ctwa_clid')
-    .eq('id', contactId)
-    .maybeSingle();
-  if (existing?.ctwa_clid) return;
-
-  await supabase
-    .from('contacts')
-    .update({
-      ctwa_clid: attribution.ctwaClid,
-      ad_id: attribution.adId ?? null,
-      ad_source_type: attribution.sourceType ?? 'ctwa',
-      // Mirror onto the UTM columns so the CAPI lead event (and any
-      // UTM-based reporting) carries a consistent campaign/ad label.
-      utm_source: 'facebook',
-      utm_medium: 'cpc',
-      utm_campaign: attribution.ctwaClid ? 'click_to_whatsapp' : undefined,
-    })
-    .eq('id', contactId);
-
-  await supabase
-    .from('conversations')
-    .update({ utm_source: 'facebook', utm_medium: 'cpc' })
-    .eq('id', conversationId);
-}
-
-async function enrichAdsAttribution(args: {
-  phoneNumberId: string;
-  accessToken: string;
-  messageId: string;
-  contactId: string;
-}) {
-  // Best-effort: null on failure (rate limit, message too old,
-  // not an ad message) — the contact keeps the clid either way.
-  const details = await getMessageDetails(args);
-  if (!details) return;
-
-  const updates: Record<string, string> = {};
-  if (details.ctwa_clid) updates.ctwa_clid = details.ctwa_clid;
-  if (details.ad_id) updates.ad_id = details.ad_id;
-  if (details.source_type) updates.ad_source_type = details.source_type;
-  if (details.campaign_id) updates.campaign_id = details.campaign_id;
-  if (details.campaign_name) updates.campaign_name = details.campaign_name;
-  if (details.source_type) updates.ad_source_type = details.source_type!;
-  if (details.campaign_name) updates.utm_campaign = details.campaign_name;
-  if (Object.keys(updates).length === 0) return;
-
-  await supabaseAdmin()
-    .from('contacts')
-    .update(updates)
-    .eq('id', args.contactId);
 }
 
 // ============================================================

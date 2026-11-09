@@ -96,8 +96,15 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 }));
 vi.mock('@/lib/whatsapp/meta-api', () => ({
   getMediaUrl: vi.fn(),
-  getMessageDetails: vi.fn(async () => null),
 }));
+vi.mock('@/lib/facebook/ctwa-ads', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/facebook/ctwa-ads')>();
+  return {
+    ...actual,
+    captureAdsAttribution: vi.fn(async () => {}),
+    enrichAdReferral: vi.fn(async () => null),
+  };
+});
 vi.mock('@/lib/contacts/dedupe', () => ({
   findExistingContact: vi.fn(async () => ({
     id: 'contact-1',
@@ -123,6 +130,10 @@ vi.mock('@/lib/push/send', () => ({
 }));
 
 import { handleWebhook } from './webhook-handler';
+import {
+  captureAdsAttribution,
+  enrichAdReferral,
+} from '@/lib/facebook/ctwa-ads';
 
 const AD_REFERRAL = {
   source_url: 'https://fb.me/2ZHeY5pVa',
@@ -218,6 +229,32 @@ describe('webhook da Cloud API — anúncio de origem', () => {
 
     expect(mocks.messageInserts).toHaveLength(1);
     expect(mocks.messageInserts[0]).not.toHaveProperty('referral');
+    expect(captureAdsAttribution).not.toHaveBeenCalled();
+    expect(enrichAdReferral).not.toHaveBeenCalled();
+  });
+
+  it('grava o anúncio no contato e agenda a busca dos nomes', async () => {
+    await deliver(inboundText(AD_REFERRAL));
+
+    expect(captureAdsAttribution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactId: 'contact-1',
+        conversationId: 'conv-1',
+        ctwaClid: AD_REFERRAL.ctwa_clid,
+        adId: AD_REFERRAL.source_id,
+        sourceType: 'ad',
+      })
+    );
+    expect(enrichAdReferral).toHaveBeenCalledTimes(1);
+    expect(enrichAdReferral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        contactId: 'contact-1',
+        referral: AD_REFERRAL,
+        message: { conversationId: 'conv-1', whatsappMessageId: 'wamid.AD1' },
+        saveOnMessage: true,
+      })
+    );
   });
 
   it('sem a migration 064, grava a mensagem sem o anúncio', async () => {
@@ -233,5 +270,9 @@ describe('webhook da Cloud API — anúncio de origem', () => {
     expect(mocks.messageInserts[0]).toHaveProperty('referral');
     expect(mocks.messageInserts[1]).not.toHaveProperty('referral');
     expect(mocks.messageInserts[1]).toMatchObject({ message_id: 'wamid.AD1' });
+    // Os nomes ainda vão para o contato, mas não para a mensagem.
+    expect(enrichAdReferral).toHaveBeenCalledWith(
+      expect.objectContaining({ saveOnMessage: false })
+    );
   });
 });

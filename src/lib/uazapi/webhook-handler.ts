@@ -33,6 +33,11 @@ import {
   parseUazapiReferral,
 } from '@/lib/whatsapp/ad-referral';
 import type { MessageReferral } from '@/types';
+import {
+  captureAdsAttribution,
+  enrichAdReferral,
+  isValidAdId,
+} from '@/lib/facebook/ctwa-ads';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null;
@@ -407,6 +412,38 @@ export async function handleWebhook(request: Request, accountId?: string) {
           insertError.message
         );
         continue;
+      }
+
+      // Mensagem de anúncio: grava o anúncio no contato (o primeiro vale)
+      // e busca os nomes da campanha, do conjunto e do anúncio na API de
+      // Marketing. Depois da resposta, para não atrasar o webhook.
+      if (
+        referral &&
+        inserted &&
+        (referral.ctwa_clid || isValidAdId(referral.source_id))
+      ) {
+        const insertedId = inserted.id as string;
+        const referralSaved = 'referral' in messageRow;
+        after(async () => {
+          await captureAdsAttribution({
+            db,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            ctwaClid: referral.ctwa_clid,
+            adId: isValidAdId(referral.source_id)
+              ? referral.source_id
+              : undefined,
+            sourceType: referral.source_type,
+          });
+          await enrichAdReferral({
+            db,
+            accountId: config.account_id,
+            contactId: contact.id,
+            referral,
+            message: { id: insertedId },
+            saveOnMessage: referralSaved,
+          });
+        });
       }
 
       // Best-effort: resolve the real file URL for media messages

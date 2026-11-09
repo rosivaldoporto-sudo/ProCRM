@@ -45,6 +45,28 @@ describe('AdReferralCard', () => {
     }
   });
 
+  it('mostra campanha, conjunto e anúncio quando a Meta devolveu os nomes', () => {
+    const html = render({
+      source_url: 'https://fb.me/2ZHeY5pVa',
+      source_type: 'ad',
+      headline: 'Consultoria gratuita',
+      campaign_name: 'Black Friday 2026',
+      adset_name: 'Mulheres 25-45 SP',
+      ad_name: 'Vídeo depoimento 01',
+    });
+
+    expect(html).toContain('Campanha');
+    expect(html).toContain('Black Friday 2026');
+    expect(html).toContain('Conjunto');
+    expect(html).toContain('Mulheres 25-45 SP');
+    expect(html).toContain('Vídeo depoimento 01');
+  });
+
+  it('sem os nomes, não mostra o bloco de campanha', () => {
+    const html = render({ headline: 'Só o título', source_type: 'ad' });
+    expect(html).not.toContain('<dl');
+  });
+
   it('publicação usa os textos de publicação', () => {
     const html = render({
       source_url: 'https://www.instagram.com/p/xyz/',

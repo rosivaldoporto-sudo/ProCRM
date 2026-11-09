@@ -288,7 +288,10 @@
       "openAd": "Ver anúncio",
       "openPost": "Ver publicação",
       "openHint": "Abre no navegador, numa nova aba",
-      "thumbnailAlt": "Miniatura do anúncio"
+      "thumbnailAlt": "Miniatura do anúncio",
+      "campaign": "Campanha",
+      "adset": "Conjunto",
+      "ad": "Anúncio"
     },
     "actions": {
       "reply": "Responder",
@@ -350,6 +353,8 @@
       "clickId": "ID do clique",
       "adId": "Anúncio",
       "campaignId": "Campanha",
+      "campaignName": "Campanha: {name}",
+      "adsetName": "Conjunto: {name}",
       "addToPipeline": "Funil",
       "changeStage": "Alterar etapa",
       "dealAdded": "Negócio adicionado ao funil",
@@ -1694,7 +1699,35 @@
       "paramCampaign": "Nome da campanha",
       "paramMedium": "Tipo de tráfego (cpc, social, etc.)",
       "paramContent": "Identificador do anúncio/criativo",
-      "paramTerm": "Palavra-chave"
+      "paramTerm": "Palavra-chave",
+      "adNames": {
+        "title": "Nomes de campanha, conjunto e anúncio",
+        "desc": "A mensagem de quem clica num anúncio só traz o ID do anúncio. Com um token que tenha a permissão ads_read na sua conta de anúncios, o CRM busca na Meta os nomes da campanha, do conjunto e do anúncio e mostra na conversa e no contato.",
+        "statusSaved": "Token de anúncios salvo",
+        "statusCapiFallback": "Sem token próprio: o CRM tenta o token da Conversions API",
+        "statusNone": "Sem token: os nomes não são buscados",
+        "migrationMissing": "Aplique a migration 065_ad_names_lookup.sql no Supabase para salvar o token.",
+        "step1": "No Business Manager, abra Configurações do negócio → Usuários do sistema e escolha ou crie um usuário do sistema.",
+        "step2": "Em Atribuir ativos, dê a esse usuário acesso à conta de anúncios que roda os anúncios de WhatsApp.",
+        "step3": "Clique em Gerar token, escolha o app, marque a permissão ads_read e cole o token aqui.",
+        "systemUsersLink": "Abrir usuários do sistema",
+        "tokenLabel": "Token com ads_read",
+        "tokenPlaceholder": "Cole o token do usuário do sistema",
+        "save": "Salvar token",
+        "saved": "Token salvo",
+        "saveError": "Não foi possível salvar o token",
+        "remove": "Remover token",
+        "removed": "Token removido",
+        "accountsFound": "{count, plural, one {O token enxerga # conta de anúncios:} other {O token enxerga # contas de anúncios:}}",
+        "accountsWarning": "Token salvo, mas a Meta não listou as contas de anúncios ({error}). Teste com o ID de um anúncio para confirmar o acesso.",
+        "testLabel": "Testar com o ID de um anúncio",
+        "testHint": "Copie o ID na coluna de anúncios do Gerenciador de Anúncios.",
+        "testButton": "Buscar nomes",
+        "testError": "Não foi possível buscar os nomes",
+        "campaign": "Campanha",
+        "adset": "Conjunto",
+        "ad": "Anúncio"
+      }
     },
     "whatsapp": {
       "title": "Conexão WhatsApp",

@@ -96,6 +96,37 @@ export function AdReferralCard({ referral }: { referral: MessageReferral }) {
             </div>
           )}
 
+          {(referral.campaign_name ||
+            referral.adset_name ||
+            referral.ad_name) && (
+            <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] leading-snug">
+              {referral.campaign_name && (
+                <>
+                  <dt className="text-muted-foreground">{t("campaign")}</dt>
+                  <dd className="truncate font-medium" title={referral.campaign_name}>
+                    {referral.campaign_name}
+                  </dd>
+                </>
+              )}
+              {referral.adset_name && (
+                <>
+                  <dt className="text-muted-foreground">{t("adset")}</dt>
+                  <dd className="truncate font-medium" title={referral.adset_name}>
+                    {referral.adset_name}
+                  </dd>
+                </>
+              )}
+              {referral.ad_name && (
+                <>
+                  <dt className="text-muted-foreground">{t("ad")}</dt>
+                  <dd className="truncate font-medium" title={referral.ad_name}>
+                    {referral.ad_name}
+                  </dd>
+                </>
+              )}
+            </dl>
+          )}
+
           {link && (
             <a
               href={link}
