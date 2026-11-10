@@ -25,6 +25,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored minified opus-recorder encoder worker (served statically).
     "public/opus/**",
+    // Worktrees de agentes: cópias inteiras do repositório que não devem
+    // ser analisadas duas vezes (e ainda trazem o encoder minificado).
+    ".claude/**",
   ]),
 ]);
 

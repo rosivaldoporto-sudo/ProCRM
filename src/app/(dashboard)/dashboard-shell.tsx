@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { PushNotificationsSync } from "@/components/push/push-notifications-sync";
+import { InboxAlerts } from "@/components/inbox/inbox-alerts";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -59,11 +60,46 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   }, [user, loading, router]);
 
   if (loading) {
+    // Esqueleto com a mesma estrutura do painel (barra lateral, cabeçalho,
+    // conteúdo): a tela "monta" no lugar em vez de trocar um spinner
+    // centralizado pelo layout inteiro.
     return (
-      <div className="flex h-dvh items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Carregando...</p>
+      <div
+        role="status"
+        aria-label="Carregando"
+        className="flex h-dvh overflow-hidden bg-background"
+      >
+        <div
+          className={`hidden shrink-0 flex-col gap-2 border-r border-border bg-card p-3 lg:flex ${
+            sidebarCollapsed ? "w-16" : "w-60"
+          }`}
+        >
+          <div className="mb-4 h-8 animate-pulse rounded-md bg-muted" />
+          {Array.from({ length: 8 }, (_, index) => (
+            <div
+              key={index}
+              className="h-9 animate-pulse rounded-md bg-muted/70"
+            />
+          ))}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 lg:px-6">
+            <div className="h-8 w-8 animate-pulse rounded-md bg-muted lg:hidden" />
+            <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+            <div className="ml-auto h-8 w-8 animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="flex-1 space-y-4 overflow-hidden p-4 sm:p-6">
+            <div className="h-7 w-56 max-w-full animate-pulse rounded bg-muted" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div
+                  key={index}
+                  className="h-24 animate-pulse rounded-xl bg-muted/70"
+                />
+              ))}
+            </div>
+            <div className="h-64 animate-pulse rounded-xl bg-muted/50" />
+          </div>
         </div>
       </div>
     );
@@ -77,6 +113,8 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
       <PushNotificationsSync />
+      {/* Som / aviso na tela para mensagens novas com o app aberto. */}
+      <InboxAlerts />
       <Sidebar
         open={sidebarOpen}
         onClose={closeSidebar}

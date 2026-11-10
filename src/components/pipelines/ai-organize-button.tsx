@@ -31,7 +31,6 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
   const [loading, setLoading] = useState(false)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [results, setResults] = useState<OrganizeResult[]>([])
-  const [movedCount, setMovedCount] = useState(0)
   const canEdit = useCan('edit-settings')
 
   async function handleOrganize() {
@@ -55,7 +54,6 @@ export function AiOrganizeButton({ pipelineId, onOrganized }: AiOrganizeButtonPr
       const moved = (data.moved ?? 0) as number
 
       setResults(recs)
-      setMovedCount(moved)
       setResultsOpen(true)
 
       if (moved > 0) {

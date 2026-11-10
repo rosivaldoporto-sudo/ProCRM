@@ -168,8 +168,6 @@ async function runBackgroundSync(
   );
   const { resolveAuditUserId } = await import('@/lib/api/v1/contacts');
   const {
-    fetchMessages,
-    downloadMessageUrl,
     getInstanceWebhook,
     setInstanceWebhook,
   } = await import('@/lib/uazapi/uazapi-client');
@@ -179,7 +177,6 @@ async function runBackgroundSync(
 
   const ownerUserId = await resolveAuditUserId(adminDb, accountId);
 
-  const env = uazapiEnvConfig();
   const webhookUrl = buildUazapiWebhookUrl(
     process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'http://localhost:3000',
     accountId

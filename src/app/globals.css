@@ -88,6 +88,7 @@
 
 :root,
 html[data-mode="dark"] {
+  color-scheme: dark;
   --background: oklch(0.13 0.01 260);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.18 0.01 260);
@@ -117,6 +118,9 @@ html[data-mode="dark"] {
 }
 
 html[data-mode="light"] {
+  /* Controles nativos (barras de rolagem, seletores de data, autofill)
+     acompanham o modo em vez de ficarem escuros num app claro. */
+  color-scheme: light;
   --background: oklch(0.99 0.002 260);
   --foreground: oklch(0.21 0.01 260);
   --card: oklch(1 0 0);
@@ -222,9 +226,39 @@ html[data-theme="rose"] {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     /* iOS rubber-banding + stray horizontal drift on chat scrolls. */
     overscroll-behavior-y: none;
+    text-rendering: optimizeLegibility;
+  }
+  /* Barras de rolagem finas e na cor do tema, em vez da barra larga e
+     cinza do sistema (bem visível no Windows). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent)
+      transparent;
+  }
+  ::selection {
+    background-color: var(--primary-soft-2);
+  }
+  /* Foco de teclado sempre visível e consistente em links e botões que
+     não definem o próprio anel. Só aparece na navegação por teclado;
+     `:where` mantém a especificidade em zero, então qualquer utilitário
+     (outline-none, ring-*) continua vencendo. Campos de texto ficam de
+     fora: já têm anel próprio e o formulário público tem tema próprio. */
+  :where(a, button, summary, [role="button"], [role="tab"], [role="menuitem"], [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Títulos sem palavra órfã na última linha; parágrafos com quebra
+     mais equilibrada. Navegadores sem suporte ignoram. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
   }
   html {
     @apply font-sans;
@@ -236,6 +270,20 @@ html[data-theme="rose"] {
   a,
   [role="button"] {
     touch-action: manipulation;
+  }
+}
+
+/* Quem pediu menos movimento no sistema (enjoo, vestibular, foco) não
+   recebe animações nem rolagem suave. As durações vão a ~0 em vez de
+   `none` para os eventos de fim de animação continuarem disparando. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
