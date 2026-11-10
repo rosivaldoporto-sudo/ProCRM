@@ -28,13 +28,21 @@ const SECURITY_HEADERS = [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
   { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // Flash / Acrobat cross-domain policy files: never served, never honoured.
+  { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+  // Keeps this origin in its own agent cluster (process isolation hint;
+  // also disables the legacy document.domain escape hatch).
+  { key: 'Origin-Agent-Cluster', value: '?1' },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
     // composer can record voice notes via MediaRecorder. Everything
     // else stays denied — a compromised dependency can't silently grab
     // the camera / geolocation / etc.
     key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
+    value:
+      'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), ' +
+      'bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), ' +
+      'accelerometer=(), gyroscope=(), magnetometer=(), browsing-topics=()',
   },
 ];
 
@@ -74,6 +82,10 @@ const LEGACY_ROUTES = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // No `X-Powered-By: Next.js` — don't advertise the framework (and its
+  // version-specific CVEs) to scanners.
+  poweredByHeader: false,
+
   /**
    * Web Push signing lives in Node (`web-push` → crypto / https).
    * Keep it out of the server bundle so Next doesn't try to trace
