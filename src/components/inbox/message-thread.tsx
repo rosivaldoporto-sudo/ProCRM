@@ -1,7 +1,21 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+  memo,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  THREAD_PAGE_SIZE,
+  isOptimisticMessage,
+  mergeLatestPage,
+  prependOlderPage,
+} from '@/lib/inbox/thread-messages';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import { PresenceDot } from '@/components/presence/presence-dot';
@@ -173,6 +187,117 @@ const STATUS_OPTIONS: {
 const DOODLE_BG_CLASSES =
   "bg-background bg-[url('/inbox-doodle.svg')] bg-repeat";
 
+/** Placeholder das bolhas enquanto a primeira página da conversa carrega. */
+const SKELETON_ROWS: { mine: boolean; width: string }[] = [
+  { mine: false, width: 'w-40' },
+  { mine: false, width: 'w-56' },
+  { mine: true, width: 'w-48' },
+  { mine: false, width: 'w-32' },
+  { mine: true, width: 'w-64' },
+  { mine: true, width: 'w-36' },
+];
+
+function ThreadSkeleton({ label }: { label: string }) {
+  return (
+    <div role="status" aria-label={label} className="space-y-3 py-2">
+      {SKELETON_ROWS.map((row, index) => (
+        <div
+          key={index}
+          className={cn('flex', row.mine ? 'justify-end' : 'justify-start')}
+        >
+          <div
+            className={cn(
+              'bg-muted h-9 max-w-[75%] animate-pulse rounded-2xl',
+              row.width,
+              row.mine ? 'rounded-br-md' : 'rounded-bl-md'
+            )}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ThreadMessageRowProps {
+  message: Message;
+  /** Mensagem citada, quando esta é uma resposta. */
+  parent: Message | null;
+  contactLabel: string;
+  reactions: MessageReaction[] | undefined;
+  currentUserId: string | undefined;
+  onReply: (message: Message) => void;
+  /** `emoji === ''` remove a reação do agente. */
+  onReact: (messageId: string, emoji: string) => void;
+}
+
+/**
+ * Uma linha da conversa. Memoizada: uma mensagem nova, um tique de
+ * status ou a presença da equipe não re-renderizam as outras bolhas
+ * (antes a thread inteira era refeita a cada evento do realtime).
+ */
+const ThreadMessageRow = memo(function ThreadMessageRow({
+  message,
+  parent,
+  contactLabel,
+  reactions,
+  currentUserId,
+  onReply,
+  onReact,
+}: ThreadMessageRowProps) {
+  const tQuote = useTranslations('Inbox.replyQuote');
+
+  const reply = parent
+    ? {
+        authorLabel:
+          parent.sender_type === 'agent' || parent.sender_type === 'bot'
+            ? 'Você'
+            : contactLabel,
+        preview: buildReplyPreview(parent, tQuote),
+      }
+    : null;
+
+  const handlePillToggle = (emoji: string) => {
+    const own = reactions?.find(
+      (r) => r.actor_type === 'agent' && r.actor_id === currentUserId
+    );
+    onReact(message.id, own?.emoji === emoji ? '' : emoji);
+  };
+
+  const bubble = (
+    <MessageActions
+      message={message}
+      onReply={() => onReply(message)}
+      onReact={(emoji) => {
+        if (emoji) onReact(message.id, emoji);
+      }}
+    >
+      <MessageBubble
+        message={message}
+        reply={reply}
+        reactions={reactions}
+        currentUserId={currentUserId}
+        onToggleReaction={handlePillToggle}
+      />
+    </MessageActions>
+  );
+
+  // Mensagem que veio de um anúncio (Click-to-WhatsApp): o cartão do
+  // anúncio aparece logo acima dela.
+  const referral =
+    message.sender_type === 'customer' &&
+    message.referral &&
+    typeof message.referral === 'object'
+      ? message.referral
+      : null;
+  if (!referral) return bubble;
+  return (
+    <div className="space-y-1">
+      <AdReferralCard referral={referral} />
+      {bubble}
+    </div>
+  );
+});
+
 export function MessageThread({
   conversation,
   contact,
@@ -267,22 +392,36 @@ export function MessageThread({
     };
   }, []);
 
+  // A thread só guarda a página mais recente (+ as antigas que o agente
+  // carregou). Quando as últimas mensagens são todas nossas, a última do
+  // cliente pode estar fora da janela — `olderCustomerAt` guarda a data
+  // dela, buscada à parte, para o cronômetro de 24h não dar "expirada"
+  // por engano.
+  const [olderCustomerAt, setOlderCustomerAt] = useState<{
+    conversationId: string;
+    at: string | null;
+  } | null>(null);
+
   // 24-hour session timer
   const sessionInfo = useMemo(() => {
     if (!messages.length) return { expired: false, remaining: '' };
 
     // Find last customer message
-    const lastCustomerMsg = [...messages]
-      .reverse()
-      .find((m) => m.sender_type === 'customer');
+    let lastCustomerAt: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].sender_type === 'customer') {
+        lastCustomerAt = messages[i].created_at;
+        break;
+      }
+    }
+    if (!lastCustomerAt && olderCustomerAt?.conversationId === conversation?.id) {
+      lastCustomerAt = olderCustomerAt?.at ?? null;
+    }
 
-    if (!lastCustomerMsg)
+    if (!lastCustomerAt)
       return { expired: true, remaining: 'Sem mensagens do cliente' };
 
-    const hoursSince = differenceInHours(
-      new Date(),
-      new Date(lastCustomerMsg.created_at)
-    );
+    const hoursSince = differenceInHours(new Date(), new Date(lastCustomerAt));
     const expired = hoursSince >= 24;
 
     if (expired) {
@@ -296,7 +435,7 @@ export function MessageThread({
         : tTimer('xmRemaining', { minutes: Math.floor(hoursLeft * 60) });
 
     return { expired, remaining };
-  }, [messages, tTimer]);
+  }, [messages, tTimer, olderCustomerAt, conversation?.id]);
 
   // The 24h Meta window only applies to the official WhatsApp Cloud API.
   // UAZAPI sends through the user's own WhatsApp Web session, which has
@@ -324,30 +463,80 @@ export function MessageThread({
   // separate from the unread-reset effect so that incoming messages
   // arriving while the thread is open don't trigger a full refetch —
   // they only flip hasUnread, which only the reset effect listens to.
+  //
+  // Só a página MAIS RECENTE é buscada (ordem decrescente + limite); as
+  // anteriores vêm sob demanda em `loadOlder`. Ver thread-messages.ts.
+  const messagesRef = useRef(messages);
   useEffect(() => {
-    if (!conversationId) return;
+    messagesRef.current = messages;
+  });
+  const activeConversationIdRef = useRef(conversationId);
+  useEffect(() => {
+    activeConversationIdRef.current = conversationId;
+  });
+  /** Conversa cuja primeira página já chegou: distingue abrir de ressincronizar. */
+  const loadedConversationRef = useRef<string | null>(null);
+  const [hasOlder, setHasOlder] = useState(false);
+  const hasOlderRef = useRef(false);
+  useEffect(() => {
+    hasOlderRef.current = hasOlder;
+  });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  /**
+   * `true` enquanto a thread deve ficar colada na última mensagem: ao abrir
+   * a conversa e sempre que o agente está no fim. Rolar para cima desliga.
+   */
+  const stickToBottomRef = useRef(true);
+  /** Posição a restaurar depois de inserir mensagens antigas no topo. */
+  const prependAnchorRef = useRef<{ height: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (!conversationId) {
+      loadedConversationRef.current = null;
+      return;
+    }
 
     const supabase = createClient();
     let cancelled = false;
+    const isFirstLoad = loadedConversationRef.current !== conversationId;
+
+    if (isFirstLoad) {
+      // Abrir uma conversa sempre começa na última mensagem. Na
+      // ressincronização (reconexão do realtime, aba voltando ao foco) a
+      // lista continua na tela e a posição de leitura é preservada — o
+      // spinner antigo desmontava a lista e jogava o agente para o topo.
+      stickToBottomRef.current = true;
+      prependAnchorRef.current = null;
+      setLoading(true);
+      setHasOlder(false);
+    }
 
     (async () => {
-      setLoading(true);
-
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(THREAD_PAGE_SIZE);
 
       if (cancelled) return;
 
       if (error) {
         console.error('Failed to fetch messages:', error);
       } else {
-        onMessagesLoadedRef.current(data ?? []);
+        const page = ((data ?? []) as Message[]).slice().reverse();
+        const merged = mergeLatestPage(
+          isFirstLoad ? [] : messagesRef.current,
+          page
+        );
+        if (merged.replaced) setHasOlder(page.length >= THREAD_PAGE_SIZE);
+        loadedConversationRef.current = conversationId;
+        onMessagesLoadedRef.current(merged.messages);
       }
 
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     })();
 
     return () => {
@@ -358,6 +547,133 @@ export function MessageThread({
     // realtime is best-effort and any message events sent while the WS
     // was disconnected or throttled are otherwise lost.
   }, [conversationId, resyncToken]);
+
+  const loadOlder = useCallback(async () => {
+    const convId = activeConversationIdRef.current;
+    if (!convId || loadingOlderRef.current) return;
+    const oldest = messagesRef.current.find((m) => !isOptimisticMessage(m));
+    if (!oldest) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      // `lte` + dedupe em vez de `lt`: mensagens importadas em lote podem
+      // dividir o mesmo created_at, e um corte estrito pularia as que
+      // caíram do outro lado da página.
+      const { data, error } = await createClient()
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', convId)
+        .lte('created_at', oldest.created_at)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(THREAD_PAGE_SIZE);
+
+      if (activeConversationIdRef.current !== convId) return;
+      if (error) {
+        console.error('Failed to fetch older messages:', error);
+        return;
+      }
+
+      const olderPage = ((data ?? []) as Message[]).slice().reverse();
+      const next = prependOlderPage(messagesRef.current, olderPage);
+      const added = next.length - messagesRef.current.length;
+      // Página cheia mas sem nada novo só acontece com dezenas de
+      // mensagens no mesmo instante; encerra em vez de buscar para sempre.
+      setHasOlder(olderPage.length >= THREAD_PAGE_SIZE && added > 0);
+      if (added > 0) {
+        const el = scrollRef.current;
+        prependAnchorRef.current = el
+          ? { height: el.scrollHeight, top: el.scrollTop }
+          : null;
+        onMessagesLoadedRef.current(next);
+      }
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, []);
+
+  // Última mensagem do cliente fora da janela carregada (ver
+  // `olderCustomerAt`). Só consulta quando realmente falta essa informação.
+  const hasCustomerMessageLoaded = useMemo(
+    () => messages.some((m) => m.sender_type === 'customer'),
+    [messages]
+  );
+  useEffect(() => {
+    if (!conversationId || loading || !hasOlder || hasCustomerMessageLoaded) {
+      return;
+    }
+    // No render da troca de conversa, `hasOlder` e `loading` ainda são os
+    // da conversa anterior; sem esta checagem saía uma consulta à toa a
+    // cada troca.
+    if (loadedConversationRef.current !== conversationId) return;
+    let cancelled = false;
+    createClient()
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setOlderCustomerAt({
+          conversationId,
+          at: (data?.created_at as string | undefined) ?? null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, loading, hasOlder, hasCustomerMessageLoaded]);
+
+  // Mensagens citadas (respostas) que ficaram fora da janela carregada:
+  // busca só as que faltam, para a citação continuar aparecendo.
+  const [quotedParents, setQuotedParents] = useState<Map<string, Message>>(
+    () => new Map()
+  );
+  const requestedParentIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    requestedParentIdsRef.current = new Set();
+    setQuotedParents(new Map());
+  }, [conversationId]);
+  useEffect(() => {
+    if (!conversationId || messages.length === 0) return;
+    const loaded = new Set(messages.map((m) => m.id));
+    const missing: string[] = [];
+    for (const m of messages) {
+      const parentId = m.reply_to_message_id;
+      if (
+        parentId &&
+        !loaded.has(parentId) &&
+        !requestedParentIdsRef.current.has(parentId)
+      ) {
+        requestedParentIdsRef.current.add(parentId);
+        missing.push(parentId);
+      }
+    }
+    if (missing.length === 0) return;
+    // Sem cleanup de cancelamento: os ids já foram marcados como pedidos,
+    // então descartar a resposta a cada nova mensagem perderia a citação.
+    // Basta conferir se a conversa ainda é a mesma.
+    const requestedFor = conversationId;
+    void createClient()
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', requestedFor)
+      .in('id', missing)
+      .then(({ data }) => {
+        if (activeConversationIdRef.current !== requestedFor) return;
+        if (!data || data.length === 0) return;
+        setQuotedParents((prev) => {
+          const next = new Map(prev);
+          for (const row of data as Message[]) next.set(row.id, row);
+          return next;
+        });
+      });
+  }, [conversationId, messages]);
 
   // Reactions fetch — pulls the current state from the DB. Kept separate
   // from the channel subscription below so a `resyncToken` bump just
@@ -493,35 +809,92 @@ export function MessageThread({
   // is already near the bottom. Yanking a user who scrolled up to read
   // history back down on every inbound message is the classic mobile
   // chat annoyance; the scroll-to-bottom FAB (below) covers the rest.
+  //
+  // A conversa SEMPRE abre na última mensagem. Antes o scroll ao abrir
+  // rodava com o spinner ainda na tela (lista vazia) e, quando as
+  // mensagens chegavam, a checagem "está perto do fim?" dava falso — a
+  // thread ficava parada no topo, nas mensagens mais antigas.
   const [showScrollFab, setShowScrollFab] = useState(false);
-  useEffect(() => {
+  /** Mensagens do cliente que chegaram enquanto o agente lia o histórico. */
+  const [unseenCount, setUnseenCount] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastMessageRef = useRef<{ conversationId?: string; id?: string }>({});
+
+  // Layout effect (antes da pintura): sem piscar no topo ao abrir, e a
+  // posição é restaurada no mesmo frame em que o histórico entra.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
-    if (nearBottom) {
-      el.scrollTop = el.scrollHeight;
+
+    const anchor = prependAnchorRef.current;
+    if (anchor) {
+      prependAnchorRef.current = null;
+      el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+      return;
     }
-  }, [messages]);
-  // First open: always land on the latest message.
+
+    const last = messages[messages.length - 1];
+    const previous = lastMessageRef.current;
+    const sameConversation = previous.conversationId === conversationId;
+    const appended = sameConversation && !!last && previous.id !== last.id;
+    lastMessageRef.current = { conversationId, id: last?.id };
+
+    // Enviar uma mensagem sempre leva ao fim, mesmo lendo o histórico.
+    if (appended && last && isOptimisticMessage(last)) {
+      stickToBottomRef.current = true;
+    }
+
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    } else if (appended && last?.sender_type === 'customer') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- contador derivado de uma mudança externa (mensagem recebida) cruzada com a posição do scroll, que só existe no DOM.
+      setUnseenCount((n) => n + 1);
+    }
+  }, [messages, loading, conversationId]);
+
   useEffect(() => {
     setShowScrollFab(false);
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setUnseenCount(0);
   }, [conversationId]);
+
+  // Imagens, áudios e cartões de anúncio mudam de altura depois de
+  // renderizados; o teclado do celular e o composer mudam a altura da
+  // área visível. Em qualquer dos casos, se o agente está no fim da
+  // conversa, continua no fim.
+  const threadVisible = !!conversation && !!contact;
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current && !prependAnchorRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    observer.observe(content);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [conversationId, threadVisible]);
 
   const handleThreadScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    setShowScrollFab(el.scrollHeight - el.scrollTop - el.clientHeight > 240);
-  }, []);
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distance < 120;
+    stickToBottomRef.current = nearBottom;
+    setShowScrollFab(distance > 240);
+    if (nearBottom) setUnseenCount(0);
+    // Histórico sob demanda ao chegar perto do topo.
+    if (el.scrollTop < 240 && hasOlderRef.current) void loadOlder();
+  }, [loadOlder]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    stickToBottomRef.current = true;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     setShowScrollFab(false);
+    setUnseenCount(0);
   }, []);
 
   // Mobile contact sheet — the right-rail ContactSidebar never renders
@@ -814,6 +1187,11 @@ export function MessageThread({
     return map;
   }, [messages]);
 
+  const messageGroups = useMemo(
+    () => groupMessagesByDate(messages),
+    [messages]
+  );
+
   // Bucket reactions by their target message_id for O(1) per-bubble lookup.
   const reactionsByMessageId = useMemo(() => {
     const map = new Map<string, MessageReaction[]>();
@@ -845,7 +1223,7 @@ export function MessageThread({
         preview: buildReplyPreview(msg, tQuote),
       });
     },
-    [authorLabelFor]
+    [authorLabelFor, tQuote]
   );
 
   // Single reaction-set primitive. emoji === "" removes; otherwise adds/swaps.
@@ -854,7 +1232,7 @@ export function MessageThread({
   // function dependency-free w.r.t. the reaction list.
   const postReaction = useCallback(
     async (messageId: string, emoji: string) => {
-      if (!user?.id || !conversation) {
+      if (!user?.id || !conversationId) {
         console.warn('[reactions] missing user or conversation');
         return;
       }
@@ -863,7 +1241,7 @@ export function MessageThread({
         return;
       }
 
-      const convId = conversation.id;
+      const convId = conversationId;
       const userId = user.id;
       let snapshot: MessageReaction[] = [];
 
@@ -909,7 +1287,9 @@ export function MessageThread({
         setReactions(snapshot);
       }
     },
-    [conversation, user?.id]
+    // Depende só dos ids: o objeto `conversation` muda a cada evento do
+    // realtime e recriar esta função re-renderizaria todas as bolhas.
+    [conversationId, user?.id]
   );
 
   const handleAssignChange = useCallback(
@@ -958,7 +1338,6 @@ export function MessageThread({
   }
 
   const displayName = contact.name || contact.phone;
-  const messageGroups = groupMessagesByDate(messages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
   );
@@ -1217,10 +1596,9 @@ export function MessageThread({
           onScroll={handleThreadScroll}
           className="flex-1 touch-pan-y overscroll-contain overflow-y-auto px-3 py-4 sm:px-4"
         >
+        <div ref={contentRef}>
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
-          </div>
+          <ThreadSkeleton label={t('loadingMessages')} />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <p className="text-muted-foreground text-sm">
@@ -1232,91 +1610,87 @@ export function MessageThread({
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Histórico sob demanda: carrega sozinho ao rolar até o topo;
+                o botão cobre teclado, leitor de tela e threads curtas
+                demais para rolar. */}
+            {hasOlder ? (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => void loadOlder()}
+                  disabled={loadingOlder}
+                  className="bg-card text-muted-foreground hover:text-foreground border-border inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-70"
+                >
+                  {loadingOlder && (
+                    <span
+                      aria-hidden
+                      className="border-primary h-3 w-3 animate-spin rounded-full border-2 border-t-transparent"
+                    />
+                  )}
+                  {loadingOlder ? t('loadingOlder') : t('loadOlder')}
+                </button>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center text-[11px]">
+                {t('conversationStart')}
+              </p>
+            )}
             {messageGroups.map((group) => (
               <div key={group.date}>
-                {/* Date separator */}
-                <div className="mb-4 flex items-center justify-center">
-                  <span className="bg-muted text-muted-foreground rounded-full px-3 py-1 text-[10px] font-medium">
+                {/* Date separator — fica preso no topo enquanto o dia
+                    está na tela, como nos apps de mensagem. */}
+                <div className="pointer-events-none sticky top-0 z-10 mb-4 flex items-center justify-center">
+                  <span className="bg-card/90 text-muted-foreground border-border rounded-full border px-3 py-1 text-[10px] font-medium shadow-sm backdrop-blur">
                     {formatDateSeparator(group.date, t)}
                   </span>
                 </div>
                 {/* Messages */}
                 <div className="space-y-2">
-                  {group.messages.map((msg) => {
-                    const parent = msg.reply_to_message_id
-                      ? messagesById.get(msg.reply_to_message_id)
-                      : null;
-                    const reply = parent
-                      ? {
-                          authorLabel:
-                            parent.sender_type === 'agent' ||
-                            parent.sender_type === 'bot'
-                              ? t('me')
-                              : contact?.name || contact?.phone || 'Desconhecido',
-                          preview: buildReplyPreview(parent, tQuote),
-                        }
-                      : null;
-                    const msgReactions = reactionsByMessageId.get(msg.id);
-                    // Toggle is computed at the call site — `msgReactions`
-                    // and `user?.id` are already in scope, no extra hook.
-                    const handlePillToggle = (emoji: string) => {
-                      const own = msgReactions?.find(
-                        (r) =>
-                          r.actor_type === 'agent' && r.actor_id === user?.id
-                      );
-                      const next = own?.emoji === emoji ? '' : emoji;
-                      void postReaction(msg.id, next);
-                    };
-                    const bubble = (
-                      <MessageActions
-                        key={msg.id}
-                        message={msg}
-                        onReply={() => handleStartReply(msg)}
-                        onReact={(emoji) => {
-                          if (emoji) void postReaction(msg.id, emoji);
-                        }}
-                      >
-                        <MessageBubble
-                          message={msg}
-                          reply={reply}
-                          reactions={msgReactions}
-                          currentUserId={user?.id}
-                          onToggleReaction={handlePillToggle}
-                        />
-                      </MessageActions>
-                    );
-                    // Mensagem que veio de um anúncio (Click-to-WhatsApp):
-                    // o cartão do anúncio aparece logo acima dela.
-                    const referral =
-                      msg.sender_type === 'customer' &&
-                      msg.referral &&
-                      typeof msg.referral === 'object'
-                        ? msg.referral
-                        : null;
-                    if (!referral) return bubble;
-                    return (
-                      <div key={msg.id} className="space-y-1">
-                        <AdReferralCard referral={referral} />
-                        {bubble}
-                      </div>
-                    );
-                  })}
+                  {group.messages.map((msg) => (
+                    <ThreadMessageRow
+                      key={msg.id}
+                      message={msg}
+                      parent={
+                        msg.reply_to_message_id
+                          ? (messagesById.get(msg.reply_to_message_id) ??
+                            quotedParents.get(msg.reply_to_message_id) ??
+                            null)
+                          : null
+                      }
+                      contactLabel={contactDisplayName}
+                      reactions={reactionsByMessageId.get(msg.id)}
+                      currentUserId={user?.id}
+                      onReply={handleStartReply}
+                      onReact={postReaction}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         )}
         </div>
+        </div>
         {/* Scroll-to-bottom FAB — appears when the agent scrolled up;
-            standard chat-app pattern for long threads. */}
+            standard chat-app pattern for long threads. Mostra quantas
+            mensagens do cliente chegaram nesse meio-tempo. */}
         {showScrollFab && (
           <button
             type="button"
             onClick={scrollToBottom}
-            aria-label={t('scrollToBottom')}
-            className="absolute bottom-4 left-1/2 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg active:bg-muted"
+            aria-label={
+              unseenCount > 0
+                ? t('newMessagesBelow', { count: unseenCount })
+                : t('scrollToBottom')
+            }
+            className="border-border bg-card text-foreground active:bg-muted absolute right-4 bottom-4 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg transition-transform hover:scale-105"
           >
             <ArrowDown className="h-5 w-5" />
+            {unseenCount > 0 && (
+              <span className="bg-primary text-primary-foreground absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold">
+                {unseenCount > 99 ? '99+' : unseenCount}
+              </span>
+            )}
           </button>
         )}
       </div>

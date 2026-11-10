@@ -991,6 +991,21 @@ async function processMessage(
     );
   }
 
+  // Push alert first. The message is already stored, so the agent's
+  // devices should ring now — not after the flow runner, the automations
+  // and the AI auto-reply below, which can take many seconds (an LLM
+  // call alone used to delay every notification). The helper swallows
+  // every error, so a dead push endpoint can never fail message
+  // processing; the promise is awaited at the end of this function.
+  const pushDelivery = notifyInboundMessage({
+    db: supabaseAdmin(),
+    accountId,
+    conversationId: conversation.id,
+    assignedAgentId: conversation.assigned_agent_id,
+    contactName: contactRecord.name || senderPhone,
+    preview: messagePreview(contentType, contentText),
+  });
+
   // ============================================================
   // Flow runner dispatch.
   //
@@ -1110,18 +1125,11 @@ async function processMessage(
     text: contentText,
   });
 
-  // Push alert for the installed PWA. Awaited for the same reason as
-  // the webhook dispatch above (this whole function runs inside the
-  // route's `after()` block); the helper swallows every error so a dead
-  // push endpoint can never fail message processing.
-  await notifyInboundMessage({
-    db: supabaseAdmin(),
-    accountId,
-    conversationId: conversation.id,
-    assignedAgentId: conversation.assigned_agent_id,
-    contactName: contactRecord.name || senderPhone,
-    preview: messagePreview(contentType, contentText),
-  });
+  // Push alert for the installed PWA, started before the flow runner
+  // (see `pushDelivery` above). Awaited here for the same reason as the
+  // webhook dispatch: this whole function runs inside the route's
+  // `after()` block, which only keeps alive the promises it can see.
+  await pushDelivery;
 }
 
 async function parseMessageContent(

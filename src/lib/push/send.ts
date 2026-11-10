@@ -1,6 +1,11 @@
 import webpush from "web-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { messagePreview } from "./preview";
+
+// Reexportado: os handlers de webhook importam a prévia daqui.
+export { messagePreview };
+
 /**
  * Server-side Web Push delivery.
  *
@@ -66,42 +71,6 @@ function ensureVapid(): boolean {
   } catch (err) {
     console.error("[push] invalid VAPID configuration:", err);
     return false;
-  }
-}
-
-function previewText(text: string | null): string {
-  const trimmed = (text ?? "").trim().replace(/\s+/g, " ");
-  if (trimmed.length <= 180) return trimmed;
-  return `${trimmed.slice(0, 177)}…`;
-}
-
-/**
- * Human-friendly preview for media messages. Language-neutral on
- * purpose — the notification is shown to every member of the account
- * regardless of their app locale.
- */
-export function messagePreview(
-  contentType: string | null | undefined,
-  contentText: string | null | undefined,
-): string {
-  const text = previewText(contentText ?? null);
-  if (text) return text;
-
-  switch (contentType) {
-    case "image":
-      return "📷 Imagem";
-    case "audio":
-      return "🎤 Áudio";
-    case "video":
-      return "🎥 Vídeo";
-    case "document":
-      return "📄 Documento";
-    case "location":
-      return "📍 Localização";
-    case "interactive":
-      return "💬 Resposta";
-    default:
-      return "💬 Nova mensagem";
   }
 }
 

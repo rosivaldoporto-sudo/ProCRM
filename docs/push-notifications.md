@@ -31,6 +31,35 @@ src/lib/push/send.ts ── web-push ──► FCM / APNs / Mozilla push service
 - Messages sent *from* the phone (`fromMe`) never trigger an alert.
 - Historical Uazapi imports (`/api/uazapi/sync`) are silent on purpose.
 
+- The push is sent as soon as the message is stored — before flows,
+  automations and the AI auto-reply run — so the alert is not held back
+  by a slow LLM call.
+- When the agent already has that conversation open in a focused window,
+  Chrome / Edge / Firefox skip the system notification (the message is
+  already on screen). Safari always shows it: it revokes subscriptions
+  that receive pushes without displaying anything.
+- `pushsubscriptionchange` is handled in the worker, so a subscription the
+  push service rotates is re-registered without opening the app.
+
+## Alerts while the app is open
+
+Web Push covers the closed / background app. With the app open in a tab,
+`src/components/inbox/inbox-alerts.tsx` listens to Supabase Realtime and
+adds, per device (**Settings → Notifications → With the app open**):
+
+- a short sound on every inbound message (synthesised with Web Audio, no
+  asset to download);
+- an on-screen toast with the contact name and a shortcut to the
+  conversation, when the agent is on another page of the dashboard;
+- the unread-conversation count in the tab title — `(3) Conversas` — and
+  on the installed app icon (Badging API);
+- a system notification raised by the page itself when the tab is in the
+  background and push is **not** active on that browser (permission
+  granted but no VAPID keys on the server, or a failed subscription).
+
+Same routing rule as push: an assigned conversation alerts only its
+assignee. Nothing alerts for the conversation the agent is reading.
+
 ## Setup
 
 ### 1. Apply the migration

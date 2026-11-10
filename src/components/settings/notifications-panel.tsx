@@ -7,11 +7,18 @@ import {
   Loader2,
   Send,
   Smartphone,
+  Volume2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  setInboxAlertPrefs,
+  useInboxAlertPrefs,
+} from "@/lib/inbox/alert-prefs";
+import { playMessageChime } from "@/lib/inbox/alert-sound";
 import { usePushNotifications, type PushStatus } from "@/hooks/use-push-notifications";
 import { cn } from "@/lib/utils";
 import { SettingsPanelHead } from "./settings-panel-head";
@@ -97,6 +104,8 @@ export function NotificationsPanel() {
   const t = useTranslations("Settings.notifications");
   const { status, busy, testing, enable, disable, test } =
     usePushNotifications();
+
+  const alertPrefs = useInboxAlertPrefs();
 
   const content = STATUS_CONTENT[status];
   const tone = TONE_CLASSES[content.tone];
@@ -210,6 +219,63 @@ export function NotificationsPanel() {
               {t("iosHint")}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Alertas com o app aberto — preferência deste dispositivo. */}
+      <div className="mt-6 rounded-xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-sm font-semibold text-foreground">
+            {t("inAppTitle")}
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("inAppDescription")}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 px-4 py-3">
+          <label htmlFor="alert-sound" className="min-w-0 flex-1 cursor-pointer">
+            <span className="block text-sm font-medium text-foreground">
+              {t("soundLabel")}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {t("soundHint")}
+            </span>
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => playMessageChime()}
+          >
+            <Volume2 className="size-4" />
+            {t("soundTest")}
+          </Button>
+          <Switch
+            id="alert-sound"
+            checked={alertPrefs.sound}
+            onCheckedChange={(checked) =>
+              setInboxAlertPrefs({ sound: checked })
+            }
+          />
+        </div>
+
+        <div className="flex items-center gap-3 border-t border-border px-4 py-3">
+          <label htmlFor="alert-toast" className="min-w-0 flex-1 cursor-pointer">
+            <span className="block text-sm font-medium text-foreground">
+              {t("toastLabel")}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {t("toastHint")}
+            </span>
+          </label>
+          <Switch
+            id="alert-toast"
+            checked={alertPrefs.toast}
+            onCheckedChange={(checked) =>
+              setInboxAlertPrefs({ toast: checked })
+            }
+          />
         </div>
       </div>
     </section>

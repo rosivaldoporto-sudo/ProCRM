@@ -14,7 +14,7 @@ import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { appendInboxPage } from "@/lib/inbox/query";
-import { toast } from "sonner";
+import { applyRealtimeInsert } from "@/lib/inbox/thread-messages";
 import { WifiOff } from "lucide-react";
 import { UazapiSyncBar } from "@/components/inbox/uazapi-sync-bar";
 import { PushEnableBanner } from "@/components/push/push-enable-banner";
@@ -262,15 +262,8 @@ function InboxPageInner() {
           activeConversation &&
           newMsg.conversation_id === activeConversation.id
         ) {
-          setMessages((prev) => {
-            // Avoid duplicates
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            // Replace optimistic message if it exists
-            const withoutOptimistic = prev.filter(
-              (m) => !m.id.startsWith("temp-")
-            );
-            return [...withoutOptimistic, newMsg];
-          });
+          // Deduplica e troca só a bolha otimista correspondente.
+          setMessages((prev) => applyRealtimeInsert(prev, newMsg));
         }
 
         // Update conversation list preview. We need to know *synchronously*

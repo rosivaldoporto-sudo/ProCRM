@@ -23,6 +23,22 @@ export interface PushSetupResult {
 
 const OPT_OUT_KEY = "wacrm:push-opt-out";
 
+/**
+ * Último estado conhecido neste navegador. Os alertas com o app aberto
+ * (inbox-alerts) consultam isto para não duplicar a notificação que o
+ * service worker já mostra quando o push está ativo.
+ */
+let lastKnownStatus: PushSetupStatus | null = null;
+
+function rememberStatus(result: PushSetupResult): PushSetupResult {
+  lastKnownStatus = result.status;
+  return result;
+}
+
+export function isPushSubscribed(): boolean {
+  return lastKnownStatus === "subscribed";
+}
+
 function isSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -201,9 +217,11 @@ export function syncPushSubscription(): Promise<PushSetupResult> {
         message: err instanceof Error ? err.message : String(err),
       };
     }
-  })().finally(() => {
-    backgroundSync = null;
-  });
+  })()
+    .then(rememberStatus)
+    .finally(() => {
+      backgroundSync = null;
+    });
 
   return backgroundSync;
 }
@@ -214,6 +232,10 @@ export function syncPushSubscription(): Promise<PushSetupResult> {
  * user gesture.
  */
 export async function enablePushNotifications(): Promise<PushSetupResult> {
+  return rememberStatus(await enablePush());
+}
+
+async function enablePush(): Promise<PushSetupResult> {
   if (!isSupported()) {
     return isIos() && !isStandalone()
       ? { status: "ios-install-required" }
@@ -299,7 +321,48 @@ export async function disablePushNotifications(
     console.warn("[push] disable failed:", err);
   }
 
-  return { status: remember ? "disabled" : "default" };
+  lastKnownStatus = remember ? "disabled" : "default";
+  return { status: lastKnownStatus };
+}
+
+/**
+ * Notificação do sistema disparada pela própria página (sem passar pelo
+ * servidor de push). Só funciona com o app aberto em alguma aba; cobre o
+ * caso de a permissão estar concedida mas o push não estar ativo — por
+ * exemplo, servidor sem chaves VAPID. Passa pelo service worker para o
+ * clique abrir a conversa do mesmo jeito que uma notificação push.
+ */
+export async function showLocalNotification(payload: {
+  title: string;
+  body: string;
+  url: string;
+  tag?: string;
+}): Promise<boolean> {
+  if (
+    typeof window === "undefined" ||
+    !("Notification" in window) ||
+    !("serviceWorker" in navigator) ||
+    Notification.permission !== "granted" ||
+    isOptedOut()
+  ) {
+    return false;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration("/");
+    if (!registration) return false;
+    await registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icons/192",
+      badge: "/icons/192",
+      tag: payload.tag,
+      data: { url: payload.url },
+    });
+    return true;
+  } catch (err) {
+    console.warn("[push] local notification failed:", err);
+    return false;
+  }
 }
 
 export async function sendTestPush(payload: {

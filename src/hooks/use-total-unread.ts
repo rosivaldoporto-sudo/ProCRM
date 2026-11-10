@@ -25,21 +25,25 @@ export function useTotalUnread(): number {
 
     // Initial load. RLS scopes this to the signed-in user automatically —
     // no explicit user_id filter needed here.
+    //
+    // Só as conversas COM não lidas: antes vinha a tabela inteira (id +
+    // contador) em toda página do painel, e o PostgREST cortava em 1000
+    // linhas — contas maiores baixavam 1000 linhas à toa e ainda podiam
+    // errar o total.
     (async () => {
       const { data, error } = await supabase
         .from("conversations")
-        .select("id, unread_count");
+        .select("id, unread_count")
+        .gt("unread_count", 0)
+        .limit(1000);
       if (cancelled || error || !data) return;
 
       const map = new Map<string, number>();
-      let sum = 0;
       for (const row of data as { id: string; unread_count: number }[]) {
-        const n = row.unread_count ?? 0;
-        map.set(row.id, n);
-        if (n > 0) sum += 1;
+        map.set(row.id, row.unread_count ?? 0);
       }
       countsRef.current = map;
-      setTotal(sum);
+      setTotal(map.size);
     })();
 
     const channel = supabase
@@ -54,12 +58,12 @@ export function useTotalUnread(): number {
             if (oldRow.id) map.delete(oldRow.id);
           } else {
             const row = payload.new as Conversation;
-            map.set(row.id, row.unread_count ?? 0);
+            // O mapa guarda só quem tem não lidas, então o total é o
+            // tamanho dele.
+            if ((row.unread_count ?? 0) > 0) map.set(row.id, row.unread_count);
+            else map.delete(row.id);
           }
-          // Recompute — cheap, conversations per user stay small.
-          let sum = 0;
-          for (const n of map.values()) if (n > 0) sum += 1;
-          setTotal(sum);
+          setTotal(map.size);
         },
       )
       .subscribe();

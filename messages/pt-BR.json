@@ -147,6 +147,10 @@
       "denied": "Permissão bloqueada. Ative as notificações nas configurações do navegador.",
       "failed": "Não foi possível ativar as notificações."
     },
+    "alerts": {
+      "newMessage": "Nova mensagem",
+      "open": "Abrir"
+    },
     "conversationList": {
       "searchPlaceholder": "Pesquisar conversas...",
       "filterAll": "Todas",
@@ -201,6 +205,11 @@
       "today": "Hoje",
       "yesterday": "Ontem",
       "scrollToBottom": "Rolar para as mensagens mais recentes",
+      "newMessagesBelow": "{count, plural, one {# mensagem nova} other {# mensagens novas}}: ir para o fim",
+      "loadingMessages": "Carregando mensagens",
+      "loadOlder": "Carregar mensagens anteriores",
+      "loadingOlder": "Carregando...",
+      "conversationStart": "Início da conversa",
       "viewContact": "Ver informações do contato"
     },
     "newConversation": {
@@ -1912,7 +1921,14 @@
       "deniedToast": "Permissão de notificações bloqueada no navegador",
       "unconfiguredToast": "O servidor ainda não tem as chaves VAPID configuradas",
       "enableFailedToast": "Não foi possível ativar as notificações",
-      "iosHint": "No iPhone, o app precisa estar instalado na Tela de Início (iOS 16.4+)."
+      "iosHint": "No iPhone, o app precisa estar instalado na Tela de Início (iOS 16.4+).",
+      "inAppTitle": "Com o app aberto",
+      "inAppDescription": "Como este dispositivo avisa quando chega mensagem e o ProCRM já está aberto.",
+      "soundLabel": "Som de nova mensagem",
+      "soundHint": "Toca um aviso curto a cada mensagem recebida.",
+      "soundTest": "Ouvir",
+      "toastLabel": "Aviso na tela",
+      "toastHint": "Mostra quem escreveu, com atalho para a conversa, quando você está em outra página do sistema."
     },
     "security": {
       "title": "Login e segurança",

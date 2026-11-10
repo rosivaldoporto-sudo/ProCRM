@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
+import { useUnreadIndicators } from "@/hooks/use-unread-indicators";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
@@ -132,6 +133,8 @@ export function Sidebar({
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
+  // Contador no título da aba e no ícone do app instalado.
+  useUnreadIndicators(totalUnread);
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them

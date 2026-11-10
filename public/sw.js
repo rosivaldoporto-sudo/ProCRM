@@ -33,6 +33,42 @@ self.addEventListener("activate", (event) => {
 // calling respondWith() lets the network handle every request normally.
 self.addEventListener("fetch", () => {});
 
+// Safari (iOS e macOS) revoga a inscrição de quem recebe push sem mostrar
+// notificação, então lá o alerta é sempre exibido. Nos demais navegadores
+// um push pode ficar em silêncio quando o app está aberto e em foco.
+const MUST_ALWAYS_NOTIFY = /^((?!chrome|chromium|android|crios|fxios|edg|firefox).)*safari/i.test(
+  self.navigator.userAgent,
+);
+
+/**
+ * O agente já está com esta conversa aberta, numa janela visível e em
+ * foco? Então a mensagem aparece na tela na hora (realtime) e uma
+ * notificação do sistema por cima seria só ruído.
+ */
+async function isBeingRead(url) {
+  try {
+    const target = new URL(url, self.location.origin);
+    const conversationId = target.searchParams.get("c");
+    if (!conversationId) return false;
+
+    const windows = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    return windows.some((client) => {
+      if (!client.focused || client.visibilityState !== "visible") return false;
+      const current = new URL(client.url);
+      return (
+        current.origin === self.location.origin &&
+        current.pathname === target.pathname &&
+        current.searchParams.get("c") === conversationId
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -50,16 +86,57 @@ self.addEventListener("push", (event) => {
   const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: "/icons/192",
-      badge: "/icons/192",
-      tag,
-      // Re-alert even when an older notification with the same tag is
-      // still visible (Android/Chrome). iOS ignores this flag.
-      renotify: Boolean(tag),
-      data: { url },
-    }),
+    (async () => {
+      if (!MUST_ALWAYS_NOTIFY && (await isBeingRead(url))) return;
+
+      // Marca o ícone do app instalado. O número exato é definido pela
+      // página (use-unread-indicators) quando o app abre; aqui basta o
+      // sinal de "há algo novo".
+      if (self.navigator.setAppBadge) {
+        self.navigator.setAppBadge().catch(() => {});
+      }
+
+      await self.registration.showNotification(title, {
+        body,
+        icon: "/icons/192",
+        badge: "/icons/192",
+        tag,
+        lang: "pt-BR",
+        // Re-alert even when an older notification with the same tag is
+        // still visible (Android/Chrome). iOS ignores this flag.
+        renotify: Boolean(tag),
+        data: { url },
+      });
+    })(),
+  );
+});
+
+// O serviço de push pode trocar ou expirar a inscrição sem avisar a
+// página (Chrome e Firefox fazem isso periodicamente). Sem este handler o
+// dispositivo para de receber alertas até o app ser aberto de novo.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const previous = event.oldSubscription;
+        const subscription =
+          event.newSubscription ||
+          (previous && previous.options
+            ? await self.registration.pushManager.subscribe(previous.options)
+            : null);
+        if (!subscription) return;
+
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ subscription: subscription.toJSON() }),
+        });
+      } catch {
+        // Sessão expirada ou sem rede: a página refaz a inscrição na
+        // próxima abertura (syncPushSubscription).
+      }
+    })(),
   );
 });
 
