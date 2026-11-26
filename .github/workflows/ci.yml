@@ -53,13 +53,13 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Depois que o CI passa num push para a main, registra esta publicação como
-  # uma "Versão N" na aba Releases. Cada versão é um ponto de restauração
-  # nomeado: para voltar atrás, basta pedir ao Claude que ele reverte e
-  # republica (o deploy da Hostinger re-publica no próximo push para a main).
+  # A cada push para a main (o que a Hostinger publica), registra a publicação
+  # como uma "Versão N" na aba Releases — um ponto de restauração nomeado. Roda
+  # independentemente do job `check`: como a Hostinger publica mesmo com o CI
+  # vermelho, todo estado publicado precisa de um marco para dar rollback.
+  # Também pode ser disparado à mão (botão "Run workflow") para criar uma versão.
   versao:
-    needs: check
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write

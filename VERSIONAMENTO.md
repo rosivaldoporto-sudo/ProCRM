@@ -10,9 +10,11 @@ perde: cada publicação vira um ponto de restauração ao qual dá para voltar.
    para construir e publicar o CRM), o próprio GitHub registra a publicação como
    uma versão nomeada — por exemplo **"Versão 7 — 25/11/2026 às 16:20"**.
 
-   O registro só acontece **depois que o CI passa** (lint, typecheck, testes e
-   build). Assim, cada "Versão N" aponta sempre para um código que, no mínimo,
-   compilou e passou nos testes — um ponto de restauração confiável.
+   O registro é feito a **cada publicação**, independentemente de o CI (lint,
+   typecheck, testes e build) passar ou falhar. A razão: a Hostinger publica a
+   `main` de qualquer jeito, então todo estado que foi para o ar precisa ter o
+   seu marco para dar rollback — mesmo que algum teste esteja vermelho. Também dá
+   para criar uma versão à mão pelo botão **"Run workflow"** na aba *Actions*.
 
 2. **Onde ver todas as versões:**
    Página de *Releases* do repositório →
@@ -52,8 +54,8 @@ preciso** é o tamanho certo e segue as boas práticas.
 ## Nota técnica (para quem for mexer no deploy)
 
 - O registro da versão está no job `versao` em `.github/workflows/ci.yml`, que
-  roda **depois** do job `check` passar, só em push para a `main`, e cria uma
-  release `vN` apontando para o commit publicado.
+  roda em push para a `main` (ou pelo botão "Run workflow"), **independente** do
+  job `check`, e cria uma release `vN` apontando para o commit publicado.
 - A publicação em si é feita pela Hostinger (deploy por Git ao dar push na
   `main`), fora do GitHub Actions. O job `versao` apenas *marca* a versão; ele
   não publica nem depende da Hostinger.
